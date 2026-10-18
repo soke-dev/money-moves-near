@@ -1,0 +1,993 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Users ──────────────────────────────────────────────────
+model User {
+  id           String  @id @default(cuid())
+  email        String  @unique
+  phone        String? @unique
+  username     String? @unique
+  passwordHash String  @map("password_hash")
+  pinHash      String? @map("pin_hash")
+  bioEnabled   Boolean @default(false) @map("bio_enabled")
+
+  // Profile
+  firstName  String? @map("first_name")
+  lastName   String? @map("last_name")
+  avatarUrl  String? @map("avatar_url")
+  // Avatar stored directly in the DB as a base64 data URI (replaces local disk)
+  avatarData String? @map("avatar_data") @db.Text
+
+  // Email verification
+  emailVerified Boolean @default(false) @map("email_verified")
+
+  // KYC
+  kycStatus    KycStatus @default(NONE) @map("kyc_status")
+  kycProvider  String?   @map("kyc_provider")
+  kycReference String?   @map("kyc_reference")
+
+  /**
+   * A NIN the person typed, for opening a payment account.
+   * Deliberately NOT an IdentityClaim. Those keys are globally unique and are
+   * what stops one identity verifying two accounts - putting a self-declared
+   * number in there would let somebody type a stranger's NIN and lock the real
+   * owner out of the product, which is the opposite of what that table is for.
+   * This is only ever sent to the bank, never used to decide whether two
+   * accounts are the same person.
+   * Needed because a Nigerian passport does not carry the NIN in any field the
+   * scanner can read - the MRZ personal-number field comes back empty - so
+   * somebody who verified with one is fully approved and still cannot be given
+   * an account, and no amount of re-verifying with a passport fixes it.
+   */
+  declaredNin   String?   @map("declared_nin")
+  declaredNinAt DateTime? @map("declared_nin_at")
+
+  // Wallet kind chosen at setup. null = not chosen yet (client shows the chooser).
+  walletType WalletType? @map("wallet_type")
+
+  /**
+   * Addresses this account used to have, and what replaced them.
+   * The only pointer to money sent to an address before it was swapped. It was
+   * a console.warn, which is not somewhere support can look in three months.
+   * [{chain, address, replacedBy, at}], newest last, last twenty kept.
+   */
+  displacedAddresses Json @default("[]") @map("displaced_addresses")
+
+  /**
+   * Anonymous mode: the username stops being public.
+   *
+   * It hides the handle, not the person. Points, volume, referral counts and
+   * the profile picture all still appear on the leaderboard - what goes is
+   * the one field that lets a stranger address you, look you up, or tie a
+   * board position to a person they already know.
+   *
+   * Deliberately NOT applied to username lookup for sending. Somebody who was
+   * given the handle directly must still be able to pay it, otherwise the
+   * toggle silently breaks the feature the handle exists for. Knowing the
+   * handle is the permission; this only stops us handing it out.
+   */
+  anonMode Boolean @default(false) @map("anon_mode")
+
+  // Security: login lockout
+  failedLoginAttempts Int       @default(0) @map("failed_login_attempts")
+  loginLockedUntil    DateTime? @map("login_locked_until")
+
+  // Security: PIN lockout
+  failedPinAttempts Int       @default(0) @map("failed_pin_attempts")
+  pinLockedUntil    DateTime? @map("pin_locked_until")
+
+  // Referral
+  referralCode String  @unique @map("referral_code")
+  referredBy   String? @map("referred_by")
+
+  // Account deletion (soft-delete for compliance)
+  // A closure is asked for first and actioned by a human: deletion destroys
+  // records we must retain and can strand funds still in a wallet.
+  deletionRequestedAt DateTime? @map("deletion_requested_at")
+  deletionReason      String?   @map("deletion_reason")
+  deletedAt           DateTime? @map("deleted_at")
+
+  // Timestamps
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  refreshTokens     RefreshToken[]
+  verificationCodes VerificationCode[]
+  wallets           Wallet[]
+  transactions      Transaction[]
+  savingsLocks      SavingsLock[]
+  sessions          Session[]
+  pushTokens        PushToken[]
+  beneficiaries     Beneficiary[]
+  cryptoContacts    CryptoContact[]
+  notificationPrefs NotificationPrefs?
+  notifications     Notification[]
+  businessLinks     BusinessLink[]
+  businessPayments  BusinessPayment[]
+  kycVerifications  KycVerification[]
+  identityClaims    IdentityClaim[]
+  fundingIntents    FundingIntent[]
+  chatConversations ChatConversation[]
+  voucherClaims     VoucherClaim[]
+  vouchersMade      Voucher[]          @relation("VouchersCreated")
+
+  @@map("users")
+}
+
+enum KycStatus {
+  NONE
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+enum WalletType {
+  MNEMONIC
+  EMBEDDED
+}
+
+// ─── Auth: Refresh Tokens ───────────────────────────────────
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  tokenHash  String    @unique @map("token_hash")
+  deviceInfo String?   @map("device_info")
+  ipAddress  String?   @map("ip_address")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+  replacedBy String?   @map("replaced_by")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("refresh_tokens")
+}
+
+// ─── Auth: Verification Codes (email, password reset, PIN reset) ─
+model VerificationCode {
+  id        String           @id @default(cuid())
+  userId    String           @map("user_id")
+  type      VerificationType
+  codeHash  String           @map("code_hash")
+  expiresAt DateTime         @map("expires_at")
+  usedAt    DateTime?        @map("used_at")
+  attempts  Int              @default(0)
+  metadata  String?          @map("metadata")
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@map("verification_codes")
+}
+
+enum VerificationType {
+  EMAIL_VERIFY
+  PASSWORD_RESET
+  PIN_RESET
+  PHONE_VERIFY
+  PHONE_CHANGE
+}
+
+// ─── Auth: Sessions ─────────────────────────────────────────
+model Session {
+  id              String    @id @default(cuid())
+  userId          String    @map("user_id")
+  deviceInfo      String?   @map("device_info")
+  /// A handset, as far as we can tell. Generated once by the app and kept in
+  /// the device keychain, so it survives a reinstall on iOS but not on
+  /// Android. Null for any build from before it existed.
+  deviceId        String?   @map("device_id")
+  ipAddress       String?   @map("ip_address")
+  lastActiveAt    DateTime  @default(now()) @map("last_active_at")
+  expiresAt       DateTime  @map("expires_at")
+  revokedAt       DateTime? @map("revoked_at")
+  loginVerifiedAt DateTime? @map("login_verified_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([deviceId])
+  @@map("sessions")
+}
+
+/// A device allowed past the account-creation limit.
+///
+/// Somebody legitimate will be caught by it - a shared family phone, a shop
+/// demonstrating the app - and support needs to let them through without a
+/// deploy. Keyed on the device rather than the person, because the person does
+/// not have an account yet when the refusal happens.
+model DeviceException {
+  id        String   @id @default(cuid())
+  deviceId  String   @unique @map("device_id")
+  note      String?
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("device_exceptions")
+}
+
+/// People waiting for the business product.
+///
+/// Email lowercased before it is stored, so a second attempt in different
+/// case is recognised as the same person rather than added twice - which is
+/// the whole behaviour this table exists to provide.
+model WaitlistEntry {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  /// Which part of the site they signed up from, so a second waitlist later
+  /// does not need a second table.
+  source    String   @default("business")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("waitlist_entries")
+}
+
+// ─── Wallets ────────────────────────────────────────────────
+model Wallet {
+  id      String  @id @default(cuid())
+  userId  String  @map("user_id")
+  asset   Asset
+  chain   Chain
+  balance Decimal @default(0) @db.Decimal(20, 8)
+  address String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, asset, chain])
+  @@index([userId])
+  @@map("wallets")
+}
+
+enum Asset {
+  USDC
+  USDT
+  USDCx
+  ETH
+  MOVE
+  SOL
+  cNGN
+}
+
+enum Chain {
+  MOVE
+  BASE
+  SOL
+  BEP20
+  ARB
+  /// Arc. EVM, and USDC is its NATIVE gas token at 18 decimals - not an ERC-20.
+  /// One letter from ARB above, which is Arbitrum. They are not the same chain.
+  ARC
+  /// The Open Network. Neither EVM nor Solana: an address is a contract, and
+  /// the same key has a different address per wallet version, so ours are
+  /// always wallet v5R1. USDT only - USDC is not issued on TON.
+  TON
+  /// Stellar. Same Ed25519 key as Solana, so the G... address is the Solana
+  /// public key re-encoded. USDC (Circle) and USDT0, each behind a trustline
+  /// opened only when the user picks it; the treasury sponsors reserves and
+  /// fee-bumps every transfer. Off-ramp, bills, transfers - never on-ramp.
+  STELLAR
+  /// Monad. EVM, chain 143, so the same address as Base and the rest. USDC and
+  /// USDT0 (shown as USDT), both ERC-20s at 6 decimals; gas is MON, topped up
+  /// by the sponsor. Off-ramp, bills, transfers - never on-ramp.
+  MONAD
+}
+
+// ─── Transactions ───────────────────────────────────────────
+model Transaction {
+  id        String            @id @default(cuid())
+  userId    String            @map("user_id")
+  type      TransactionType
+  asset     Asset
+  chain     Chain?
+  amount    Decimal           @db.Decimal(20, 8)
+  fee       Decimal           @default(0) @db.Decimal(20, 8)
+  status    TransactionStatus @default(PENDING)
+  reference String?           @unique
+  metadata  Json?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, type])
+  @@index([reference])
+  @@map("transactions")
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAW
+  BUY
+  SELL
+  TRANSFER
+  TRANSFER_IN
+  TRANSFER_OUT
+  AIRTIME
+  TV
+  LOCK
+  UNLOCK
+  /// Scattered stablecoins gathered into one USDCx balance on Movement.
+  /// One row per sweep, however many chains it touched - the legs live in
+  /// metadata, because somebody who swept three balances did one thing.
+  SWEEP
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+// ─── Savings Locks ──────────────────────────────────────────
+model SavingsLock {
+  id           String     @id @default(cuid())
+  userId       String     @map("user_id")
+  asset        Asset
+  chain        Chain
+  amount       Decimal    @db.Decimal(20, 8)
+  durationDays Int        @map("duration_days")
+  status       LockStatus @default(ACTIVE)
+  txHash       String?    @map("tx_hash")
+  name         String?
+
+  lockedAt   DateTime  @default(now()) @map("locked_at")
+  unlocksAt  DateTime  @map("unlocks_at")
+  unlockedAt DateTime? @map("unlocked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, status])
+  @@map("savings_locks")
+}
+
+enum LockStatus {
+  ACTIVE
+  COMPLETED
+  WITHDRAWN
+}
+
+// ─── Beneficiaries ──────────────────────────────────────────
+model Beneficiary {
+  id            String  @id @default(cuid())
+  userId        String  @map("user_id")
+  accountName   String  @map("account_name")
+  accountNumber String  @map("account_number")
+  bankName      String  @map("bank_name")
+  bankCode      String? @map("bank_code")
+  favourite     Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, accountNumber, bankName])
+  @@index([userId])
+  @@map("beneficiaries")
+}
+
+/// A wallet address the user has sent to, per chain.
+///
+/// Recent and Favourites are the same rows read two ways: recency comes from
+/// lastUsedAt, which every completed withdrawal touches, so the Recent tab
+/// fills itself without anyone choosing to save anything. Favourite is the
+/// explicit "save this one" flag.
+model CryptoContact {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  address    String
+  chain      String
+  label      String?
+  favourite  Boolean  @default(false)
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // One row per address per chain: the same address on two chains is two
+  // different destinations.
+  @@unique([userId, address, chain])
+  @@index([userId])
+  @@map("crypto_contacts")
+}
+
+// ─── KYC Verifications ──────────────────────────────────────
+model KycVerification {
+  id             String    @id @default(cuid())
+  userId         String    @map("user_id")
+  provider       String    @default("metamap")
+  documentType   String    @map("document_type") // NIN, VIN, etc.
+  documentNumber String    @map("document_number")
+  status         KycStatus @default(PENDING)
+
+  // MetaMap response data
+  metamapRef  String? @unique @map("metamap_ref")
+  firstName   String? @map("first_name")
+  lastName    String? @map("last_name")
+  middleName  String? @map("middle_name")
+  gender      String?
+  dateOfBirth String? @map("date_of_birth")
+  phone       String?
+  photoUrl    String? @map("photo_url")
+
+  // Selfie facematch
+  selfieUrl       String?  @map("selfie_url")
+  facematchScore  Float?   @map("facematch_score")
+  facematchPassed Boolean? @map("facematch_passed")
+
+  // NIN document images, stored in the DB as base64 data URIs
+  frontImage String? @map("front_image") @db.Text
+  backImage  String? @map("back_image") @db.Text
+
+  rawResponse   Json?   @map("raw_response")
+  failureReason String? @map("failure_reason")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([metamapRef])
+  @@map("kyc_verifications")
+}
+
+/// One row per real-world identifier proven by a completed KYC check.
+///
+/// The unique index on `key` is the actual guarantee that a single ID can never
+/// verify two accounts: the database refuses the second claim, so two sessions
+/// approving at the same instant cannot both win. Application-level checks were
+/// not enough — a SELECT-then-INSERT leaves a window open.
+///
+/// A user may hold several claims (national number AND document number), and a
+/// collision on ANY of them blocks the account.
+model IdentityClaim {
+  id        String   @id @default(cuid())
+  userId    String   @map("user_id")
+  /// Normalised identifier, e.g. "nin:34796803559" or "doc:NGA:PASSPORT:B03323473".
+  key       String   @unique
+  kind      String
+  /// Didit session that proved it, for audit.
+  sessionId String?  @map("session_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("identity_claims")
+}
+
+/// A deposit the user has started but not yet paid.
+///
+/// With a virtual account the user leaves the app to make a bank transfer, and
+/// the money arrives on a webhook we cannot authenticate as any particular
+/// user. This row is what makes that webhook actionable: it records, before the
+/// account number is ever shown, who is buying what and at which rate.
+///
+/// Deliberately not a Transaction row - Transaction.reference is the
+/// idempotency key for delivery, so an unpaid intent sitting there would look
+/// like an already-processed purchase.
+model FundingIntent {
+  id        String @id @default(cuid())
+  userId    String @map("user_id")
+  /// Ours, and the key Flutterwave echoes back.
+  reference String @unique
+  provider  String @default("flutterwave")
+
+  amountNaira     Decimal  @map("amount_naira") @db.Decimal(20, 2)
+  /// Locked at creation: the user pays against the rate they were shown, not
+  /// whatever it has drifted to by the time their transfer lands.
+  token           String
+  chain           String
+  convertedAmount Decimal  @map("converted_amount") @db.Decimal(20, 8)
+  rate            Decimal? @db.Decimal(20, 8)
+
+  /// Reused across a user's deposits so we do not mint a Flutterwave
+  /// customer per purchase.
+  customerId String? @map("customer_id")
+
+  accountNumber String?   @map("account_number")
+  bankName      String?   @map("bank_name")
+  expiresAt     DateTime? @map("expires_at")
+
+  /// PENDING | PAID | HELD | REFUNDED | EXPIRED | FAILED
+  ///
+  /// HELD is money that arrived but was not delivered: the transfer came from
+  /// an account we could not tie to the buyer. It is not FAILED - the naira is
+  /// ours and the buyer is owed either the crypto or a refund. It leaves HELD
+  /// only when a person decides: PAID once the coin has been sent by hand, or
+  /// REFUNDED once the naira has been returned in the Flutterwave dashboard.
+  status   String  @default("PENDING")
+  chargeId String? @map("charge_id")
+
+  /// Who the bank says sent the money, and from where. Recorded on every
+  /// settled deposit whether or not the check is enforcing, because the
+  /// question "what do real senders look like" can only be answered from real
+  /// senders.
+  senderName  String? @map("sender_name")
+  senderBank  String? @map("sender_bank")
+  /// MATCH | MISMATCH | MISSING | NO_REFERENCE — see lib/name-match.ts
+  nameVerdict String? @map("name_verdict")
+  /// Why it is held, in the words shown to the person waiting.
+  holdReason  String? @map("hold_reason")
+
+  reviewedAt DateTime? @map("reviewed_at")
+  reviewedBy String?   @map("reviewed_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+  @@map("funding_intents")
+}
+
+/// Flutterwave recipient ids, keyed by the bank account they represent.
+///
+/// Creating a recipient is NOT idempotent: a second attempt for the same
+/// account returns 409 RECIPIENT_ALREADY_EXISTS, and the list endpoint offers
+/// no way to search by account number - only cursor paging. So the id has to be
+/// remembered on our side or every repeat payout to an account would fail.
+model PayoutRecipient {
+  id          String   @id @default(cuid())
+  /// "<bankCode>:<accountNumber>"
+  accountKey  String   @map("account_key")
+  recipientId String   @map("recipient_id")
+  provider    String   @default("flutterwave")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  /// Per provider, not globally.
+  ///
+  /// A recipient id is minted by one provider and meaningless to the other,
+  /// and twenty of the forty banks share a code between them - so "044:012..."
+  /// named the same key at both while holding one provider's id. Paying the
+  /// second provider with the first one's recipient is not a failure we would
+  /// have seen coming.
+  @@unique([provider, accountKey])
+  @@map("payout_recipients")
+}
+
+// ─── Notification Preferences ───────────────────────────────
+model NotificationPrefs {
+  id             String  @id @default(cuid())
+  userId         String  @unique @map("user_id")
+  pushEnabled    Boolean @default(true) @map("push_enabled")
+  emailEnabled   Boolean @default(true) @map("email_enabled")
+  txAlerts       Boolean @default(true) @map("tx_alerts")
+  securityAlerts Boolean @default(true) @map("security_alerts")
+  savingsAlerts  Boolean @default(true) @map("savings_alerts")
+  promoAlerts    Boolean @default(true) @map("promo_alerts")
+  appUpdates     Boolean @default(true) @map("app_updates")
+  expoPushToken  String? @map("expo_push_token")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_prefs")
+}
+
+/// One row per phone that should get this person's notifications.
+///
+/// NotificationPrefs.expoPushToken held a single token, so each phone that
+/// opened the app replaced the last and only the newest one was ever notified.
+/// Tied to the session it was registered under: a phone that signs out (or is
+/// signed out) stops being notified without anything having to remember to
+/// delete it. The token is unique, so a phone switching accounts moves it.
+model PushToken {
+  id         String   @id @default(cuid())
+  userId     String   @map("user_id")
+  token      String   @unique
+  sessionId  String?  @map("session_id")
+  platform   String?
+  createdAt  DateTime @default(now()) @map("created_at")
+  lastSeenAt DateTime @default(now()) @map("last_seen_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("push_tokens")
+}
+
+// ─── Notifications ──────────────────────────────────────────
+/**
+ * A business on Money Moves Business asking to be paid into this person's
+ * account. Nothing is linked until they approve it here; either side can end
+ * it later. Asked by username, linked by account - a username change breaks
+ * nothing.
+ */
+model BusinessLink {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  /// The business on Money Moves Business, and what to call it here.
+  businessId   String    @map("business_id")
+  businessName String    @map("business_name")
+  /// The business's logo, an https address on Money Moves Business - initials when it has none.
+  businessLogo String?   @map("business_logo")
+  merchantId   String    @map("merchant_id")
+  /// PENDING until they answer; APPROVED, DECLINED, or REVOKED (ended by either side).
+  status       String    @default("PENDING")
+  revokedBy    String?   @map("revoked_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  decidedAt    DateTime? @map("decided_at")
+  endedAt      DateTime? @map("ended_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([businessId])
+  @@map("business_links")
+}
+
+/// A checkout on Money Moves Business paid from this app: the business asks,
+/// the person approves and sends stablecoins from their own wallet.
+model BusinessPayment {
+  id            String    @id @default(cuid())
+  /// Who pays - set when the business sends it to a username, or when the person scans its code.
+  userId        String?   @map("user_id")
+  /// What the checkout's QR code carries, so a scan in the app can take it on.
+  code          String    @unique
+  businessId    String    @map("business_id")
+  businessName  String    @map("business_name")
+  /// The business's logo, an https address on Money Moves Business - initials when it has none.
+  businessLogo  String?   @map("business_logo")
+  /// The payment on Money Moves Business, and what it's for.
+  paymentRef    String    @unique @map("payment_ref")
+  title         String?
+  /// In US dollars - what is sent, in USDC or USDT.
+  amount        Decimal   @db.Decimal(20, 6)
+  /// How the business priced it, for showing ("₦7,500.00").
+  priceLabel    String?   @map("price_label")
+  /// Where it is paid, by chain.
+  addresses     Json
+  /// PENDING, PAYING (being sent now), PAID, DECLINED, or CANCELLED (by the business).
+  status        String    @default("PENDING")
+  transactionId String?   @map("transaction_id")
+  paidChain     String?   @map("paid_chain")
+  paidAsset     String?   @map("paid_asset")
+  txHash        String?   @map("tx_hash")
+  expiresAt     DateTime  @map("expires_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  paidAt        DateTime? @map("paid_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@map("business_payments")
+}
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String   @map("user_id")
+  type        String // transaction, security, savings, system
+  title       String
+  body        String
+  read        Boolean  @default(false)
+  broadcastId String?  @map("broadcast_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  broadcast Broadcast? @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([broadcastId])
+  @@map("notifications")
+}
+
+// ─── Admin Broadcasts ────────────────────────────────────────
+model Broadcast {
+  id             String   @id @default(cuid())
+  type           String // transaction, security, savings, system
+  title          String
+  body           String
+  recipientCount Int      @default(0) @map("recipient_count")
+  createdBy      String?  @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  notifications Notification[]
+
+  @@index([createdAt(sort: Desc)])
+  @@map("broadcasts")
+}
+
+// ─── Support Chat ───────────────────────────────────────────
+model ChatConversation {
+  id         String     @id @default(cuid())
+  userId     String     @map("user_id")
+  status     ChatStatus @default(OPEN)
+  needsHuman Boolean    @default(false) @map("needs_human")
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+
+  user     User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages ChatMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([needsHuman, status])
+  @@map("chat_conversations")
+}
+
+model ChatMessage {
+  id             String     @id @default(cuid())
+  conversationId String     @map("conversation_id")
+  sender         ChatSender
+  text           String?
+  imageUrl       String?    @map("image_url")
+  /// Set the first time support rewrites it, so the app can say so.
+  editedAt       DateTime?  @map("edited_at")
+  /// Soft, deliberately. A hard delete just vanishes from the table and an
+  /// app already holding the message would go on showing it for ever; the
+  /// row has to survive long enough to tell the client it is gone.
+  deletedAt      DateTime?  @map("deleted_at")
+  createdAt      DateTime   @default(now()) @map("created_at")
+  /// What polling reads. created_at cannot carry an edit.
+  updatedAt      DateTime   @updatedAt @map("updated_at")
+
+  conversation ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt])
+  @@index([conversationId, updatedAt])
+  @@map("chat_messages")
+}
+
+enum ChatStatus {
+  OPEN
+  RESOLVED
+}
+
+enum ChatSender {
+  USER
+  BOT
+  ADMIN
+}
+
+// ─── Bach payout destinations (cache: register each account once, reuse it) ──
+model BachDestination {
+  id            String   @id @default(cuid())
+  bankCode      String   @map("bank_code")
+  accountNumber String   @map("account_number")
+  destId        String   @map("dest_id")
+  accountName   String?  @map("account_name")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([bankCode, accountNumber])
+  @@map("bach_destinations")
+}
+
+// ─── Service pause switches ───────────────────────────────────────────────
+//
+// One row per thing the console can turn off. The switch lives here rather
+// than in an environment variable because changing an env var on Railway
+// restarts the backend, and the moment you most need to pause a service is
+// the moment you least want to restart anything.
+//
+// A missing row means live. The env flags still win over whatever is written
+// here — see lib/service-status.ts — so there is still a way to shut a
+// service off when the database itself is the problem.
+model ServiceStatus {
+  key       String    @id
+  paused    Boolean   @default(false)
+  /// For a switch that chooses between things rather than turning one off.
+  value     String?
+  /// The short line on the row in the app. Long enough and it wraps.
+  note      String?
+  /// The full sentence, shown in the sheet and returned with the 503.
+  message   String?
+  backBy    DateTime? @map("back_by")
+  updatedBy String?   @map("updated_by")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@map("service_status")
+}
+
+// ─── Vouchers ───────────────────────────────────────────────
+
+/**
+ * A reward somebody can claim with a code.
+ * Two shapes. A PUBLIC code is one string many people use, capped by
+ * `totalClaims` - posted somewhere, and worth the whole cap if it leaks. A
+ * UNIQUE code is one per QR, `totalClaims` of 1, so a leaked one costs a
+ * single reward. Which it is decides what going wrong costs, which is why it
+ * is a property of the voucher and not of how it happens to be handed out.
+ */
+model Voucher {
+  id            String        @id @default(cuid())
+  /// Typed or scanned. Compared upper-cased, so LAUNCH50 and launch50 are one.
+  code          String        @unique
+  kind          VoucherKind   @default(PUBLIC)
+  rewardAsset   Asset         @default(USDCx)
+  /**
+   * What one claim pays.
+   * On a LUCKY voucher this is the average rather than the reward - the slices
+   * decide what anybody actually gets. Kept populated so every list, receipt
+   * and float sum that reads it still has a number to show.
+   */
+  rewardAmount  Decimal       @map("reward_amount") @db.Decimal(20, 8)
+  /**
+   * FIXED pays everybody the same. LUCKY cuts one pot into unequal slices, so
+   * most people get something ordinary and one or two get a windfall.
+   */
+  mode          VoucherMode   @default(FIXED)
+  /**
+   * The whole pot, on a LUCKY voucher. Null on a FIXED one.
+   */
+  potAmount     Decimal?      @map("pot_amount") @db.Decimal(20, 8)
+  /// Null is uncapped. A cap is what makes the cost knowable in advance.
+  totalClaims   Int?          @map("total_claims")
+  perUserClaims Int           @default(1) @map("per_user_claims")
+  /// The rules, as a list. Empty means anybody.
+  requirements  Json          @default("[]")
+  status        VoucherStatus @default(DRAFT)
+  startsAt      DateTime?     @map("starts_at")
+  endsAt        DateTime?     @map("ends_at")
+  /// What it was for, for whoever reads this in six months.
+  note          String?
+  createdBy     String?       @map("created_by")
+
+  /**
+   * Set when a PERSON made this, not us.
+   * Their own money funds it, held in the escrow wallet rather than the promo
+   * float, and whatever nobody claims goes back to them. Null means ours, and
+   * every rule that differs keys off this one field being present.
+   */
+  createdByUserId String? @map("created_by_user_id")
+  /// The transfer that put their money into escrow. A user voucher without one
+  /// was never funded and must never have been created.
+  fundingTxHash   String? @map("funding_tx_hash")
+
+  /// What came back, and how that went. Only ever set on a user voucher.
+  refundState    RefundState @default(NONE) @map("refund_state")
+  refundAmount   Decimal?    @map("refund_amount") @db.Decimal(20, 8)
+  refundTxHash   String?     @map("refund_tx_hash")
+  refundAttempts Int         @default(0) @map("refund_attempts")
+  refundError    String?     @map("refund_error")
+  refundedAt     DateTime?   @map("refunded_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  claims  VoucherClaim[]
+  slices  VoucherSlice[]
+  creator User?          @relation("VouchersCreated", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([createdByUserId, createdAt])
+  /// The refund sweep's only query: everything owed, oldest first.
+  @@index([refundState])
+  @@map("vouchers")
+}
+
+/**
+ * Where a user voucher's leftover money is up to.
+ * NONE  - ours, or still live with nothing owed yet
+ * DUE   - ended or expired with slices unclaimed; the sweep will send it
+ * SENT  - gone back, with a hash to prove it
+ * FAILED- tried and could not. Not a stuck job: money we are holding that
+ * belongs to somebody else, which is why it gets its own state rather
+ * than a retry counter alone.
+ */
+enum RefundState {
+  NONE
+  DUE
+  SENT
+  FAILED
+}
+
+/**
+ * One cut of a lucky voucher's pot.
+ * Cut and shuffled when the voucher is created, not when somebody claims. That
+ * ordering is the whole design: the slices add up to the pot exactly before
+ * anybody touches it, the float reserve is a known number rather than an
+ * estimate, and two people claiming in the same second are handed two
+ * different rows instead of racing to divide one remainder.
+ * `position` is the shuffled order they go out in, so being first wins nothing.
+ */
+model VoucherSlice {
+  id        String   @id @default(cuid())
+  voucherId String   @map("voucher_id")
+  position  Int
+  amount    Decimal  @db.Decimal(20, 8)
+  /// Null until somebody takes it. Unique, so one slice can never pay twice.
+  claimId   String?  @unique @map("claim_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  voucher Voucher       @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  claim   VoucherClaim? @relation(fields: [claimId], references: [id], onDelete: SetNull)
+
+  @@unique([voucherId, position])
+  @@index([voucherId, claimId])
+  @@map("voucher_slices")
+}
+
+/**
+ * One person claiming one voucher, and what became of the payout.
+ * Written PENDING before the transfer is attempted, never after. A row that
+ * only appears once the send succeeds is a row that does not exist while the
+ * send is in flight - which is the exact window in which somebody taps twice.
+ * A FAILED claim is kept rather than deleted: it is the only record that the
+ * attempt happened, and the limits deliberately do not count it, so somebody
+ * whose reward never arrived can try again.
+ */
+model VoucherClaim {
+  id        String             @id @default(cuid())
+  voucherId String             @map("voucher_id")
+  userId    String             @map("user_id")
+  /// Copied from the voucher at claim time. Changing the reward later must not
+  /// rewrite what somebody was already paid.
+  amount    Decimal            @db.Decimal(20, 8)
+  status    VoucherClaimStatus @default(PENDING)
+  /**
+   * Scanned rather than typed.
+   * Decides whether the code may ever be shown back. A public voucher claimed
+   * off a printed QR is still one the claimer never read - and showing it to
+   * them afterwards, in a history they can scroll to for ever, is how it gets
+   * passed on. Kind alone could not answer this: it is a property of the
+   * claim, not of the voucher.
+   */
+  viaScan   Boolean            @default(false) @map("via_scan")
+  txHash    String?            @map("tx_hash")
+  /// Why it failed, in the words the chain used.
+  error     String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  voucher Voucher       @relation(fields: [voucherId], references: [id], onDelete: Cascade)
+  user    User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  slice   VoucherSlice?
+
+  @@index([voucherId, createdAt])
+  @@index([userId, createdAt])
+  @@map("voucher_claims")
+}
+
+enum VoucherMode {
+  FIXED
+  LUCKY
+}
+
+enum VoucherKind {
+  /// One code, many people, capped.
+  PUBLIC
+  /// One code per QR, good once.
+  UNIQUE
+}
+
+enum VoucherStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
+enum VoucherClaimStatus {
+  PENDING
+  SENT
+  FAILED
+}

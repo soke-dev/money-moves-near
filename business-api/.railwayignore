@@ -1,0 +1,8 @@
+# Never upload local environment files or build leftovers to Railway.
+# Production and staging read their settings from Railway variables only.
+.env
+.env.*
+!.env.example
+node_modules
+dist
+*.tsbuildinfo

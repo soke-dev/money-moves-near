@@ -1,0 +1,33 @@
+{
+  "name": "money-moves-business",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "dark-theme": "node scripts/dark-theme.cjs src"
+  },
+  "dependencies": {
+    "@dynamic-labs/ethereum": "4.100.3",
+    "@dynamic-labs/sdk-react-core": "4.100.3",
+    "@dynamic-labs/solana": "4.100.3",
+    "@phosphor-icons/react": "^2.1.10",
+    "@tailwindcss/vite": "^4.2.2",
+    "qrcode": "^1.5.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-router-dom": "^7.14.1",
+    "tailwindcss": "^4.2.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.0.4"
+  }
+}

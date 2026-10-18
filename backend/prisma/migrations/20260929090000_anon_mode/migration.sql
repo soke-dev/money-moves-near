@@ -1,0 +1,12 @@
+-- Anonymous mode: the username stops being public.
+--
+-- Hides the handle, not the person. Points, volume, referral counts and the
+-- profile picture still appear on the leaderboard; what goes is the one field
+-- that lets a stranger address you or look you up.
+--
+-- Deliberately does NOT affect username lookup for sending. Somebody given the
+-- handle directly must still be able to pay it, or the toggle quietly breaks
+-- the feature the handle exists for.
+--
+-- Defaults false, so every existing account is unchanged until it opts in.
+ALTER TABLE "users" ADD COLUMN "anon_mode" BOOLEAN NOT NULL DEFAULT false;

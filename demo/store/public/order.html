@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Your order · Kòkó Coffee</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/"><b>Kòkó Coffee</b><span>Roasted in Lagos</span></a>
+    </div>
+  </header>
+
+  <main class="order">
+    <div class="status">
+      <div class="dot wait" id="dot"></div>
+      <div>
+        <h1 id="title">Checking your payment…</h1>
+        <p id="lead">This updates by itself.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 id="number">Order</h2>
+      <div id="lines"></div>
+      <div class="total"><span>Total</span><span id="total"></span></div>
+      <div class="facts" id="facts"></div>
+    </div>
+
+    <div class="actions" id="actions"></div>
+  </main>
+
+  <footer>Kòkó Coffee is a demo. Nothing here ships.</footer>
+  <script src="/order.js"></script>
+</body>
+</html>

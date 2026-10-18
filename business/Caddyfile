@@ -1,0 +1,51 @@
+# Serves the dashboard and passes /api to the business API.
+#
+# Settings come from the service's variables: PORT (set by Railway), API_UPSTREAM
+# (the API's private address) and PROXY_SECRET (shared with the API only, so it
+# can trust the visitor address this proxy passes on - see business-api/src/lib/ip.ts).
+{
+	admin off
+}
+
+:{$PORT} {
+	header {
+		X-Content-Type-Options nosniff
+		# Same-origin only: the builders show the checkout in a frame of their own.
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	# The help chat's live stream: passed straight through, never compressed or held back.
+	handle /api/support/stream {
+		reverse_proxy {$API_UPSTREAM} {
+			header_up X-MMB-Proxy {$PROXY_SECRET}
+			header_up X-MMB-Real-IP {http.request.header.X-Real-IP}
+			flush_interval -1
+		}
+	}
+
+	handle /api/* {
+		encode zstd gzip
+		reverse_proxy {$API_UPSTREAM} {
+			# Set here, never taken from the caller. X-Real-IP is the visitor's address as
+			# Railway's edge saw it (the edge overwrites any the visitor sends).
+			header_up X-MMB-Proxy {$PROXY_SECRET}
+			header_up X-MMB-Real-IP {http.request.header.X-Real-IP}
+		}
+	}
+
+	handle {
+		encode zstd gzip
+		root * /srv
+		# Built files carry a hash in their name, so they can be cached for a year; pages can't.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		@pages not path /assets/*
+		header @pages Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}

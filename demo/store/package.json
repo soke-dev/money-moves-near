@@ -1,0 +1,12 @@
+{
+  "name": "koko-coffee-demo",
+  "private": true,
+  "version": "1.0.0",
+  "description": "A demo shop that takes payments with the Money Moves API.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node server.mjs",
+    "dev": "node --env-file=.env server.mjs"
+  }
+}

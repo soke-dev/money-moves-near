@@ -1,0 +1,44 @@
+.container {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 120px 24px 80px;
+}
+.title {
+  font-size: clamp(28px, 5vw, 42px);
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+.updated {
+  font-size: 14px;
+  color: var(--muted-fg);
+  margin-bottom: 40px;
+}
+.content {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 32px;
+}
+.content h2 {
+  font-size: 20px;
+  font-weight: 700;
+  margin: 32px 0 12px;
+  color: var(--primary);
+}
+.content h2:first-child {
+  margin-top: 0;
+}
+.content p, .content li {
+  font-size: 15px;
+  color: var(--muted-fg);
+  line-height: 1.7;
+}
+.content ul {
+  padding-left: 20px;
+  margin: 8px 0;
+}
+.placeholder {
+  text-align: center;
+  padding: 40px;
+  font-style: italic;
+}

@@ -1,0 +1,15 @@
+{
+  "expo": {
+    "name": "Kòkó Coffee",
+    "slug": "koko-coffee-demo",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f6f2ea",
+    "ios": { "supportsTablet": false },
+    "android": { "edgeToEdgeEnabled": true },
+    "extra": {
+      "storeUrl": "https://demo-store-production-49f0.up.railway.app"
+    }
+  }
+}

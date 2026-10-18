@@ -1,0 +1,99 @@
+{
+  "expo": {
+    "owner": "soke1",
+    "name": "Money Moves",
+    "slug": "money-moves",
+    "version": "2.0.1",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "money-moves",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "ios": {
+      "icon": "./assets/images/iconnew.png",
+      "bundleIdentifier": "xyz.usemoneymoves.app",
+      "supportsTablet": false,
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Money Moves uses Face ID to unlock your account securely.",
+        "NSCameraUsageDescription": "Money Moves needs camera access so you can photograph your NIN for identity verification and set a profile picture.",
+        "NSPhotoLibraryUsageDescription": "Money Moves needs photo library access so you can upload your NIN document and profile picture.",
+        "ITSAppUsesNonExemptEncryption": false
+      },
+      "buildNumber": "6"
+    },
+    "android": {
+      "icon": "./assets/images/iconnew.png",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/icon-adaptive.png",
+        "backgroundColor": "#9FFA07"
+      },
+      "package": "xyz.usemoneymoves.app",
+      "versionCode": 15,
+      "googleServicesFile": "./google-services.json",
+      "softwareKeyboardLayoutMode": "resize"
+    },
+    "web": {
+      "favicon": "./assets/images/icon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": "https://app.usemoneymoves.xyz"
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      "expo-secure-store",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/notification-icon.png",
+          "color": "#81FB02"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#0a0a0a",
+          "image": "./assets/images/logo-badge.png",
+          "imageWidth": 160,
+          "resizeMode": "contain",
+          "dark": {
+            "backgroundColor": "#0a0a0a",
+            "image": "./assets/images/logo-badge.png",
+            "imageWidth": 160
+          }
+        }
+      ],
+      "@react-native-community/datetimepicker",
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ],
+      "react-native-quick-crypto"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {
+        "origin": "https://app.usemoneymoves.xyz"
+      },
+      "eas": {
+        "projectId": "3b98f572-a968-4454-95bc-328f12d761f6"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/3b98f572-a968-4454-95bc-328f12d761f6"
+    }
+  }
+}

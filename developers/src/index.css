@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+/*
+ * Money Moves Docs. Dark by default, light on request (data-theme="light" on
+ * <html>, remembered in the browser). Every colour is a token below, so the
+ * two themes never drift apart. The brand lime marks what's active and the
+ * one main button; code always sits on a dark block.
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-side: var(--side);
+  --color-raise: var(--raise);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-soft: var(--soft);
+  --color-fg: var(--fg);
+  --color-body: var(--body);
+  --color-muted: var(--muted);
+  --color-dim: var(--dim);
+  --color-accent: var(--accent);
+  --color-accent-bg: var(--accent-bg);
+  --color-lime: #81FB02;
+  --color-on-lime: #0B0B0C;
+  --color-code: var(--code);
+  --color-code-line: var(--code-line);
+  --color-info-bg: var(--info-bg);
+  --color-info-line: var(--info-line);
+  --color-info-fg: var(--info-fg);
+  --color-tip-bg: var(--tip-bg);
+  --color-tip-line: var(--tip-line);
+  --color-tip-fg: var(--tip-fg);
+  --color-warn-bg: var(--warn-bg);
+  --color-warn-line: var(--warn-line);
+  --color-warn-fg: var(--warn-fg);
+  --color-get: var(--get);
+  --color-get-bg: var(--get-bg);
+  --color-post: var(--post);
+  --color-post-bg: var(--post-bg);
+  --color-patch: var(--patch);
+  --color-patch-bg: var(--patch-bg);
+  --color-del: var(--del);
+  --color-del-bg: var(--del-bg);
+  --color-req: var(--req);
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+}
+
+:root {
+  --bg: #0B0B0C;
+  --side: #0B0B0C;
+  --raise: #141416;
+  --hover: #18181B;
+  --line: #222226;
+  --soft: #1A1A1D;
+  --fg: #F4F4F2;
+  --body: #C8C8C3;
+  --muted: #9C9C97;
+  --dim: #6C6C68;
+  --accent: #9BEA3C;
+  --accent-bg: rgba(129, 251, 2, 0.09);
+  --code: #111113;
+  --code-line: #232327;
+  --info-bg: rgba(59, 130, 246, 0.08);
+  --info-line: rgba(96, 165, 250, 0.32);
+  --info-fg: #A9C9F8;
+  --tip-bg: rgba(129, 251, 2, 0.06);
+  --tip-line: rgba(155, 234, 60, 0.3);
+  --tip-fg: #C3EE8E;
+  --warn-bg: rgba(245, 158, 11, 0.08);
+  --warn-line: rgba(245, 158, 11, 0.32);
+  --warn-fg: #F5CC86;
+  --get: #7DB3F5;
+  --get-bg: rgba(59, 130, 246, 0.14);
+  --post: #8EDB9F;
+  --post-bg: rgba(34, 197, 94, 0.13);
+  --patch: #F2C17D;
+  --patch-bg: rgba(245, 158, 11, 0.14);
+  --del: #F29A92;
+  --del-bg: rgba(239, 68, 68, 0.14);
+  --req: #F29A92;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #FFFFFF;
+  --side: #FFFFFF;
+  --raise: #F6F6F4;
+  --hover: #F1F1EE;
+  --line: #E8E7E2;
+  --soft: #F0EFEB;
+  --fg: #111110;
+  --body: #3B3A36;
+  --muted: #5F5E58;
+  --dim: #908E86;
+  --accent: #3D7A00;
+  --accent-bg: rgba(77, 140, 0, 0.09);
+  --code: #111113;
+  --code-line: #232327;
+  --info-bg: #F0F6FF;
+  --info-line: #C4D9FA;
+  --info-fg: #1F4F8F;
+  --tip-bg: #F4FAEB;
+  --tip-line: #D2E9B0;
+  --tip-fg: #2C4A0E;
+  --warn-bg: #FDF6E8;
+  --warn-line: #EED6A6;
+  --warn-fg: #5A3808;
+  --get: #1F5FAF;
+  --get-bg: #E6EEFA;
+  --post: #17633A;
+  --post-bg: #E3F2E8;
+  --patch: #8A520A;
+  --patch-bg: #FAEFDB;
+  --del: #9B2A23;
+  --del-bg: #F9E3E1;
+  --req: #B8322A;
+  color-scheme: light;
+}
+
+html {
+  scroll-padding-top: 130px;
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: #81FB02;
+  color: #0B0B0C;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Inline code inside prose. */
+.prose-docs code:not(pre code) {
+  font-family: var(--font-mono);
+  font-size: 0.84em;
+  background: var(--raise);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 0.12em 0.4em;
+  color: var(--fg);
+}
+
+.prose-docs a:not(.plain) {
+  color: var(--fg);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 4px;
+}
+.prose-docs a:not(.plain):hover {
+  color: var(--accent);
+}
+
+.prose-docs strong,
+.prose-docs b {
+  color: var(--fg);
+  font-weight: 600;
+}
+
+/* Code colours, on the dark block in both themes. */
+.tok-s { color: #C3EE8E; }
+.tok-n { color: #F2C17D; }
+.tok-k { color: #9CC4F2; }
+.tok-c { color: #6F6E68; font-style: italic; }
+.tok-p { color: #E8E6DE; }
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.rise {
+  animation: rise 0.16s ease-out both;
+}

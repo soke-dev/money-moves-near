@@ -1,0 +1,7 @@
+node_modules
+dist
+*.tsbuildinfo
+# Real environment files never go in git - only .env.example (the root .gitignore says so too)
+.env
+.env.*
+!.env.example

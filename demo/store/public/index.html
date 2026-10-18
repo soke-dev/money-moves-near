@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kòkó Coffee</title>
+  <meta name="description" content="A demo coffee shop that takes payments with Money Moves.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Host+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap">
+      <a class="brand" href="/"><b>Kòkó Coffee</b><span>Roasted in Lagos</span></a>
+      <span class="chip" id="mode">Loading…</span>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section class="hero">
+      <h1>Fresh coffee, paid any way you like.</h1>
+      <p>A demo shop on the Money Moves API. Pay by bank transfer, the Money Moves app, or USDC and USDT. In test mode, the checkout's test buttons pretend you paid.</p>
+    </section>
+
+    <div class="layout">
+      <section class="grid" id="products" aria-label="Products"></section>
+
+      <aside>
+        <div class="panel">
+          <h2>Your basket</h2>
+          <div id="basket"></div>
+          <div class="total"><span>Total</span><span id="total">₦0</span></div>
+          <input class="field" id="name" placeholder="Your name (optional)" autocomplete="name">
+          <input class="field" id="email" type="email" placeholder="Email for your receipt (optional)" autocomplete="email" inputmode="email">
+          <button class="btn dark block" id="pay" disabled>Pay with Money Moves</button>
+          <p class="problem" id="problem" hidden></p>
+          <div class="powered"><i></i> Payments by Money Moves</div>
+        </div>
+
+        <div class="panel">
+          <h2>From our server</h2>
+          <p class="sub">Webhooks Money Moves sent this shop, each signature checked before it's trusted.</p>
+          <div class="events" id="events"><div class="empty">Nothing yet. Pay for an order and watch it arrive.</div></div>
+        </div>
+      </aside>
+    </div>
+  </main>
+
+  <footer>Kòkó Coffee is a demo. Nothing here ships.</footer>
+  <script src="/shop.js"></script>
+</body>
+</html>

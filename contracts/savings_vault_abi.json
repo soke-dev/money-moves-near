@@ -1,0 +1,360 @@
+{
+  "address": "0x8c15ae884eada05ebff5dc5f4cb74b32bc8f676711cf40e172fe2c9a71b2dd18",
+  "name": "savings_vault",
+  "friends": [],
+  "exposed_functions": [
+    {
+      "name": "add_to_lock",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u64",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "create_lock",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "u64",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "get_config",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [],
+      "return": [
+        "address",
+        "address",
+        "u64",
+        "address"
+      ]
+    },
+    {
+      "name": "get_lock",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address",
+        "u64"
+      ],
+      "return": [
+        "bool",
+        "u64",
+        "address",
+        "u64",
+        "u64",
+        "u64"
+      ]
+    },
+    {
+      "name": "get_user_lock_count",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "u64"
+      ]
+    },
+    {
+      "name": "get_user_locks",
+      "visibility": "public",
+      "is_entry": false,
+      "is_view": true,
+      "generic_type_params": [],
+      "params": [
+        "address"
+      ],
+      "return": [
+        "vector<0x8c15ae884eada05ebff5dc5f4cb74b32bc8f676711cf40e172fe2c9a71b2dd18::savings_vault::LockRecord>"
+      ]
+    },
+    {
+      "name": "initialize",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "update_fee",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "address",
+        "u64"
+      ],
+      "return": []
+    },
+    {
+      "name": "withdraw",
+      "visibility": "public",
+      "is_entry": true,
+      "is_view": false,
+      "generic_type_params": [],
+      "params": [
+        "&signer",
+        "u64"
+      ],
+      "return": []
+    }
+  ],
+  "structs": [
+    {
+      "name": "FeeUpdated",
+      "is_native": false,
+      "is_event": true,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "new_fee_wallet",
+          "type": "address"
+        },
+        {
+          "name": "new_fee_bps",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "LockAdded",
+      "is_native": false,
+      "is_event": true,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "name": "lock_id",
+          "type": "u64"
+        },
+        {
+          "name": "added_amount",
+          "type": "u64"
+        },
+        {
+          "name": "fee_amount",
+          "type": "u64"
+        },
+        {
+          "name": "new_total",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "LockCreated",
+      "is_native": false,
+      "is_event": true,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "name": "lock_id",
+          "type": "u64"
+        },
+        {
+          "name": "fa_address",
+          "type": "address"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "fee_amount",
+          "type": "u64"
+        },
+        {
+          "name": "unlock_timestamp",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "LockRecord",
+      "is_native": false,
+      "is_event": false,
+      "abilities": [
+        "copy",
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "lock_id",
+          "type": "u64"
+        },
+        {
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "name": "fa_address",
+          "type": "address"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        },
+        {
+          "name": "unlock_timestamp",
+          "type": "u64"
+        },
+        {
+          "name": "created_at",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "LockWithdrawn",
+      "is_native": false,
+      "is_event": true,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "name": "lock_id",
+          "type": "u64"
+        },
+        {
+          "name": "amount",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "UserLockStore",
+      "is_native": false,
+      "is_event": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "locks",
+          "type": "vector<0x8c15ae884eada05ebff5dc5f4cb74b32bc8f676711cf40e172fe2c9a71b2dd18::savings_vault::LockRecord>"
+        },
+        {
+          "name": "lock_count",
+          "type": "u64"
+        }
+      ]
+    },
+    {
+      "name": "VaultConfig",
+      "is_native": false,
+      "is_event": false,
+      "abilities": [
+        "key"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "name": "fee_wallet",
+          "type": "address"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u64"
+        },
+        {
+          "name": "vault_signer_cap",
+          "type": "0x1::account::SignerCapability"
+        },
+        {
+          "name": "vault_address",
+          "type": "address"
+        }
+      ]
+    },
+    {
+      "name": "VaultInitialized",
+      "is_native": false,
+      "is_event": true,
+      "abilities": [
+        "drop",
+        "store"
+      ],
+      "generic_type_params": [],
+      "fields": [
+        {
+          "name": "admin",
+          "type": "address"
+        },
+        {
+          "name": "fee_wallet",
+          "type": "address"
+        },
+        {
+          "name": "fee_bps",
+          "type": "u64"
+        },
+        {
+          "name": "vault_address",
+          "type": "address"
+        }
+      ]
+    }
+  ]
+}

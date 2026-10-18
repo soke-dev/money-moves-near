@@ -1,0 +1,82 @@
+# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
+
+# dependencies
+node_modules/
+
+# Expo
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+
+# Native
+ios/
+android/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Metro
+.metro-health-check*
+
+# debug
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env
+.env*.local
+# Any env file for any environment (.env.staging, .env.production…) - only the example is shared
+.env.*
+!.env.example
+
+# Wallet and signing keys - never in git, whatever they're called
+*.keystore
+*keypair*.json
+*.secret
+secrets/
+
+# typescript
+*.tsbuildinfo
+.vercel
+
+.env
+
+# Replit
+.replit-artifact
+
+# Agent / IDE config
+.claude/
+
+# Backend runtime user uploads (avatars, chat attachments)
+backend/uploads/
+
+# Pitch / generated artifacts
+MoneyMoves-Pitch.html
+MoneyMoves-Pitch.pdf
+MoneyMoves-Video-Script.md
+pitch-assets/
+
+# Internal docs / screenshots
+docs/
+
+
+# Firebase service account key for FCM push — secret, upload to EAS credentials only
+firebase-service-account*.json
+google-service-account*.json
+*firebase-adminsdk*.json
+
+# Local scratch
+tmp-*
+
+# Statements rendered by the preview script
+backend/money-moves-statement-*.pdf
+backend/statement-page*.png

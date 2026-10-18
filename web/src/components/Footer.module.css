@@ -1,0 +1,133 @@
+.footer {
+  margin-top: 80px;
+}
+
+.cta {
+  text-align: center;
+  padding: 80px 24px;
+  background: linear-gradient(180deg, var(--bg) 0%, #111 100%);
+  position: relative;
+  overflow: hidden;
+}
+.cta::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 60px,
+    rgba(255,255,255,0.02) 60px,
+    rgba(255,255,255,0.02) 61px
+  );
+}
+.ctaTitle {
+  font-size: clamp(28px, 5vw, 48px);
+  font-weight: 800;
+  line-height: 1.2;
+  margin-bottom: 32px;
+  position: relative;
+}
+.accent {
+  color: var(--primary);
+}
+.storeRow {
+  display: flex;
+  justify-content: center;
+  gap: 16px;
+  position: relative;
+}
+.storeImg {
+  height: 52px;
+  border-radius: 10px;
+  transition: transform 0.2s;
+}
+.storeImg:hover {
+  transform: scale(1.05);
+}
+
+.bottom {
+  background: #111;
+  border-top: 1px solid var(--border);
+  padding: 48px 24px 24px;
+}
+.bottomInner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  gap: 48px;
+  flex-wrap: wrap;
+}
+.brand {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.footerLogo {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+.brandName {
+  font-size: 16px;
+  font-weight: 700;
+}
+.address {
+  font-size: 13px;
+  color: var(--muted-fg);
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.col h4 {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--fg);
+}
+.col a {
+  font-size: 13px;
+  color: var(--muted-fg);
+  transition: color 0.2s;
+}
+.col a:hover {
+  color: var(--primary);
+}
+
+.socials {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+.socials a {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--muted);
+  border-radius: 50%;
+  color: var(--fg);
+  transition: all 0.2s;
+}
+.socials a:hover {
+  background: var(--primary);
+  color: var(--primary-fg);
+}
+
+.copy {
+  max-width: 1200px;
+  margin: 40px auto 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--muted-fg);
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+
+@media (max-width: 768px) {
+  .bottomInner { flex-direction: column; gap: 32px; }
+}

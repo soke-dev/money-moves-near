@@ -1,0 +1,8 @@
+# The admin console's Business side: Money Moves Business's own API, in production.
+/business-api/*  https://business-api-production-ddf5.up.railway.app/api/:splat  200
+
+# Proxy API calls to backend
+/api/*  https://backend-production-6f042.up.railway.app/api/:splat  200
+
+# SPA fallback — all routes handled by React Router
+/*  /index.html  200

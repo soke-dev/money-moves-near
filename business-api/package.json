@@ -1,0 +1,52 @@
+{
+  "name": "money-moves-business-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Money Moves Business: the merchant API. Its own service and its own database - nothing here reads or writes the app's.",
+  "scripts": {
+    "dev": "tsx watch --env-file=.env src/index.ts",
+    "build": "prisma generate && tsc",
+    "start": "prisma migrate deploy && node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "action-password-hash": "tsx src/scripts/action-password-hash.ts",
+    "action-password-hash:raw": "tsx src/scripts/action-password-hash.ts --raw",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@aptos-labs/ts-sdk": "6.3.1",
+    "@prisma/client": "^6.9.0",
+    "@solana/spl-token": "0.4.14",
+    "@solana/web3.js": "1.98.4",
+    "@stellar/stellar-sdk": "13.3.0",
+    "@ton/core": "0.63.1",
+    "@ton/crypto": "3.3.0",
+    "@ton/ton": "16.3.0",
+    "bcryptjs": "^3.0.2",
+    "bs58": "6.0.0",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.5",
+    "disposable-email-domains": "1.0.62",
+    "ethers": "6.16.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "google-auth-library": "^9.15.1",
+    "helmet": "^8.1.0",
+    "prisma": "^6.9.0",
+    "resend": "^4.5.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.8",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.9.2"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

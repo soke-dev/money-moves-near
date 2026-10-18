@@ -1,0 +1,12 @@
+# Chromium for statement PDFs.
+#
+# Puppeteer would otherwise download its own into ~/.cache, which nixpacks does
+# not carry from the build layer into the running container - the classic way
+# this works locally and then cannot find a browser in production. Nix provides
+# one and the app is told where it is, so nothing is downloaded at install.
+[phases.setup]
+nixPkgs = ["...", "chromium"]
+
+[variables]
+PUPPETEER_SKIP_DOWNLOAD = "true"
+PUPPETEER_EXECUTABLE_PATH = "/nix/var/nix/profiles/default/bin/chromium"

@@ -1,0 +1,373 @@
+@import "tailwindcss";
+
+/*
+ * Money Moves Business - light, on paper.
+ *
+ * Warm off-white ground, white sheets, near-black ink, and hairlines doing
+ * the work boxes and shadows usually do. The brand lime is a fill - a
+ * highlighter on the thing that matters - never text: on white it cannot be
+ * read, so anything written in the brand colour uses the deep green instead.
+ *
+ * Host Grotesk for the product - one family, so headings, tables and figures
+ * read as one voice. The sign-in pages keep their own louder pairing, Funnel
+ * Display and Funnel Sans (see .funnel). IBM Plex Mono only for things people
+ * copy: IDs, keys, addresses.
+ */
+@theme {
+  --color-bg: #FFFFFF;
+  --color-side: #F7F6F2;
+  --color-card: #FFFFFF;
+  --color-raise: #F3F2EE;
+  --color-line: #E6E4DE;
+  --color-soft: #EFEEE9;
+  --color-fg: #121210;
+  --color-muted: #5F5D56;
+  --color-dim: #918F86;
+  --color-lime: #81FB02;
+  /* The brand lime at a calmer volume, for whole surfaces rather than marks. */
+  --color-lime-calm: #C5F082;
+  /* Sign-in pages: warm cream ground, forest-green ink and panel. */
+  --color-cream: #F3F0E7;
+  --color-forest: #143021;
+  --color-ink-green: #0F2419;
+  --color-highlight: #B4F25A;
+  --color-accent: #2B6A00;
+  --color-lime-deep: #2B6A00;
+  --color-amber: #A4600B;
+  --color-red: #B8322A;
+  --color-blue: #2A64AE;
+  --color-good: #1E7A3E;
+
+  --font-sans: 'Host Grotesk', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Host Grotesk', ui-sans-serif, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: light;
+}
+
+::selection {
+  background: var(--color-lime);
+  color: var(--color-fg);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #D6D3CA transparent;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* The eye in the top bar: figures blur, for screen-sharing in public. */
+html[data-hide-amounts] main .tabular:not(input) {
+  filter: blur(7px);
+  user-select: none;
+}
+
+/* The page you are on: its icon's fill layer in the brand lime, under the dark line. */
+.icon-lit path[opacity] {
+  fill: var(--color-lime);
+  opacity: 1;
+}
+
+/* Headlines and the figures people read from across the room. */
+.display {
+  font-family: var(--font-display);
+  letter-spacing: -0.025em;
+}
+
+/* The sign-in pages: the brand at full volume. */
+.funnel {
+  --font-sans: 'Funnel Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Funnel Display', 'Funnel Sans', ui-sans-serif, sans-serif;
+  font-family: var(--font-sans);
+}
+.funnel .display {
+  letter-spacing: -0.035em;
+}
+
+/* The customer's checkout: a plain, familiar face for paying - the dashboard keeps its own. */
+.checkout-type {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-display: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--font-sans);
+}
+.checkout-type .display {
+  letter-spacing: -0.02em;
+}
+
+/* Test mode: the hazard stripe, so nobody mistakes it for live. */
+.stripes {
+  background-image: repeating-linear-gradient(-45deg, #F2B544 0 10px, #F7C96A 10px 20px);
+}
+
+/* A printed slip's torn edge. */
+.perforated {
+  -webkit-mask: radial-gradient(circle at 6px 0, transparent 5px, #000 5.5px) -6px 0 / 12px 100% repeat-x;
+  mask: radial-gradient(circle at 6px 0, transparent 5px, #000 5.5px) -6px 0 / 12px 100% repeat-x;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.rise { animation: rise 0.22s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+/* ─── The printer on the sign-in pages ─────────────────────────────── */
+/*
+ * One 4.6s beat: a coin drops into the printer, the slip for that payment
+ * feeds out, a PAID stamp lands, and the slip slides away for the next.
+ */
+@keyframes coin-drop {
+  0% { transform: translate(-50%, -64px); opacity: 0; }
+  5% { opacity: 1; }
+  15% { transform: translate(-50%, 0); opacity: 1; }
+  20% { transform: translate(-50%, 16px) scale(0.5); opacity: 0; }
+  100% { transform: translate(-50%, 16px) scale(0.5); opacity: 0; }
+}
+.anim-coin { animation: coin-drop 4.6s cubic-bezier(0.5, 0, 0.75, 0) both; }
+
+@keyframes print-cycle {
+  0%, 21% { transform: translateY(-104%); }
+  42% { transform: translateY(0); }
+  45% { transform: translateY(-3px); }
+  48% { transform: translateY(0); }
+  84% { transform: translateY(0) rotate(0); opacity: 1; }
+  100% { transform: translateY(46px) rotate(3deg); opacity: 0; }
+}
+.anim-print { animation: print-cycle 4.6s cubic-bezier(0.3, 0.7, 0.2, 1) both; }
+
+@keyframes stamp {
+  0%, 50% { opacity: 0; transform: scale(1.9) rotate(-14deg); }
+  56% { opacity: 1; transform: scale(0.94) rotate(-9deg); }
+  60%, 84% { opacity: 1; transform: scale(1) rotate(-9deg); }
+  100% { opacity: 0; transform: scale(1) rotate(-9deg); }
+}
+.anim-stamp { animation: stamp 4.6s ease-out both; }
+
+@keyframes blink { 0%, 60% { opacity: 1; } 70%, 100% { opacity: 0.25; } }
+.anim-blink { animation: blink 1.4s steps(1, end) infinite; }
+
+/* A highlighter swiped behind a word, left to right. */
+@keyframes wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+.anim-wipe { animation: wipe 0.65s 0.35s cubic-bezier(0.6, 0, 0.3, 1) both; }
+
+/* Something in progress, breathing rather than blinking. */
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.anim-breathe { animation: breathe 1.6s ease-in-out infinite; }
+
+/* A tick that lands once: a submitted form, a finished step. */
+@keyframes pop { 0% { transform: scale(0.6); opacity: 0; } 60% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); } }
+.pop { animation: pop 0.45s 0.1s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+
+/* A full-screen sheet comes up from below; a drawer comes in from the right. */
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: none; } }
+.sheet-up { animation: sheet-up 0.38s cubic-bezier(0.16, 1, 0.3, 1) both; }
+@keyframes slide-left { from { transform: translateX(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+.slide-left { animation: slide-left 0.24s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .rise, .pop, .anim-breathe, .anim-print, .anim-stamp, .anim-blink, .anim-coin, .anim-wipe { animation: none; }
+  .anim-coin { opacity: 0; }
+  .anim-stamp { opacity: 1; transform: rotate(-9deg); }
+}
+
+/*
+ * Phones zoom the page in when a field's text is under 16px, and leave it
+ * zoomed - the checkout slid off the left edge. At phone widths every field
+ * reads at 16px, so tapping one never moves the page.
+ */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* ─── Dark mode (the dashboard only) ──────────────────────────────────────
+ * Switched on from the sidebar, remembered in this browser, and set on the
+ * page only while the dashboard is open, so checkouts, receipts and sign-in
+ * stay light. Nothing below applies in light mode. The hard-coded colours
+ * further down are generated from the classes the screens use (npm run dark-theme).
+ */
+html[data-theme="dark"] {
+  --color-bg: #0F100D;
+  --color-side: #131410;
+  --color-card: #171914;
+  --color-raise: #20231C;
+  --color-line: #2B2E26;
+  --color-soft: #22251E;
+  --color-fg: #EDEEE8;
+  --color-muted: #A6A99E;
+  --color-dim: #72766A;
+  --color-lime-calm: #3D5A12;
+  --color-ink-green: #E3ECDD;
+  --color-accent: #9BE05A;
+  --color-lime-deep: #9BE05A;
+  --color-amber: #E3A86C;
+  --color-red: #F08A82;
+  --color-blue: #8DBDEE;
+  --color-good: #6BCB8C;
+  color-scheme: dark;
+}
+html[data-theme="dark"] body {
+  color-scheme: dark;
+}
+html[data-theme="dark"] * {
+  scrollbar-color: #3A3E35 transparent;
+}
+html[data-theme="dark"] ::selection {
+  color: #0A0C08;
+}
+
+/* What must stay dark on light even here: QR codes, so every camera reads them. */
+html[data-theme="dark"] .keep-light {
+  --color-bg: #FFFFFF;
+  --color-card: #FFFFFF;
+  --color-fg: #121210;
+  --color-line: #E6E4DE;
+  color: #121210;
+}
+
+/* The ink flips light, so things filled with it take dark text: primary buttons, ticked boxes, chosen options. */
+html[data-theme="dark"] .bg-fg.text-white:not(.keep-light *),
+html[data-theme="dark"] .bg-fg .text-white:not(.keep-light *) {
+  color: var(--color-bg);
+}
+html[data-theme="dark"] .bg-fg .bg-white:not(.keep-light *) {
+  background-color: var(--color-bg);
+}
+html[data-theme="dark"] .bg-white:not(.keep-light, .keep-light *, .shadow-sm, .bg-fg *) {
+  background-color: var(--color-card);
+}
+/* A switch's knob stays light on a dark track. */
+html[data-theme="dark"] .bg-white.shadow-sm:not(.keep-light *) {
+  background-color: #D9DBD2;
+}
+/* The bank and wallet glyphs are dark drawings: lightened to read on dark. */
+html[data-theme="dark"] img[src="/brand/bank.png"]:not(.keep-light *),
+html[data-theme="dark"] img[src="/brand/wallet.png"]:not(.keep-light *) {
+  filter: invert(0.9);
+}
+/* Lime fills always carry dark ink: ticks, counts, a switch's knob - in light mode they already do. */
+html[data-theme="dark"] .bg-lime:not(.keep-light *) {
+  --color-fg: #0A0C08;
+  color: #0A0C08;
+}
+/* The page icons' lime layer, softer, so a light outline over it still reads. */
+html[data-theme="dark"] .icon-lit path[opacity] {
+  opacity: 0.42;
+}
+/* The app, bank and crypto coins are near black: a soft light rim keeps them off the card. */
+html[data-theme="dark"] .mark-tile:not(.keep-light *) {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 0 0 1px rgba(255, 255, 255, 0.07) !important;
+}
+/* Dimmed backdrops behind sheets and menus go darker, not lighter. */
+html[data-theme="dark"] .bg-fg\/15,
+html[data-theme="dark"] .bg-fg\/20,
+html[data-theme="dark"] .bg-fg\/30,
+html[data-theme="dark"] .bg-fg\/40 {
+  background-color: rgba(0, 0, 0, 0.55);
+}
+/* The primary button's darker hover, lighter here. */
+html[data-theme="dark"] .hover\:bg-\[\#2A2A27\]:hover {
+  background-color: #D6D8CE;
+}
+
+html[data-theme="dark"] .active\:bg-\[\#FAFAF8\]:not(.keep-light, .keep-light *):active { background-color: #1B1D18; }
+html[data-theme="dark"] .bg-\[\#B9B6AC\]:not(.keep-light, .keep-light *) { background-color: #353930; }
+html[data-theme="dark"] .bg-\[\#D6D3CA\]:not(.keep-light, .keep-light *) { background-color: #353930; }
+html[data-theme="dark"] .bg-\[\#D9D6CC\]:not(.keep-light, .keep-light *) { background-color: #353930; }
+html[data-theme="dark"] .bg-\[\#E3ECF8\]:not(.keep-light, .keep-light *) { background-color: #2A2D26; }
+html[data-theme="dark"] .bg-\[\#E4F2E8\]:not(.keep-light, .keep-light *) { background-color: #2A2D26; }
+html[data-theme="dark"] .bg-\[\#E7E5DF\]:not(.keep-light, .keep-light *) { background-color: #2A2D26; }
+html[data-theme="dark"] .bg-\[\#EAF1FA\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#EEF0EA\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F0EFEA\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F1F0EB\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F3F2EE\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F3F8E2\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F3FBE6\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F4F8EE\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F5F4F0\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F6F8EF\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F7F7F5\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#F9E3E1\]:not(.keep-light, .keep-light *) { background-color: #2A2D26; }
+html[data-theme="dark"] .bg-\[\#FAEFDB\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#FAF9F6\]:not(.keep-light, .keep-light *) { background-color: #1B1D18; }
+html[data-theme="dark"] .bg-\[\#FAFAF8\]:not(.keep-light, .keep-light *) { background-color: #1B1D18; }
+html[data-theme="dark"] .bg-\[\#FAFDF5\]:not(.keep-light, .keep-light *) { background-color: #1B1D18; }
+html[data-theme="dark"] .bg-\[\#FBEAE8\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#FBF2E1\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#FBF3E2\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#FBFAF6\]:not(.keep-light, .keep-light *) { background-color: #1B1D18; }
+html[data-theme="dark"] .bg-\[\#FCFCFA\]:not(.keep-light, .keep-light *) { background-color: #1B1D18; }
+html[data-theme="dark"] .bg-\[\#FCFCFB\]:not(.keep-light, .keep-light *) { background-color: #1B1D18; }
+html[data-theme="dark"] .bg-\[\#FDF0E6\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#FDF3E3\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#FDF6E7\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .bg-\[\#FDF8EC\]:not(.keep-light, .keep-light *) { background-color: #22251F; }
+html[data-theme="dark"] .border-\[\#BDB9AE\]:not(.keep-light, .keep-light *) { border-color: #3B4036; }
+html[data-theme="dark"] .border-\[\#C9C6BC\]:not(.keep-light, .keep-light *) { border-color: #3B4036; }
+html[data-theme="dark"] .border-\[\#C9DAF0\]:not(.keep-light, .keep-light *) { border-color: rgba(127,179,232,0.35); }
+html[data-theme="dark"] .border-\[\#CFCCC3\]:not(.keep-light, .keep-light *) { border-color: #3B4036; }
+html[data-theme="dark"] .border-\[\#D3E3A1\]:not(.keep-light, .keep-light *) { border-color: rgba(129,251,2,0.35); }
+html[data-theme="dark"] .border-\[\#D6D3CA\]:not(.keep-light, .keep-light *) { border-color: #3B4036; }
+html[data-theme="dark"] .border-\[\#D98E1F\]:not(.keep-light, .keep-light *) { border-color: rgba(224,160,99,0.35); }
+html[data-theme="dark"] .border-\[\#E3B85C\]:not(.keep-light, .keep-light *) { border-color: rgba(224,160,99,0.35); }
+html[data-theme="dark"] .border-\[\#E6E1D4\]:not(.keep-light, .keep-light *) { border-color: #30342B; }
+html[data-theme="dark"] .border-\[\#EBD3A6\]:not(.keep-light, .keep-light *) { border-color: rgba(224,160,99,0.35); }
+html[data-theme="dark"] .border-\[\#EFC4C0\]:not(.keep-light, .keep-light *) { border-color: rgba(224,160,99,0.35); }
+html[data-theme="dark"] .border-\[\#F2C9A6\]:not(.keep-light, .keep-light *) { border-color: rgba(224,160,99,0.35); }
+html[data-theme="dark"] .border-\[\#F2D3A6\]:not(.keep-light, .keep-light *) { border-color: rgba(224,160,99,0.35); }
+html[data-theme="dark"] .border-\[\#F3F0E7\]:not(.keep-light, .keep-light *) { border-color: #30342B; }
+html[data-theme="dark"] .decoration-\[\#CFCCC3\]:not(.keep-light, .keep-light *) { text-decoration-color: #3B4036; }
+html[data-theme="dark"] .disabled\:bg-\[\#EAE8E2\]:not(.keep-light, .keep-light *):disabled { background-color: #2A2D26; }
+html[data-theme="dark"] .disabled\:bg-\[\#FAFAF8\]:not(.keep-light, .keep-light *):disabled { background-color: #1B1D18; }
+html[data-theme="dark"] .hover\:bg-\[\#D6EBDD\]:not(.keep-light, .keep-light *):hover { background-color: #2A2D26; }
+html[data-theme="dark"] .hover\:bg-\[\#E9E7E1\]:not(.keep-light, .keep-light *):hover { background-color: #2A2D26; }
+html[data-theme="dark"] .hover\:bg-\[\#EAE8E2\]:not(.keep-light, .keep-light *):hover { background-color: #2A2D26; }
+html[data-theme="dark"] .hover\:bg-\[\#EFEEE9\]:not(.keep-light, .keep-light *):hover { background-color: #22251F; }
+html[data-theme="dark"] .hover\:bg-\[\#F1F0EB\]:not(.keep-light, .keep-light *):hover { background-color: #22251F; }
+html[data-theme="dark"] .hover\:bg-\[\#FAF9F6\]:not(.keep-light, .keep-light *):hover { background-color: #1B1D18; }
+html[data-theme="dark"] .hover\:bg-\[\#FAFAF8\]:not(.keep-light, .keep-light *):hover { background-color: #1B1D18; }
+html[data-theme="dark"] .hover\:bg-\[\#FBEAE8\]:not(.keep-light, .keep-light *):hover { background-color: #22251F; }
+html[data-theme="dark"] .hover\:bg-\[\#FBFBF9\]:not(.keep-light, .keep-light *):hover { background-color: #1B1D18; }
+html[data-theme="dark"] .hover\:bg-\[\#FCFBF8\]:not(.keep-light, .keep-light *):hover { background-color: #1B1D18; }
+html[data-theme="dark"] .hover\:border-\[\#CFCCC3\]:not(.keep-light, .keep-light *):hover { border-color: #3B4036; }
+html[data-theme="dark"] .hover\:border-\[\#D3D0C7\]:not(.keep-light, .keep-light *):hover { border-color: #3B4036; }
+html[data-theme="dark"] .hover\:border-\[\#D9B877\]:not(.keep-light, .keep-light *):hover { border-color: rgba(224,160,99,0.35); }
+html[data-theme="dark"] .hover\:shadow-\[0_0_0_1px_\#E6E4DE\]:not(.keep-light, .keep-light *):hover { box-shadow: 0 0 0 1px #30342B, 0 1px 2px rgba(0,0,0,0.4); }
+html[data-theme="dark"] .hover\:text-\[\#0F2419\]:not(.keep-light, .keep-light *):hover { color: #8FD6A5; }
+html[data-theme="dark"] .placeholder\:text-\[\#918F86\]:not(.keep-light, .keep-light *)::placeholder { color: #9EA196; }
+html[data-theme="dark"] .shadow-\[0_0_0_1px_\#121210\]:not(.keep-light, .keep-light *) { box-shadow: 0 0 0 1px #30342B, 0 1px 2px rgba(0,0,0,0.4); }
+html[data-theme="dark"] .shadow-\[0_0_0_1px_\#E6E4DE\,0_1px_2px_rgba\(18\,18\,16\,0\.05\)\]:not(.keep-light, .keep-light *) { box-shadow: 0 0 0 1px #30342B, 0 1px 2px rgba(0,0,0,0.4); }
+html[data-theme="dark"] .text-\[\#0F2419\]:not(.keep-light, .keep-light *) { color: #8FD6A5; }
+html[data-theme="dark"] .text-\[\#143021\]:not(.keep-light, .keep-light *) { color: #8FD6A5; }
+html[data-theme="dark"] .text-\[\#1D4373\]:not(.keep-light, .keep-light *) { color: #A9CBF0; }
+html[data-theme="dark"] .text-\[\#1F5A33\]:not(.keep-light, .keep-light *) { color: #8FD6A5; }
+html[data-theme="dark"] .text-\[\#2B6A00\]:not(.keep-light, .keep-light *) { color: #8FD6A5; }
+html[data-theme="dark"] .text-\[\#5A3808\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+html[data-theme="dark"] .text-\[\#6B6A64\]:not(.keep-light, .keep-light *) { color: #9EA196; }
+html[data-theme="dark"] .text-\[\#6E440A\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+html[data-theme="dark"] .text-\[\#6E440A\]\/80:not(.keep-light, .keep-light *) { color: color-mix(in srgb, #E8B27A 80%, transparent); }
+html[data-theme="dark"] .text-\[\#7A4A0A\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+html[data-theme="dark"] .text-\[\#7A5A12\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+html[data-theme="dark"] .text-\[\#7D1F19\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+html[data-theme="dark"] .text-\[\#918F86\]:not(.keep-light, .keep-light *) { color: #9EA196; }
+html[data-theme="dark"] .text-\[\#9A4A10\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+html[data-theme="dark"] .text-\[\#A4600B\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+/* ─── end of dark mode ─── */

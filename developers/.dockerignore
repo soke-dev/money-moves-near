@@ -1,0 +1,7 @@
+# Nothing local goes into the image: no dependencies, builds, or environment files.
+node_modules
+dist
+.env
+.env.*
+*.local
+tsconfig.tsbuildinfo

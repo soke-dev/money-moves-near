@@ -1,0 +1,53 @@
+{
+  "name": "money-moves-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "prisma generate && tsc",
+    "start": "node dist/index.js",
+    "db:generate": "prisma generate",
+    "db:push": "prisma db push",
+    "db:migrate": "prisma migrate dev",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@aptos-labs/ts-sdk": "^6.3.1",
+    "@prisma/client": "^6.9.0",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
+    "@stellar/stellar-sdk": "^13.3.0",
+    "@ton/core": "^0.63.1",
+    "@ton/crypto": "^3.3.0",
+    "@ton/ton": "^16.3.0",
+    "@types/multer": "^2.1.0",
+    "axios": "^1.15.0",
+    "bcryptjs": "^3.0.2",
+    "bs58": "^6.0.0",
+    "cors": "^2.8.5",
+    "decimal.js": "^10.6.0",
+    "disposable-email-domains": "1.0.62",
+    "ethers": "^6.16.0",
+    "expo-server-sdk": "^6.1.0",
+    "express": "^5.1.0",
+    "express-rate-limit": "^7.5.0",
+    "got": "^11.8.6",
+    "helmet": "^8.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "jwks-rsa": "^4.1.0",
+    "multer": "^2.1.1",
+    "prisma": "^6.9.0",
+    "puppeteer": "^24.43.1",
+    "resend": "^4.5.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/bs58": "^4.0.4",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/jsonwebtoken": "^9.0.9",
+    "@types/node": "^22.15.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.9.2"
+  }
+}

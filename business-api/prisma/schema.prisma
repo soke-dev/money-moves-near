@@ -1,0 +1,1659 @@
+// Money Moves Business - its own database.
+//
+// Nothing here is shared with the Money Moves app's database. Where the two
+// meet (a linked Money Moves account, an app payment to a business) they talk
+// through a narrow internal API, never through each other's tables.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── People ───────────────────────────────────────────────────────────────
+//
+// A person, not a business: one sign-in, any number of businesses. Their own
+// password and 2-step live here because they follow them from business to
+// business. Business users are not Money Moves app users - separate logins.
+
+model User {
+  id            String    @id @default(cuid())
+  /// Always stored lowercased and trimmed.
+  email         String    @unique
+  emailVerified DateTime? @map("email_verified")
+  firstName     String?   @map("first_name")
+  lastName      String?   @map("last_name")
+  phone         String?
+
+  /// Null for someone who has only ever signed in with Google.
+  passwordHash      String?   @map("password_hash")
+  passwordChangedAt DateTime? @map("password_changed_at")
+  /// Their photo, an Image id.
+  avatarId          String?   @map("avatar_id")
+  /// Google's stable id for the account (the ID token's `sub`), once linked.
+  googleSub         String?   @unique @map("google_sub")
+
+  /// How the code after a password arrives. 2-step can't be turned off.
+  twoStep TwoStep @default(EMAIL) @map("two_step")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sessions    Session[]
+  codes       LoginCode[]
+  memberships Member[]
+  support     SupportThread[]
+
+  @@map("users")
+}
+
+enum TwoStep {
+  EMAIL
+  APP
+}
+
+/// A signed-in device. The cookie holds a random token; only its hash is kept,
+/// so a copy of this table can't be used to sign in.
+model Session {
+  id        String  @id @default(cuid())
+  userId    String  @map("user_id")
+  tokenHash String  @unique @map("token_hash")
+  userAgent String? @map("user_agent")
+  ip        String?
+  /// How this session began: a password and code, or Google.
+  method    String  @default("password")
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  lastSeenAt DateTime  @default(now()) @map("last_seen_at")
+  expiresAt  DateTime  @map("expires_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+/// A six-digit code sent by email: to confirm an address, as the second step
+/// of signing in, or to reset a password. Its id is the "challenge" the
+/// dashboard sends back with the code. The code itself is stored only as a
+/// keyed hash, and a few wrong tries end it.
+model LoginCode {
+  id       String      @id @default(cuid())
+  userId   String      @map("user_id")
+  purpose  CodePurpose
+  codeHash String      @map("code_hash")
+  attempts Int         @default(0)
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, purpose])
+  @@map("login_codes")
+}
+
+enum CodePurpose {
+  VERIFY_EMAIL
+  SIGN_IN
+  RESET_PASSWORD
+  /**
+   * The business wallet's transfer PIN, forgotten: the owner proves it's them by email.
+   */
+  RESET_WALLET_PIN
+}
+
+// ─── Businesses ───────────────────────────────────────────────────────────
+
+model Business {
+  // Never deleted - deactivated (SUSPENDED) instead. The database refuses to delete a
+  // business or anything it owns (migration 20261011160000_keep_everything).
+  id          String         @id @default(cuid())
+  name        String
+  kind        BusinessKind
+  /// Short, public, safe to show: in API keys and on receipts.
+  merchantId  String         @unique @map("merchant_id")
+  status      BusinessStatus @default(UNVERIFIED)
+  country     String         @default("NG")
+  /// Crypto always settles as USDC, on the one chain the business picks - whatever the
+  /// customer paid with. Payments land in our treasury; the equivalent leaves from our
+  /// USDC float on this chain, to the business wallet or a linked Money Moves account.
+  settleChain SettleChain    @default(MOVEMENT) @map("settle_chain")
+  /// Who pays the processing fee: the business (out of what it receives) or the customer (added on top at checkout).
+  feePayer    FeePayer       @default(BUSINESS) @map("fee_payer")
+  /// Its look on checkouts: the logo (an Image id), and { surface, accent, success }.
+  logoId      String?        @map("logo_id")
+  brand       Json?
+
+  // ─── Set by our team, never shown to the business ───
+  /// Why the status is what it is - written when our team verifies, pauses or reopens a business.
+  statusReason    String?   @map("status_reason")
+  statusChangedAt DateTime? @map("status_changed_at")
+  /// Our team's notes on the business.
+  adminNote       String?   @map("admin_note")
+  /// The naira fee for this business when it isn't the default: basis points (50 = 0.5%) and a cap in kobo.
+  feeRateBps      Int?      @map("fee_rate_bps")
+  feeCapKobo      Int?      @map("fee_cap_kobo")
+
+  /// Its own code for inviting other businesses, made the first time it's asked for.
+  referralCode String? @unique @map("referral_code")
+  /// The business whose code it signed up with.
+  referredById String? @map("referred_by_id")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  members          Member[]
+  bankAccounts     BankAccount[]
+  moneyMovesLinks  MoneyMovesLink[]
+  detailChanges    DetailChange[]
+  links            PaymentLink[]
+  invoices         Invoice[]
+  outlets          Outlet[]
+  payments         Payment[]
+  settlements      Settlement[]
+  refunds          Refund[]
+  requests         InfoRequest[]
+  support          SupportThread[]
+  apiKeys          ApiKey[]
+  webhookEndpoints WebhookEndpoint[]
+  application      Application?
+  documents        Document[]
+  identityChecks   IdentityCheck[]
+  wallet           BusinessWallet?
+  invites          Invite[]
+  disputes         Dispute[]
+
+  @@index([referredById])
+  @@map("businesses")
+}
+
+/// Where crypto settles, as USDC. Movement is the default, and where a business
+/// on a chain that's been switched off is moved.
+enum SettleChain {
+  MOVEMENT
+  ARC
+  MONAD
+  SOLANA
+  STELLAR
+}
+
+/// A registered company, or someone working for themselves ("Just me").
+enum BusinessKind {
+  REGISTERED
+  INDIVIDUAL
+}
+
+enum BusinessStatus {
+  UNVERIFIED
+  IN_REVIEW
+  VERIFIED
+  SUSPENDED
+}
+
+model Member {
+  id                 String    @id @default(cuid())
+  businessId         String    @map("business_id")
+  userId             String    @map("user_id")
+  role               Role
+  /// When this person closed the "you're approved" notice - it never shows to them again.
+  liveNoticeClosedAt DateTime? @map("live_notice_closed_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([businessId, userId])
+  @@index([userId])
+  @@map("members")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  DEVELOPER
+  FINANCE
+  SUPPORT
+  VIEWER
+}
+
+// ─── Money ────────────────────────────────────────────────────────────────
+//
+// Amounts are whole minor units: kobo for naira, cents for dollars. No
+// balance is kept for a business anywhere here - a payment arrives in an
+// account we control for that one checkout and leaves for its destination as
+// soon as it confirms. These tables record that it happened; they can't be
+// spent from.
+//
+// Test mode and live mode are kept apart on every row. Test payments run on
+// the simulator in every environment and never touch a real account; live
+// ones need a verified business.
+
+enum Mode {
+  TEST
+  LIVE
+}
+
+enum Currency {
+  NGN
+  USD
+}
+
+/// How a customer pays at checkout.
+enum PayMethod {
+  APP
+  CRYPTO
+  NAIRA
+}
+
+/// Where a link's payments go: the business's bank as naira, a linked Money
+/// Moves account, or the business wallet.
+enum Destination {
+  BANK
+  MONEY_MOVES
+  WALLET
+}
+
+/// A bank account the business can be paid to. Up to five; one is the default.
+/// The bank's own name for the account is kept, and whether it matched the
+/// business (or, for "Just me", the person) when it was added.
+model BankAccount {
+  id            String    @id @default(cuid())
+  businessId    String    @map("business_id")
+  bankCode      String    @map("bank_code")
+  bankName      String    @map("bank_name")
+  accountNumber String    @map("account_number")
+  accountName   String    @map("account_name")
+  nameMatches   Boolean   @map("name_matches")
+  isDefault     Boolean   @default(false) @map("is_default")
+  /// Set when our team looked at the name by hand (approving one the check couldn't match, or turning one down).
+  reviewedBy    String?   @map("reviewed_by")
+  reviewedAt    DateTime? @map("reviewed_at")
+
+  createdAt DateTime  @default(now()) @map("created_at")
+  /// Removed accounts are kept, so past settlements still say where they went.
+  removedAt DateTime? @map("removed_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@map("bank_accounts")
+}
+
+enum MoneyMovesLinkStatus {
+  /// Asked: waiting for the account's owner to approve it in the app.
+  PENDING
+  LINKED
+  DECLINED
+  /// Nobody answered within a week.
+  EXPIRED
+  /// Ended by the business or by the account's owner. Kept for the record.
+  UNLINKED
+}
+
+/**
+ * A Money Moves account payments can land in. Asked for by username, but
+ * linked only when the account's owner approves it in the app - and from then
+ * on keyed on the account itself, so a username change breaks nothing.
+ */
+model MoneyMovesLink {
+  id           String               @id @default(cuid())
+  businessId   String               @map("business_id")
+  /// The username typed when it was asked for - the app holds the current one.
+  username     String
+  /// The request on the app's side.
+  appLinkId    String               @unique @map("app_link_id")
+  /// The Money Moves account, once approved.
+  appAccountId String?              @map("app_account_id")
+  status       MoneyMovesLinkStatus @default(PENDING)
+  isDefault    Boolean              @default(false) @map("is_default")
+  requestedBy  String               @map("requested_by")
+  createdAt    DateTime             @default(now()) @map("created_at")
+  linkedAt     DateTime?            @map("linked_at")
+  endedAt      DateTime?            @map("ended_at")
+  checkedAt    DateTime?            @map("checked_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@index([status])
+  @@map("money_moves_links")
+}
+
+/// A link anyone can pay. Its address (slug) never changes once made.
+model PaymentLink {
+  id            String      @id @default(cuid())
+  businessId    String      @map("business_id")
+  mode          Mode
+  slug          String      @unique
+  name          String
+  description   String?
+  /// What the checkout leads with; the other currency is shown as the equivalent.
+  currency      Currency
+  /// The price in the link's currency, in minor units. Null: the customer types the amount.
+  amountMinor   Int?        @map("amount_minor")
+  /// For a typed amount, the least it can be, in minor units.
+  minMinor      Int?        @map("min_minor")
+  methods       PayMethod[]
+  /// Coins and networks it takes from a crypto wallet: { "USDC": ["Base", ...] }. Null: every one that's switched on.
+  accept        Json?
+  destination   Destination
+  /// Which bank account, when it settles to a bank. Null: the default one.
+  bankAccountId String?     @map("bank_account_id")
+  redirectUrl   String?     @map("redirect_url")
+  askPhone      Boolean     @default(false) @map("ask_phone")
+  /// Whether a bank or crypto customer is asked their name; their email is always asked.
+  askName       Boolean     @default(true) @map("ask_name")
+  /// Who pays the processing fee on this one; null follows the business's default.
+  feePayer      FeePayer?   @map("fee_payer")
+  active        Boolean     @default(true)
+  /// Made through the API: the key that made it, and the merchant's own reference for it.
+  apiKeyId      String?     @map("api_key_id")
+  reference     String?
+  /// API checkouts: the merchant's own key-value data, given back on every payment and event.
+  metadata      Json?
+  /// API checkouts: after this it takes no more payments.
+  expiresAt     DateTime?   @map("expires_at")
+  /// API checkouts: who it's for, so the checkout doesn't ask again.
+  customerEmail String?     @map("customer_email")
+  customerName  String?     @map("customer_name")
+
+  createdById String?   @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  /// Deleted links keep their row (and their address), so it is never reused for something else.
+  deletedAt   DateTime? @map("deleted_at")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  apiKey   ApiKey?   @relation(fields: [apiKeyId], references: [id], onDelete: Restrict)
+  payments Payment[]
+
+  @@index([businessId, mode])
+  @@index([apiKeyId])
+  @@map("payment_links")
+}
+
+/// An invoice's life: a draft, sent and waiting (OPEN), paid - or voided by the business, and kept.
+enum InvoiceStatus {
+  DRAFT
+  OPEN
+  PAID
+  VOID
+}
+
+/// A bill to one customer, by email: line items, a due date, and a link to pay it from.
+model Invoice {
+  id            String        @id @default(cuid())
+  businessId    String        @map("business_id")
+  mode          Mode
+  /// INV-0001 and up, counted per business and mode.
+  number        String
+  /// The customer's link - random, so it can't be worked out from the number.
+  token         String        @unique
+  customerName  String        @map("customer_name")
+  customerEmail String        @map("customer_email")
+  currency      Currency
+  /// [{ name, qty, priceMinor }], in the invoice's currency.
+  items         Json
+  note          String?
+  /// The total, in the currency's minor units.
+  amountMinor   Int           @map("amount_minor")
+  methods       PayMethod[]
+  /// Coins and networks it takes from a crypto wallet: { "USDC": ["Base", ...] }. Null: every one that's switched on.
+  accept        Json?
+  destination   Destination
+  bankAccountId String?       @map("bank_account_id")
+  status        InvoiceStatus @default(DRAFT)
+  dueAt         DateTime      @map("due_at")
+  /// Who pays the processing fee on this invoice; null follows the business's default.
+  feePayer      FeePayer?     @map("fee_payer")
+  sentAt        DateTime?     @map("sent_at")
+  /// When the customer first opened it.
+  viewedAt      DateTime?     @map("viewed_at")
+  remindedAt    DateTime?     @map("reminded_at")
+  paidAt        DateTime?     @map("paid_at")
+  voidedAt      DateTime?     @map("voided_at")
+  createdById   String?       @map("created_by_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  payments Payment[]
+
+  @@unique([businessId, mode, number])
+  @@index([businessId, mode, status])
+  @@map("invoices")
+}
+
+/// A till or a shop: a QR on the counter and a link. The customer types the amount.
+model Outlet {
+  id            String      @id @default(cuid())
+  businessId    String      @map("business_id")
+  mode          Mode
+  /// Its address for life - the poster on the counter depends on it.
+  slug          String      @unique
+  name          String
+  location      String
+  /// What customers type the amount in.
+  currency      Currency
+  methods       PayMethod[]
+  /// Coins and networks it takes from a crypto wallet: { "USDC": ["Base", ...] }. Null: every one that's switched on.
+  accept        Json?
+  destination   Destination
+  bankAccountId String?     @map("bank_account_id")
+  /// Who should see its payments as they land - that feed comes later.
+  staffEmail    String?     @map("staff_email")
+  /// Whether a bank or crypto customer is asked their name; their email is always asked.
+  askName       Boolean     @default(true) @map("ask_name")
+  /// Who pays the processing fee on this one; null follows the business's default.
+  feePayer      FeePayer?   @map("fee_payer")
+  active        Boolean     @default(true)
+  createdById   String?     @map("created_by_id")
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+  /// Deleted by the business: off for good and its address never reused. The row stays.
+  deletedAt     DateTime?   @map("deleted_at")
+
+  business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  payments Payment[]
+
+  @@index([businessId, mode])
+  @@map("outlets")
+}
+
+enum PaymentStatus {
+  /// Waiting for the customer: an account (or address) is open for this payment.
+  OPEN
+  PAID
+  /// Less than the amount arrived. It's held, not settled, until it's sorted out.
+  UNDERPAID
+  /// Closed with nothing received.
+  EXPIRED
+}
+
+/// One customer paying once. For a naira transfer it carries the one-time
+/// account the customer was given, and then what arrived and from whom.
+model Payment {
+  id         String        @id @default(cuid())
+  /// Shown on receipts and in the dashboard: "MMB-7K2Q9XHD".
+  ref        String        @unique
+  /// The checkout page's handle on this payment. Random, so it can't be guessed from a ref.
+  token      String        @unique
+  businessId String        @map("business_id")
+  linkId     String?       @map("link_id")
+  /// Or the invoice, or the outlet - one of the three, or none (API checkouts, later).
+  invoiceId  String?       @map("invoice_id")
+  outletId   String?       @map("outlet_id")
+  mode       Mode
+  method     PayMethod
+  status     PaymentStatus @default(OPEN)
+
+  /// The money the checkout led with.
+  currency        Currency
+  /// What the customer has to send, in kobo.
+  amountKobo      Int      @map("amount_kobo")
+  /// The dollar price when the link is priced in dollars; otherwise the equivalent at `ngnPerUsd`.
+  amountCents     Int      @map("amount_cents")
+  /// The processing fee added on top for the customer, when the business has the customer pay it. Null: the business pays.
+  customerFeeKobo Int?     @map("customer_fee_kobo")
+  /// The rate used: naira per dollar.
+  ngnPerUsd       Float    @map("ngn_per_usd")
+
+  customerEmail String? @map("customer_email")
+  customerName  String? @map("customer_name")
+  customerPhone String? @map("customer_phone")
+
+  // The one-time account the customer pays into.
+  accountBank   String?  @map("account_bank")
+  accountNumber String?  @map("account_number")
+  accountName   String?  @map("account_name")
+  providerRef   String?  @map("provider_ref")
+  expiresAt     DateTime @map("expires_at")
+
+  // A test crypto payment: the coin, the network, and the address shown for it.
+  coin           String?      @map("coin")
+  network        String?      @map("network")
+  depositAddress String?      @map("deposit_address")
+  /// Live crypto: the amount to send (USDC or USDT, six decimals). Sent to the treasury (AMOUNT), it's unique among open payments, so the transfer can be matched to this payment.
+  cryptoMicros   BigInt?      @map("crypto_micros")
+  /// Live crypto: how the transfer is told apart - an address of its own, a memo (Stellar, TON), or the exact amount.
+  depositKind    DepositKind? @map("deposit_kind")
+  /// The memo or comment to send with it, when the kind is MEMO.
+  depositMemo    String?      @map("deposit_memo")
+  /// Live crypto with an address or memo of its own: what has arrived so far, six decimals - part payments add up.
+  receivedMicros BigInt?      @map("received_micros")
+  /// Its own address, after it closed: when it was last looked at for anything sent late.
+  lookedAt       DateTime?    @map("looked_at")
+  /// Live, by the Money Moves app: the code its QR carries, and the username it was sent to.
+  appCode        String?      @map("app_code")
+  appSentTo      String?      @map("app_sent_to")
+
+  // What arrived, as the bank reports it.
+  receivedKobo Int?      @map("received_kobo")
+  payerName    String?   @map("payer_name")
+  payerBank    String?   @map("payer_bank")
+  payerAccount String?   @map("payer_account")
+  /// The NIP session id: what both banks can trace the transfer by.
+  payerSession String?   @map("payer_session")
+  paidAt       DateTime? @map("paid_at")
+  /// Our fee, taken from what arrived before it settles.
+  feeKobo      Int?      @map("fee_kobo")
+
+  /// Test mode only: the simulator makes this payment's settlement fail, to show how that's handled.
+  simFailSettlement Boolean   @default(false) @map("sim_fail_settlement")
+  lastCheckedAt     DateTime? @map("last_checked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  business   Business        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  link       PaymentLink?    @relation(fields: [linkId], references: [id])
+  invoice    Invoice?        @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  outlet     Outlet?         @relation(fields: [outletId], references: [id], onDelete: Restrict)
+  settlement Settlement?
+  refunds    Refund[]
+  arrivals   CryptoArrival[]
+  disputes   Dispute[]
+
+  @@index([businessId, mode, createdAt])
+  @@index([status, expiresAt])
+  @@index([linkId])
+  @@index([invoiceId])
+  @@index([outletId])
+  @@index([depositAddress])
+  @@index([depositMemo])
+  @@map("payments")
+}
+
+enum SettlementStatus {
+  /// Ready to send.
+  QUEUED
+  /// Being handed to the bank rail right now.
+  SENDING
+  /// The rail has it; waiting for the bank to confirm.
+  SENT
+  SETTLED
+  /// The rail said no, or we can't tell what happened. Never retried by itself:
+  /// ops checks with the rail first, then resends or sends it elsewhere. The
+  /// business sees it as on its way, never as failed.
+  FAILED
+  /// Nowhere it can go yet (no checked bank account, no business wallet). Ops sorts it out.
+  HELD
+  /// Bigger than the review limit set in Services: waits for a person, who sends
+  /// it on or pays it by hand. Live only. The business sees it as on its way -
+  /// it's never told there's a review.
+  REVIEW
+}
+
+/// Where one payment's money went: exactly one per settled payment, sent the
+/// moment it confirms - never batched.
+model Settlement {
+  id          String           @id @default(cuid())
+  /// Our reference with the bank rail. Letters and digits only, and the same
+  /// on every attempt, so the rail can refuse a duplicate.
+  ref         String           @unique
+  paymentId   String           @unique @map("payment_id")
+  businessId  String           @map("business_id")
+  mode        Mode
+  destination Destination
+  status      SettlementStatus @default(QUEUED)
+
+  /// What it was sent to, as it was at the time - kept even if the account is removed later.
+  bankAccountId String? @map("bank_account_id")
+  bankCode      String? @map("bank_code")
+  bankName      String? @map("bank_name")
+  accountNumber String? @map("account_number")
+  accountName   String? @map("account_name")
+
+  /// What the business receives: what arrived, less our fee.
+  amountKobo Int @map("amount_kobo")
+  feeKobo    Int @map("fee_kobo")
+
+  /// On-chain settlements (the business wallet, a Money Moves account): where, how much, and the transaction.
+  chain        SettleChain? @map("chain")
+  toAddress    String?      @map("to_address")
+  /// USDC, six decimals.
+  amountMicros BigInt?      @map("amount_micros")
+  txHash       String?      @map("tx_hash")
+
+  providerRef   String?   @map("provider_ref")
+  /// For ops only. The business never sees why a settlement is late.
+  failureReason String?   @map("failure_reason")
+  sentAt        DateTime? @map("sent_at")
+  settledAt     DateTime? @map("settled_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  payment  Payment           @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  business Business          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  events   SettlementEvent[]
+
+  @@index([status])
+  @@index([businessId, mode, createdAt])
+  @@map("settlements")
+}
+
+/// What happened to a settlement, in order: created, sent, confirmed or
+/// failed, then whatever our team did about it - checked with the rail,
+/// resent, marked delivered, noted. Written as it happens; never edited.
+model SettlementEvent {
+  id           String   @id @default(cuid())
+  settlementId String   @map("settlement_id")
+  kind         String
+  detail       Json?
+  /// "system", or the admin's email.
+  by           String   @default("system")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  settlement Settlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+
+  @@index([settlementId, createdAt])
+  @@map("settlement_events")
+}
+
+// ─── The simulator ────────────────────────────────────────────────────────
+//
+// Stands in for the bank rail in test mode (and for everything on staging).
+// It behaves like the real one from the outside: a transfer "arrives" in a
+// one-time account and is found by polling; a payout is accepted, then
+// confirms a few seconds later. No real money is involved anywhere.
+
+/// A pretend transfer into a one-time account, made from the test checkout.
+model SimInbound {
+  id           String   @id @default(cuid())
+  /// The payment's reference with the rail.
+  ref          String
+  amountKobo   Int      @map("amount_kobo")
+  payerName    String   @map("payer_name")
+  payerBank    String   @map("payer_bank")
+  payerAccount String   @map("payer_account")
+  session      String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([ref])
+  @@map("sim_inbound")
+}
+
+/// A pretend payout to a bank account.
+model SimTransfer {
+  ref           String   @id
+  amountKobo    Int      @map("amount_kobo")
+  bankCode      String   @map("bank_code")
+  accountNumber String   @map("account_number")
+  /// Set by the test checkout's "make the settlement fail" option.
+  fail          Boolean  @default(false)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@map("sim_transfers")
+}
+
+// ─── Going live: the application, its documents, the identity check ─────
+//
+// Nothing here is ever simulated, in any environment: the documents are the
+// files the business gave us, the identity check is Didit's own decision, and
+// a person on our team approves the application. Only money rails have a
+// simulator.
+
+enum ApplicationStatus {
+  /**
+   * Being filled in.
+   */
+  DRAFT
+  /**
+   * Sent to our team, not picked up yet.
+   */
+  SUBMITTED
+  /**
+   * Someone on our team is looking at it.
+   */
+  IN_REVIEW
+  /**
+   * Our team asked for something to be changed; the business can edit and send it again.
+   */
+  CHANGES_REQUESTED
+  APPROVED
+  REJECTED
+}
+
+/// A business's application to take live payments: its answers to the
+/// activation steps (kept as the dashboard sends them, and checked in full on
+/// submit), and what our team decided.
+model Application {
+  id           String            @id @default(cuid())
+  businessId   String            @unique @map("business_id")
+  status       ApplicationStatus @default(DRAFT)
+  answers      Json              @default("{}")
+  submittedAt  DateTime?         @map("submitted_at")
+  submittedBy  String?           @map("submitted_by")
+  reviewedAt   DateTime?         @map("reviewed_at")
+  reviewedBy   String?           @map("reviewed_by")
+  /// What our team told the business - why it was turned down, or what to change. The business sees this.
+  decisionNote String?           @map("decision_note")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([status])
+  @@map("applications")
+}
+
+/// A live business asking to change its name, phone or support contacts. Nothing
+/// changes for its customers until our team approves it - the same check as when
+/// it first activated.
+model DetailChange {
+  id          String             @id @default(cuid())
+  businessId  String             @map("business_id")
+  requestedBy String             @map("requested_by")
+  /// What they asked for: { name?, phone?, supportEmail?, supportPhone? }.
+  changes     Json
+  /// What each of those was when they asked, so the team sees both side by side.
+  before      Json
+  status      DetailChangeStatus @default(PENDING)
+  /// Why it was turned down. The business sees this.
+  note        String?
+  decidedAt   DateTime?          @map("decided_at")
+  decidedBy   String?            @map("decided_by")
+  createdAt   DateTime           @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, status])
+  @@index([status])
+  @@map("detail_changes")
+}
+
+enum DetailChangeStatus {
+  PENDING
+  APPROVED
+  DECLINED
+  CANCELLED
+}
+
+/// A file a business gave us: a CAC certificate, a MEMART, a status report, a
+/// proof of address. Encrypted before it's stored (lib/vault), with a key that
+/// never touches the database.
+model Document {
+  id         String @id @default(cuid())
+  businessId String @map("business_id")
+  /// Which document: cert, memart, status, constitution, address (the business's), proofOfAddress (the person's).
+  kind       String
+  filename   String
+  mime       String
+  size       Int
+  /// Of the original file, to spot the same file sent twice.
+  sha256     String
+  /// AES-256-GCM: 12-byte IV, 16-byte tag, then the ciphertext.
+  data       Bytes
+  uploadedBy String @map("uploaded_by")
+
+  /// Our team's view of it: ACCEPTED or REJECTED, null until someone looks.
+  verdict     String?   @map("verdict")
+  verdictNote String?   @map("verdict_note")
+  reviewedBy  String?   @map("reviewed_by")
+  reviewedAt  DateTime? @map("reviewed_at")
+
+  createdAt  DateTime  @default(now()) @map("created_at")
+  /// Replaced by a newer file of the same kind (or removed). Kept for the record.
+  replacedAt DateTime? @map("replaced_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, kind])
+  @@map("documents")
+}
+
+enum IdentityStatus {
+  /**
+   * Started, or waiting on the person.
+   */
+  PENDING
+  /**
+   * Didit's own team is looking at it.
+   */
+  IN_REVIEW
+  APPROVED
+  DECLINED
+}
+
+/// The account representative's identity check: NIN and a selfie, by Didit.
+/// We keep the session and what the decision said - never the selfie, and
+/// only the last four characters of the document number.
+model IdentityCheck {
+  id             String         @id @default(cuid())
+  businessId     String         @map("business_id")
+  userId         String         @map("user_id")
+  provider       String         @default("didit")
+  sessionId      String         @unique @map("session_id")
+  url            String
+  /// Didit's own words: Not Started, In Progress, In Review, Approved, Declined...
+  providerStatus String         @map("provider_status")
+  status         IdentityStatus @default(PENDING)
+  firstName      String?        @map("first_name")
+  lastName       String?        @map("last_name")
+  dateOfBirth    String?        @map("date_of_birth")
+  documentLast4  String?        @map("document_last4")
+  /// What Didit warned about, if anything (a face matching another account, say) - for our team.
+  warnings       Json?
+  checkedAt      DateTime?      @map("checked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId])
+  @@index([status])
+  @@map("identity_checks")
+}
+
+// ─── The platform's switches ──────────────────────────────────────────────
+
+/// Set from the admin console's Services page: which ways to pay, checkouts,
+/// settlement places and chains are on, the default fees and limits, and the
+/// kill switches. Read through lib/platform, which gives anything unset its
+/// default - a new switch never needs a migration.
+enum DepositKind {
+  /// An address made for this payment alone.
+  OWN
+  /// Our treasury, with a memo (Stellar) or comment (TON) that names the payment.
+  MEMO
+  /// Our treasury, with an amount no other open payment is using.
+  AMOUNT
+}
+
+/**
+ * One stablecoin transfer that reached us, however it's later used: towards
+ * its payment, given back, or waiting for our team. Each is recorded once (by
+ * its session: transaction and log index), so a scan that overlaps another
+ * can never count it twice.
+ */
+model CryptoArrival {
+  id          String    @id @default(cuid())
+  /// "<transaction>:<index>": one row per transfer.
+  session     String    @unique
+  paymentId   String?   @map("payment_id")
+  network     String
+  coin        String
+  /// The contract, mint, asset or issuer it came as.
+  token       String?
+  /// Six decimals.
+  micros      BigInt
+  fromAddress String?   @map("from_address")
+  toAddress   String    @map("to_address")
+  memo        String?
+  txHash      String    @map("tx_hash")
+  /// PAYMENT: arrived for its payment. EXTRA: arrived when it wasn't needed (late, extra, short, another coin). UNMATCHED: no payment it could be for.
+  kind        String
+  /// How much of it paid for the payment; the rest is to be given back.
+  usedMicros  BigInt    @default(0) @map("used_micros")
+  /// Its own address emptied into the treasury.
+  sweptAt     DateTime? @map("swept_at")
+  sweepTx     String?   @map("sweep_tx")
+  /// Being swept right now: who claimed it, so two workers can't both send.
+  sweepingAt  DateTime? @map("sweeping_at")
+
+  // Giving back what wasn't used.
+  /// What goes back, six decimals; null when nothing does.
+  returnMicros  BigInt?   @map("return_micros")
+  /// ASK: waiting for the customer to say where. QUEUED: going back by itself. SENDING, SENT. MANUAL: our team sends it. FAILED. KEPT: our team decided it stays (dust, or matched by hand).
+  returnStatus  String?   @map("return_status")
+  /// Why it goes back: overpaid, late, short, wrong_coin, unmatched.
+  returnWhy     String?   @map("return_why")
+  returnTo      String?   @map("return_to")
+  returnMemo    String?   @map("return_memo")
+  /// The customer's link to say where it goes back.
+  returnToken   String?   @unique @map("return_token")
+  returnTx      String?   @map("return_tx")
+  returnError   String?   @map("return_error")
+  returnAskedAt DateTime? @map("return_asked_at")
+  returnSentAt  DateTime? @map("return_sent_at")
+  /// Who decided where it goes: system, customer, or an admin's email.
+  returnBy      String?   @map("return_by")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  payment Payment? @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([toAddress])
+  @@index([returnStatus])
+  @@index([kind, createdAt])
+  @@map("crypto_arrivals")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedBy String?  @map("updated_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+// ─── Record ───────────────────────────────────────────────────────────────
+
+/// Who did what, and from where. Written for every sign-in and every change
+/// that matters; never edited.
+model AuditLog {
+  id         String   @id @default(cuid())
+  businessId String?  @map("business_id")
+  userId     String?  @map("user_id")
+  action     String
+  detail     Json?
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([businessId, createdAt])
+  @@index([userId, createdAt])
+  @@map("audit_log")
+}
+
+// ─── Refunds ──────────────────────────────────────────────────────────────
+//
+// We never hold a business's money, so a refund has two legs: the business
+// sends us what it received for that share of the payment (our fee on it comes
+// back, so it never sends more than it got), then we send the customer what
+// they paid, the way they paid. Money we never settled - an underpayment - goes
+// back without the first leg. In test mode both legs are simulated and the
+// refund completes by itself; live, our team sends the second leg by hand and
+// marks it done, while the business watches it move.
+
+enum RefundStatus {
+  /// Waiting for the business's money.
+  AWAITING_FUNDS
+  /// We have it; on its way to the customer.
+  SENDING
+  /// It reached the customer.
+  REFUNDED
+  /// Called off before any money moved.
+  CANCELLED
+}
+
+/// How the business sends us the money for a refund.
+enum RefundFunding {
+  /// Its business wallet.
+  WALLET
+  /// Approved in the Money Moves app.
+  APP
+  /// A transfer to a one-time account.
+  BANK
+  /// Money we never settled, like an underpayment - nothing to send.
+  HELD
+}
+
+model Refund {
+  id         String        @id @default(cuid())
+  /// "MMBR-7K2Q9XHD": the refund's own reference, and the one-time account's.
+  ref        String        @unique
+  businessId String        @map("business_id")
+  paymentId  String        @map("payment_id")
+  mode       Mode
+  status     RefundStatus  @default(AWAITING_FUNDS)
+  funding    RefundFunding
+
+  /// What the customer gets back: naira for a transfer, coins (a dollar each) for the app and crypto. Both kept.
+  amountKobo  Int @map("amount_kobo")
+  amountCents Int @map("amount_cents")
+  /// Our fee on that share, given back - the business sends the rest.
+  feeBackKobo Int @map("fee_back_kobo")
+  /// What the business sends: naira by bank transfer, dollars from the app or its wallet. Zero when we held it.
+  fundKobo    Int @map("fund_kobo")
+  fundCents   Int @map("fund_cents")
+
+  /// The one-time account a bank-transfer refund is funded through.
+  fundBank        String?   @map("fund_bank")
+  fundAccount     String?   @map("fund_account")
+  fundName        String?   @map("fund_name")
+  fundProviderRef String?   @map("fund_provider_ref")
+  fundExpiresAt   DateTime? @map("fund_expires_at")
+  /// Funded from the Money Moves app: the request's code, which the app opens by QR or link.
+  fundCode        String?   @map("fund_code")
+  /// The transaction that funded it, from the app or the business wallet. Pays one refund only.
+  fundTx          String?   @unique @map("fund_tx")
+  fundedAt        DateTime? @map("funded_at")
+
+  /// Where it goes back - the way the customer paid, as it was: BANK, APP or WALLET.
+  toKind    String  @map("to_kind")
+  toName    String? @map("to_name")
+  toBank    String? @map("to_bank")
+  /// The account number, the @handle, or the wallet address.
+  toAccount String? @map("to_account")
+  toCoin    String? @map("to_coin")
+  toNetwork String? @map("to_network")
+
+  reason        String?
+  requestedBy   String    @map("requested_by")
+  /// Live: who on our team sent it, when, and anything they noted (the transfer's reference).
+  sentBy        String?   @map("sent_by")
+  sendNote      String?   @map("send_note")
+  doneAt        DateTime? @map("done_at")
+  lastCheckedAt DateTime? @map("last_checked_at")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  payment  Payment       @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  events   RefundEvent[]
+
+  @@index([businessId, mode, createdAt])
+  @@index([paymentId])
+  @@index([status])
+  @@map("refunds")
+}
+
+/// What happened to a refund, in order. Written as it happens; never edited.
+model RefundEvent {
+  id        String   @id @default(cuid())
+  refundId  String   @map("refund_id")
+  kind      String
+  detail    Json?
+  /// "system", the business member's id, or the admin's email.
+  by        String   @default("system")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  refund Refund @relation(fields: [refundId], references: [id], onDelete: Restrict)
+
+  @@index([refundId, createdAt])
+  @@map("refund_events")
+}
+
+// ─── What our team asks for ───────────────────────────────────────────────
+//
+// Anything the review team needs from a business after (or alongside) its
+// application: a BVN, a written answer, a photo or a document. It shows in the
+// business's Compliance as a task; it never pauses the account by itself.
+
+enum InfoRequestKind {
+  /**
+   * A written answer.
+   */
+  TEXT
+  /**
+   * A photo or a document (PDF, JPEG or PNG).
+   */
+  FILE
+  /**
+   * Eleven digits, kept sealed - only the last four are ever shown.
+   */
+  BVN
+}
+
+enum InfoRequestStatus {
+  /**
+   * Waiting for the business.
+   */
+  OPEN
+  /**
+   * Answered, waiting for our team.
+   */
+  ANSWERED
+  ACCEPTED
+  /**
+   * Not right - the business is told why and answers again.
+   */
+  REJECTED
+  /**
+   * Withdrawn by our team.
+   */
+  CANCELLED
+}
+
+model InfoRequest {
+  id         String            @id @default(cuid())
+  businessId String            @map("business_id")
+  kind       InfoRequestKind
+  title      String
+  /**
+   * What exactly is wanted, in the team's words.
+   */
+  detail     String?
+  status     InfoRequestStatus @default(OPEN)
+  askedBy    String            @map("asked_by")
+
+  /**
+   * A written answer.
+   */
+  answerText   String?   @map("answer_text")
+  /**
+   * A BVN, sealed like a document; the hint is all that's shown without opening it.
+   */
+  answerSealed Bytes?    @map("answer_sealed")
+  answerHint   String?   @map("answer_hint")
+  /**
+   * A photo or document: its file, kept with the business's documents.
+   */
+  documentId   String?   @map("document_id")
+  answeredBy   String?   @map("answered_by")
+  answeredAt   DateTime? @map("answered_at")
+
+  reviewedBy String?   @map("reviewed_by")
+  reviewedAt DateTime? @map("reviewed_at")
+  /**
+   * Why it was turned down - the business sees this.
+   */
+  reviewNote String?   @map("review_note")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, status])
+  @@map("info_requests")
+}
+
+// ─── Talking to our team ──────────────────────────────────────────────────
+//
+// The help chat in the dashboard: one conversation per person per business,
+// answered from the admin console. Whoever isn't there is emailed about the
+// first message they haven't seen. Photos are sealed like documents.
+
+enum SupportFrom {
+  USER
+  TEAM
+}
+
+enum SupportStatus {
+  OPEN
+  CLOSED
+}
+
+model SupportThread {
+  id         String        @id @default(cuid())
+  userId     String        @map("user_id")
+  businessId String?       @map("business_id")
+  status     SupportStatus @default(OPEN)
+  /// The latest message, either way - what the inbox sorts by.
+  lastAt     DateTime      @default(now()) @map("last_at")
+  /// When each side last read it: unread is anything newer from the other side.
+  userReadAt DateTime?     @map("user_read_at")
+  teamReadAt DateTime?     @map("team_read_at")
+  closedAt   DateTime?     @map("closed_at")
+  closedBy   String?       @map("closed_by")
+  createdAt  DateTime      @default(now()) @map("created_at")
+  updatedAt  DateTime      @updatedAt @map("updated_at")
+
+  user     User             @relation(fields: [userId], references: [id], onDelete: Restrict)
+  business Business?        @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  messages SupportMessage[]
+
+  @@index([userId, businessId])
+  @@index([status, lastAt])
+  @@map("support_threads")
+}
+
+model SupportMessage {
+  id        String      @id @default(cuid())
+  threadId  String      @map("thread_id")
+  from      SupportFrom
+  /// Who wrote it: the person's email, or the admin's.
+  author    String
+  text      String?
+  /// A photo or PDF, sealed like a document.
+  file      Bytes?
+  fileName  String?     @map("file_name")
+  fileMime  String?     @map("file_mime")
+  fileSize  Int?        @map("file_size")
+  /// The dashboard page it was sent from.
+  page      String?
+  /// When our team corrected it - shown in the console only.
+  editedAt  DateTime?   @map("edited_at")
+  createdAt DateTime    @default(now()) @map("created_at")
+
+  thread SupportThread @relation(fields: [threadId], references: [id], onDelete: Restrict)
+
+  @@index([threadId, createdAt])
+  @@map("support_messages")
+}
+
+// ─── The API ──────────────────────────────────────────────────────────────
+//
+// Secret keys for a business's server. A key belongs to one mode: a test key
+// only ever makes test checkouts, which only the simulator can pay. The key
+// itself is shown once and never stored - only its hash, and enough of its
+// start to tell keys apart.
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  mode        Mode
+  name        String
+  /// The start of the key, to tell keys apart: "sk_test_Ab3dEf".
+  prefix      String
+  /// sha256 of the whole key.
+  hash        String    @unique
+  createdById String?   @map("created_by_id")
+  lastUsedAt  DateTime? @map("last_used_at")
+  revokedAt   DateTime? @map("revoked_at")
+  revokedBy   String?   @map("revoked_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  business Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  links    PaymentLink[]
+
+  @@index([businessId, mode])
+  @@map("api_keys")
+}
+
+// ─── The live rail's own records ──────────────────────────────────────────
+//
+// Ids the bank rail hands out once and won't hand out again: the customer a
+// business's accounts are opened under, and each payout destination. Creating
+// either twice is refused by the rail, so the id is kept here the first time.
+
+model RailRecord {
+  provider  String
+  /// "customer:<businessId>", "recipient:<bankCode>:<accountNumber>" or "sender:<name>".
+  key       String
+  value     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@id([provider, key])
+  @@map("rail_records")
+}
+
+// ─── The business wallet ──────────────────────────────────────────────────
+//
+// The owner's own wallet: they sign in to the business's Dynamic environment
+// from the dashboard and the wallet is theirs. We never hold a key - only its
+// addresses, so settlements can be sent to it and its balance read. Moving
+// money out takes the owner's signature and their transfer PIN, which is kept
+// only as a hash.
+
+model BusinessWallet {
+  id              String    @id @default(cuid())
+  businessId      String    @unique @map("business_id")
+  /// The owner who created it: the only person who can move its money.
+  ownerUserId     String    @map("owner_user_id")
+  /// Who Dynamic says signed in, and with which email.
+  dynamicUserId   String    @map("dynamic_user_id")
+  email           String
+  /// Base, BNB Chain, Arc, Monad and the other EVM chains share one address.
+  evmAddress      String?   @map("evm_address")
+  solanaAddress   String?   @map("solana_address")
+  /// Movement, from the Solana key - the way the app does it.
+  movementAddress String?   @map("movement_address")
+  /// The transfer PIN: a slow hash, never the PIN.
+  pinHash         String?   @map("pin_hash")
+  pinSetAt        DateTime? @map("pin_set_at")
+  /// Wrong PINs in a row; five locks sending for a while.
+  pinFailures     Int       @default(0) @map("pin_failures")
+  pinLockedUntil  DateTime? @map("pin_locked_until")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  business Business     @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  sends    WalletSend[]
+
+  @@map("business_wallets")
+}
+
+/// Money leaving a business wallet, signed by the owner in the dashboard.
+/// We prepare the transaction, the owner's wallet signs it, we check it's the
+/// one we prepared and broadcast it. To a bank: the USDC comes to our treasury
+/// and, once it's confirmed on-chain, naira goes to the business's bank.
+enum WalletSendKind {
+  ADDRESS
+  BANK
+}
+
+enum WalletSendStatus {
+  /**
+   * Prepared, waiting for the owner's signature. Lapses after a few minutes.
+   */
+  PREPARED
+  /**
+   * Broadcast; waiting for the chain.
+   */
+  SENT
+  /**
+   * On-chain and final. For an address, that's the end.
+   */
+  CONFIRMED
+  /**
+   * To a bank: the naira payout is with the bank rail.
+   */
+  PAYING
+  /**
+   * To a bank: the naira arrived.
+   */
+  PAID
+  FAILED
+  EXPIRED
+}
+
+model WalletSend {
+  id            String           @id @default(cuid())
+  ref           String           @unique
+  walletId      String           @map("wallet_id")
+  businessId    String           @map("business_id")
+  kind          WalletSendKind
+  status        WalletSendStatus @default(PREPARED)
+  chain         SettleChain
+  /// Where the USDC goes on-chain: the address, or our treasury for a bank payout.
+  toAddress     String           @map("to_address")
+  amountMicros  BigInt           @map("amount_micros")
+  /// To a bank: where, the rate, our fee and what the business receives.
+  bankAccountId String?          @map("bank_account_id")
+  bankCode      String?          @map("bank_code")
+  bankName      String?          @map("bank_name")
+  accountNumber String?          @map("account_number")
+  accountName   String?          @map("account_name")
+  ngnPerUsd     Float?           @map("ngn_per_usd")
+  feeKobo       Int?             @map("fee_kobo")
+  payoutKobo    Int?             @map("payout_kobo")
+  /// The transaction we prepared - checked against what the owner signs.
+  unsignedTx    Json             @map("unsigned_tx")
+  txHash        String?          @map("tx_hash")
+  failureReason String?          @map("failure_reason")
+  /// Funding a refund: the USDC goes to our treasury, and the refund moves on once it lands.
+  refundId      String?          @map("refund_id")
+  expiresAt     DateTime         @map("expires_at")
+  createdBy     String           @map("created_by")
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+
+  wallet BusinessWallet @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@index([businessId, createdAt])
+  @@index([status])
+  @@index([refundId])
+  @@map("wallet_sends")
+}
+
+/// A logo or a photo - public, shown on checkouts and in the dashboard. Never changed; a new picture is a new row.
+model Image {
+  id         String   @id @default(cuid())
+  mime       String
+  size       Int
+  data       Bytes
+  uploadedBy String?  @map("uploaded_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("images")
+}
+
+enum FeePayer {
+  BUSINESS
+  CUSTOMER
+}
+
+// ─── The developer side ─────────────────────────────────────────────────
+
+/**
+ * An HTTPS address on a business's server that hears about events, in one mode.
+ */
+model WebhookEndpoint {
+  id             String    @id @default(cuid())
+  businessId     String    @map("business_id")
+  mode           Mode
+  url            String
+  /// A name for it: "Production".
+  note           String?
+  /// The events it hears. Empty: every one.
+  events         String[]
+  enabled        Boolean   @default(true)
+  /// Since when every delivery has failed. Cleared by one that succeeds.
+  failingSince   DateTime? @map("failing_since")
+  /// When the owner and admins were told it keeps failing.
+  warnedAt       DateTime? @map("warned_at")
+  /// When we turned it off for failing three days running. Cleared when it's turned back on.
+  autoDisabledAt DateTime? @map("auto_disabled_at")
+  createdById    String?   @map("created_by_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  /// Removed endpoints keep their row, so what was sent to them stays readable.
+  deletedAt      DateTime? @map("deleted_at")
+
+  business   Business          @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  deliveries WebhookDelivery[]
+
+  @@index([businessId, mode])
+  @@map("webhook_endpoints")
+}
+
+/**
+ * A business's developer settings, one per mode: the webhook signing secret, whether failed
+ * deliveries are tried again, and whether money can leave by API only from its allowed addresses.
+ */
+model DeveloperSetting {
+  id         String   @id @default(cuid())
+  businessId String   @map("business_id")
+  mode       Mode
+  /// "whsec_…", sealed with the vault key: a copy of the database alone can't sign anything.
+  secret     Bytes
+  retries    Boolean  @default(true)
+  rolledAt   DateTime @default(now()) @map("rolled_at")
+  /// On: a refund by API is refused unless it comes from one of the allowed addresses.
+  enforceIps Boolean  @default(false) @map("enforce_ips")
+
+  @@unique([businessId, mode])
+  @@map("developer_settings")
+}
+
+/**
+ * Something that happened, as the event every endpoint hearing it is sent.
+ */
+model WebhookEvent {
+  /// "evt_…".
+  id         String   @id
+  businessId String   @map("business_id")
+  mode       Mode
+  type       String
+  /// The object as it was at that moment.
+  data       Json
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  deliveries WebhookDelivery[]
+
+  @@index([businessId, mode, createdAt])
+  @@map("webhook_events")
+}
+
+/**
+ * One event to one endpoint: each try, and what the server said back.
+ */
+model WebhookDelivery {
+  id           String    @id @default(cuid())
+  eventId      String    @map("event_id")
+  endpointId   String    @map("endpoint_id")
+  /// PENDING (due at nextAt), SENDING, SUCCEEDED, FAILED.
+  status       String
+  attempts     Int       @default(0)
+  nextAt       DateTime? @map("next_at")
+  responseCode Int?      @map("response_code")
+  responseBody String?   @map("response_body")
+  durationMs   Int?      @map("duration_ms")
+  error        String?
+  deliveredAt  DateTime? @map("delivered_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  event    WebhookEvent    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  endpoint WebhookEndpoint @relation(fields: [endpointId], references: [id], onDelete: Restrict)
+
+  @@index([status, nextAt])
+  @@index([endpointId, createdAt])
+  @@index([eventId])
+  @@map("webhook_deliveries")
+}
+
+/**
+ * One request a key made to the API: what it asked, and what it got. Kept 30 days.
+ */
+model ApiRequest {
+  id             String   @id @default(cuid())
+  businessId     String   @map("business_id")
+  apiKeyId       String?  @map("api_key_id")
+  mode           Mode
+  method         String
+  path           String
+  status         Int
+  durationMs     Int      @map("duration_ms")
+  ip             String?
+  idempotencyKey String?  @map("idempotency_key")
+  requestBody    Json?    @map("request_body")
+  responseBody   Json?    @map("response_body")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([businessId, mode, createdAt])
+  @@map("api_requests")
+}
+
+/**
+ * A POST sent with an Idempotency-Key, and its answer: the same request again gets the same answer. Kept a day.
+ */
+model IdempotencyRecord {
+  id          String   @id @default(cuid())
+  apiKeyId    String   @map("api_key_id")
+  key         String
+  requestHash String   @map("request_hash")
+  /// Null while the first request is still running.
+  status      Int?
+  body        Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([apiKeyId, key])
+  @@index([createdAt])
+  @@map("idempotency_records")
+}
+
+/**
+ * An address a business's server calls the API from, per mode. With the whitelist on, money leaves by API only from these.
+ */
+model ApiAllowedIp {
+  id          String    @id @default(cuid())
+  businessId  String    @map("business_id")
+  mode        Mode
+  /// One address, IPv4 or IPv6: "102.89.34.12".
+  ip          String
+  label       String?
+  createdById String?   @map("created_by_id")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  lastSeenAt  DateTime? @map("last_seen_at")
+
+  @@unique([businessId, mode, ip])
+  @@map("api_allowed_ips")
+}
+
+// ─── Team ─────────────────────────────────────────────────────────────────
+
+/// Someone asked to join a business, by email. The link carries a token we keep only as a hash.
+model Invite {
+  id         String    @id @default(cuid())
+  businessId String    @map("business_id")
+  email      String
+  /// Never OWNER: a business has one owner, the person who opened it.
+  role       Role
+  tokenHash  String    @unique @map("token_hash")
+  invitedBy  String    @map("invited_by")
+  expiresAt  DateTime  @map("expires_at")
+  acceptedAt DateTime? @map("accepted_at")
+  acceptedBy String?   @map("accepted_by")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  business Business @relation(fields: [businessId], references: [id], onDelete: Cascade)
+
+  @@index([businessId])
+  @@index([email])
+  @@map("invites")
+}
+
+// ─── Disputes ─────────────────────────────────────────────────────────────
+
+enum DisputeKind {
+  /// Raised by the customer from their receipt: a conversation, nothing is pulled back.
+  CUSTOMER
+  /// The sender's bank says a naira transfer wasn't authorised. Recorded by our team.
+  BANK
+}
+
+enum DisputeReason {
+  NOT_RECEIVED
+  DUPLICATE
+  NOT_AS_DESCRIBED
+  UNRECOGNISED
+  UNAUTHORISED
+}
+
+enum DisputeStatus {
+  /// The business's turn, by replyBy.
+  NEEDS_REPLY
+  /// With the customer (until waitUntil) or the bank.
+  UNDER_REVIEW
+  /// Closed in the business's favour.
+  WON
+  /// Closed with a refund.
+  REFUNDED
+  /// Closed against the business: the customer's way, or the bank kept its claim.
+  LOST
+}
+
+model Dispute {
+  id            String        @id @default(cuid())
+  /// "MMBD-7K2Q9XHD"
+  ref           String        @unique
+  businessId    String        @map("business_id")
+  paymentId     String        @map("payment_id")
+  mode          Mode
+  kind          DisputeKind
+  reason        DisputeReason
+  status        DisputeStatus @default(NEEDS_REPLY)
+  /// What's in question, in kobo: the whole payment from a customer, what the bank claims for a bank claim.
+  amountKobo    Int           @map("amount_kobo")
+  /// The business's deadline to reply.
+  replyBy       DateTime      @map("reply_by")
+  /// After the business replies to a customer: they have until this to accept or reply, or it closes in the business's favour.
+  waitUntil     DateTime?     @map("wait_until")
+  customerName  String?       @map("customer_name")
+  customerEmail String?       @map("customer_email")
+  outcome       String?
+  closedAt      DateTime?     @map("closed_at")
+  closedBy      String?       @map("closed_by")
+  /// The refund that settled it, or funded a bank claim that was lost.
+  refundId      String?       @map("refund_id")
+  /// "customer", or the team member who recorded a bank claim.
+  openedBy      String        @map("opened_by")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  business Business         @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  payment  Payment          @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  messages DisputeMessage[]
+
+  @@index([businessId, mode, createdAt])
+  @@index([paymentId])
+  @@index([status])
+  @@map("disputes")
+}
+
+model DisputeMessage {
+  id          String   @id @default(cuid())
+  disputeId   String   @map("dispute_id")
+  /// CUSTOMER, BUSINESS, BANK (written in by our team) or US.
+  from        String
+  body        String
+  /// Files the business attached: Document ids, kind "dispute:<id>".
+  documentIds String[] @default([]) @map("document_ids")
+  /// The member or team member who wrote it.
+  by          String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  dispute Dispute @relation(fields: [disputeId], references: [id], onDelete: Cascade)
+
+  @@index([disputeId, createdAt])
+  @@map("dispute_messages")
+}

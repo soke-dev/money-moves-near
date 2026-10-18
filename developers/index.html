@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/brand/app-badge.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0B0B0C" />
+    <meta name="description" content="Accept local fiat and crypto payments with Money Moves Business. Settle funds to your bank or business wallet as soon as payments are confirmed, and receive updates by webhook." />
+    <title>Money Moves Docs</title>
+    <script>
+      // Dark unless this browser chose light before. Set before the page paints, so it never flashes.
+      try {
+        // ?theme=light or ?theme=dark in a link picks one, and it's remembered.
+        var asked = new URLSearchParams(location.search).get('theme')
+        if (asked === 'light' || asked === 'dark') localStorage.setItem('mm-docs-theme', asked)
+        if (localStorage.getItem('mm-docs-theme') === 'light') {
+          document.documentElement.dataset.theme = 'light'
+          document.querySelector('meta[name="theme-color"]').content = '#FFFFFF'
+        }
+      } catch (e) {}
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

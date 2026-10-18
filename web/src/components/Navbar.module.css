@@ -1,0 +1,143 @@
+.nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding: 16px 0;
+  transition: all 0.3s ease;
+  background: transparent;
+}
+.nav.scrolled {
+  background: rgba(10, 10, 10, 0.85);
+  backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+}
+
+.inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.logoImg {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+}
+.logoText {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.links {
+  display: flex;
+  gap: 32px;
+}
+.links a {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--muted-fg);
+  transition: color 0.2s;
+  position: relative;
+}
+.links a:hover,
+.links a.active {
+  color: var(--fg);
+}
+.links a.active::after {
+  content: '';
+  position: absolute;
+  bottom: -4px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--primary);
+  border-radius: 1px;
+}
+
+.downloadBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  transition: all 0.2s;
+}
+.downloadBtn:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+.qrMini {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+}
+
+.burger {
+  display: none;
+  flex-direction: column;
+  gap: 5px;
+  background: none;
+  border: none;
+  padding: 4px;
+}
+.burgerLine {
+  display: block;
+  width: 24px;
+  height: 2px;
+  background: var(--fg);
+  border-radius: 1px;
+  transition: all 0.3s;
+}
+.burgerLine.open:nth-child(1) {
+  transform: rotate(45deg) translate(5px, 5px);
+}
+.burgerLine.open:nth-child(2) {
+  opacity: 0;
+}
+.burgerLine.open:nth-child(3) {
+  transform: rotate(-45deg) translate(5px, -5px);
+}
+
+.mobileMenu {
+  display: none;
+  flex-direction: column;
+  align-items: center;
+  gap: 24px;
+  padding: 32px 24px;
+  background: rgba(10, 10, 10, 0.98);
+  backdrop-filter: blur(20px);
+}
+.mobileMenu a {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.mobileStores {
+  display: flex;
+  gap: 12px;
+}
+.mobileStores img {
+  height: 44px;
+}
+
+@media (max-width: 768px) {
+  .links, .downloadBtn { display: none; }
+  .burger { display: flex; }
+  .mobileMenu { display: flex; }
+}
