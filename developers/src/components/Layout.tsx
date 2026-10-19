@@ -5,8 +5,8 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ArrowLeftIcon, ArrowRightIcon, ArrowUpRightIcon, CaretRightIcon, DotsThreeVerticalIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SunIcon, XIcon } from '@phosphor-icons/react'
-import { ALL_PAGES, DASHBOARD_URL, NAV, TABS, findPage, type PageMeta } from '@/nav'
+import { ArrowLeftIcon, ArrowRightIcon, ArrowUpRightIcon, CaretDownIcon, CaretRightIcon, CheckIcon, DotsThreeVerticalIcon, ListIcon, MagnifyingGlassIcon, MoonIcon, SunIcon, XIcon } from '@phosphor-icons/react'
+import { ALL_PAGES, DASHBOARD_URL, NAV, TABS, findPage, type PageMeta, type Tab } from '@/nav'
 import { Method, cx } from './docs'
 
 function Mark({ size = 17 }: { size?: number }) {
@@ -63,9 +63,9 @@ function PageItems({ page, onPick }: { page: PageMeta; onPick?: () => void }) {
   )
 }
 
-function Sidebar({ onPick }: { onPick?: () => void }) {
+function Sidebar({ onPick, tab: shown }: { onPick?: () => void; tab?: Tab }) {
   const { pathname } = useLocation()
-  const tab = findPage(pathname)?.tab ?? 'guides'
+  const tab = shown ?? findPage(pathname)?.tab ?? 'guides'
   return (
     <nav className="space-y-7 px-4 pb-10 pt-7">
       {NAV.filter((g) => g.tab === tab).map((g) => (
@@ -251,6 +251,86 @@ function MoreMenu({ theme, toggleTheme }: { theme: Theme; toggleTheme: () => voi
   )
 }
 
+/* ─── A phone's menu: a section picker, then that section's pages ─── */
+
+function PhoneMenu({ tab, theme, toggleTheme, onClose }: { tab: Tab; theme: Theme; toggleTheme: () => void; onClose: () => void }) {
+  const navigate = useNavigate()
+  // The section being looked at: where you are, until you pick another. Picking one doesn't leave the page.
+  const [section, setSection] = useState<Tab>(tab)
+  const [picking, setPicking] = useState(false)
+  const label = TABS.find((t) => t.id === section)?.label ?? 'Guides'
+  const pick = (t: (typeof TABS)[number]) => {
+    setPicking(false)
+    // A section with a single page opens it straight away.
+    const pages = ALL_PAGES.filter((p) => p.tab === t.id)
+    if (pages.length <= 1) {
+      navigate(t.home)
+      onClose()
+      return
+    }
+    setSection(t.id)
+  }
+  const themeButton = (t: Theme, icon: ReactNode, name: string) => (
+    <button
+      onClick={() => theme !== t && toggleTheme()}
+      className={cx('flex size-8 items-center justify-center rounded-full transition', theme === t ? 'bg-hover text-fg' : 'text-dim hover:text-fg')}
+      aria-label={name}
+      aria-pressed={theme === t}
+    >
+      {icon}
+    </button>
+  )
+  return (
+    <div className="fixed inset-0 z-50 bg-black/55 lg:hidden" onClick={onClose}>
+      <div onClick={(e) => e.stopPropagation()} className="flex h-full w-[320px] max-w-[88vw] flex-col border-r border-line bg-side">
+        <div className="flex h-16 shrink-0 items-center gap-3 border-b border-line px-4">
+          <Mark size={15} />
+          <span className="h-4 w-px bg-line" />
+          <span className="whitespace-nowrap text-[12.5px] font-semibold tracking-[0.16em] text-fg">MONEY MOVES</span>
+          <div className="ml-auto flex items-center gap-0.5 rounded-full border border-line p-0.5">
+            {themeButton('light', <SunIcon size={15} />, 'Light mode')}
+            {themeButton('dark', <MoonIcon size={15} />, 'Dark mode')}
+          </div>
+          <button onClick={onClose} className="-mr-1.5 flex size-9 items-center justify-center rounded-[8px] text-muted hover:bg-hover hover:text-fg" aria-label="Close menu">
+            <XIcon size={18} />
+          </button>
+        </div>
+        <div className="relative shrink-0 px-4 pt-4">
+          <button
+            onClick={() => setPicking((p) => !p)}
+            aria-expanded={picking}
+            className={cx('flex h-11 w-full items-center justify-between rounded-[10px] border bg-raise px-3.5 text-left text-[15px] font-medium text-fg transition', picking ? 'border-dim' : 'border-line')}
+          >
+            {label}
+            <CaretDownIcon size={14} weight="bold" className={cx('text-dim transition', picking && 'rotate-180')} />
+          </button>
+          {picking && (
+            <div className="rise absolute inset-x-4 top-[64px] z-10 rounded-[12px] border border-line bg-raise p-1.5 shadow-[0_20px_50px_-15px_rgba(0,0,0,0.55)]">
+              {TABS.map((t) => (
+                <button key={t.id} onClick={() => pick(t)} className="flex w-full items-center justify-between rounded-[8px] px-3 py-2.5 text-left text-[14.5px] hover:bg-hover">
+                  <span className={section === t.id ? 'font-medium text-accent' : 'text-fg'}>{t.label}</span>
+                  {section === t.id && <CheckIcon size={15} weight="bold" className="text-accent" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+          <Sidebar tab={section} onPick={onClose} />
+        </div>
+        <div className="shrink-0 space-y-1 border-t border-line p-3">
+          <a href={`${DASHBOARD_URL}/settings/api-keys`} className="plain flex h-10 items-center justify-center gap-1 rounded-[10px] bg-lime text-[14px] font-semibold text-on-lime">
+            Get API keys <CaretRightIcon size={13} weight="bold" />
+          </a>
+          <a href={DASHBOARD_URL} className="plain flex h-10 items-center justify-center gap-1 rounded-[10px] text-[14px] text-muted hover:text-fg">
+            Dashboard <ArrowUpRightIcon size={13} />
+          </a>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─── The frame ────────────────────────────────────────────────────── */
 
 export function Layout({ children }: { children: ReactNode }) {
@@ -397,26 +477,7 @@ export function Layout({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      {menu && (
-        <div className="fixed inset-0 z-50 bg-black/55 lg:hidden" onClick={() => setMenu(false)}>
-          <div onClick={(e) => e.stopPropagation()} className="h-full w-[300px] max-w-[86vw] overflow-y-auto border-r border-line bg-side">
-            <div className="flex h-16 items-center justify-between border-b border-line px-4">
-              <span className="text-[14px] font-semibold tracking-[0.2em] text-fg">MONEY MOVES</span>
-              <button onClick={() => setMenu(false)} className="flex size-9 items-center justify-center rounded-[8px] text-muted hover:bg-hover" aria-label="Close">
-                <XIcon size={18} />
-              </button>
-            </div>
-            <div className="flex gap-1.5 border-b border-line px-4 py-3">
-              {TABS.map((t) => (
-                <Link key={t.id} to={t.home} onClick={() => setMenu(false)} className={cx('plain rounded-[8px] px-3 py-1.5 text-[13.5px]', tab === t.id ? 'bg-accent-bg font-medium text-accent' : 'text-muted hover:bg-hover hover:text-fg')}>
-                  {t.label}
-                </Link>
-              ))}
-            </div>
-            <Sidebar onPick={() => setMenu(false)} />
-          </div>
-        </div>
-      )}
+      {menu && <PhoneMenu tab={tab} theme={theme} toggleTheme={toggleTheme} onClose={() => setMenu(false)} />}
       <Search open={search} onClose={() => setSearch(false)} />
     </div>
   )

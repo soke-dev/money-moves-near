@@ -16,7 +16,7 @@ export function Introduction() {
         Payments aren't held for a payout schedule or grouped into batches. Once a payment is confirmed, settlement starts automatically and your server receives a webhook.
       </P>
       <P>
-        You can also refund customers using their original payment method, send funds from your wallet to a bank account or crypto address, accept payments from AI agents through PayBox, and integrate payments into your product with one API.
+        You can also refund customers using their original payment method, send funds from your wallet to a bank account or crypto address, accept payments from AI assistants like Claude and ChatGPT through PayBox, and integrate payments into your product with one API.
       </P>
       <FlowArt />
 
@@ -83,8 +83,8 @@ export function Introduction() {
             'AI agents',
             <>
               <p>
-                With the <Link to="/agents">Money Moves plugin for PayBox</Link>, an AI agent can pay any Money Moves payment link, invoice or store QR in USDC, with the customer approving every payment. Your own agent can make checkouts and read your
-                payments.
+                With the <Link to="/agents">Money Moves plugin for PayBox</Link>, an assistant like Claude or ChatGPT can pay any Money Moves payment link, invoice or store QR in USDC, with the customer approving every payment. Your own assistant can make
+                checkouts and read your payments.
               </p>
             </>,
           ],

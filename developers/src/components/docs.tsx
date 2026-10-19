@@ -258,7 +258,7 @@ export function Code({ tabs, title }: { tabs: Snippet[]; title?: string }) {
           {done ? 'Copied' : ''}
         </button>
       </div>
-      <pre data-lang={s.lang} className="overflow-x-auto px-4 py-4 font-mono text-[13px] leading-[1.75] text-[#E8E6DE]">
+      <pre data-lang={s.lang} className={cx('px-4 py-4 font-mono text-[13px] leading-[1.75] text-[#E8E6DE]', s.lang === 'text' ? 'whitespace-pre-wrap break-words' : 'overflow-x-auto')}>
         <code>{highlight(s.code, s.lang)}</code>
       </pre>
     </div>
@@ -311,7 +311,22 @@ export function Step({ title, children }: { title: string; children: ReactNode }
 
 export function Table({ head, rows }: { head: ReactNode[]; rows: ReactNode[][] }) {
   return (
-    <div className="my-6 overflow-x-auto rounded-[12px] border border-line">
+    <>
+      {/* A phone: each row as a card, the first cell its title and the rest under their headings. Copy page reads the table instead. */}
+      <div data-skip className="my-6 divide-y divide-line overflow-hidden rounded-[12px] border border-line sm:hidden">
+        {rows.map((r, i) => (
+          <div key={i} className="space-y-2 px-4 py-3.5">
+            <div className="text-[15px] font-medium leading-snug text-fg">{r[0]}</div>
+            {r.slice(1).map((c, j) => (
+              <div key={j} className="text-[14.5px] leading-relaxed text-body">
+                {head.length > 2 && <div className="mb-0.5 text-[12px] font-medium text-dim">{head[j + 1]}</div>}
+                {c}
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    <div className="my-6 hidden overflow-x-auto rounded-[12px] border border-line sm:block">
       <table className="w-full min-w-[520px] border-collapse text-left text-[14.5px]">
         <thead>
           <tr className="border-b border-line bg-raise">
@@ -335,6 +350,7 @@ export function Table({ head, rows }: { head: ReactNode[]; rows: ReactNode[][] }
         </tbody>
       </table>
     </div>
+    </>
   )
 }
 

@@ -68,13 +68,17 @@ export const NAV: Group[] = [
   },
   {
     tab: 'guides',
+    title: 'AI agents',
+    pages: [{ slug: '/agents', title: 'PayBox', summary: 'Use the Money Moves plugin for PayBox inside ChatGPT and Claude to pay a business or run your checkout.' }],
+  },
+  {
+    tab: 'guides',
     title: 'Good to know',
     pages: [
       { slug: '/fees', title: 'Fees', summary: 'Review payment, payout and refund fees, and see who pays them.' },
       { slug: '/statuses', title: 'Statuses', summary: 'Understand checkout, payment, settlement and refund statuses.' },
       { slug: '/errors', title: 'Errors', summary: 'Look up error codes and learn how to resolve them.' },
       { slug: '/idempotency', title: 'Idempotency and limits', summary: 'Retry requests safely, paginate results and manage rate limits.' },
-      { slug: '/agents', title: 'AI agents', summary: 'Use PayBox to let AI agents pay businesses or create checkouts.' },
     ],
   },
   {

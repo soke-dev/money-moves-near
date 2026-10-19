@@ -1,4 +1,4 @@
-import { Block, C, H2, H3, Note, OL, P, Page, Table, UL } from '@/components/docs'
+import { Block, C, H2, H3, P, Page, Table, UL } from '@/components/docs'
 
 /* ─── Fees ─────────────────────────────────────────────────────────── */
 
@@ -207,47 +207,6 @@ Content-Type: application/json`} />
       <P>
         Requests over these limits receive a 429 response with <C>rate_limited</C>. The <C>RateLimit</C> and <C>RateLimit-Policy</C> headers show your remaining allowance and when it resets. For payment updates, use webhooks instead of polling.
       </P>
-    </Page>
-  )
-}
-
-/* ─── Agents ───────────────────────────────────────────────────────── */
-
-export function Agents() {
-  return (
-    <Page title="AI agents" lead="With the Money Moves plugin for PayBox, an AI agent can pay any Money Moves business, and a business's own agent can run its checkout.">
-      <P>
-        PayBox is a wallet built for AI agents. The agent can propose a payment, but it can't send one: PayBox shows it to you, you approve it with your passkey, and only then does PayBox sign it. The agent never holds a key. Our plugin gives agents in
-        PayBox a way to pay businesses on Money Moves, and to take payments for them.
-      </P>
-
-      <H2>Paying a business</H2>
-      <OL>
-        <li>The customer gives their agent a Money Moves payment link, invoice or store QR address.</li>
-        <li>The agent looks it up and tells them who they're paying, what for, and the price in local fiat and dollars.</li>
-        <li>It opens a payment and prepares the exact USDC transfer on Solana, to that payment's own address.</li>
-        <li>The customer approves it in PayBox. The payment lands, the business is settled the way it chose, and the customer gets a receipt.</li>
-      </OL>
-      <P>Nothing changes for the business: it's an ordinary crypto payment, with the same webhooks and the same settlement as any other.</P>
-
-      <H2>Tools in the plugin</H2>
-      <Table
-        head={['Tool', 'What it does']}
-        rows={[
-          [<C>money_moves_options</C>, 'The ways Money Moves businesses can be paid, the fees and the limits.'],
-          [<C>quote_business_payment</C>, 'Looks up a link, invoice or store QR: who, what for, how much. Nothing is opened or paid.'],
-          [<C>pay_business_with_solana_usdc</C>, 'Opens the payment and proposes the USDC transfer for the customer to approve.'],
-          [<C>payment_status</C>, 'Whether the payment arrived, with the transaction and the receipt link.'],
-          [<C>create_checkout</C>, 'For a business: makes a checkout to send to a customer.'],
-          [<C>get_checkout</C>, 'For a business: whether a checkout has been paid.'],
-          [<C>list_payments</C>, 'For a business: its latest payments.'],
-          [<C>get_balance</C>, 'For a business: money on its way, and what its wallet holds.'],
-        ]}
-      />
-      <Note title="How the business tools are connected">
-        The business tools act for whichever business's secret key is added to the plugin in PayBox, as a secret for <C>business.usemoneymoves.xyz</C> with the header <C>Authorization: Bearer sk_live_…</C>. PayBox adds the key to each request itself, so
-        it never appears in the plugin, the agent or the chat.
-      </Note>
     </Page>
   )
 }

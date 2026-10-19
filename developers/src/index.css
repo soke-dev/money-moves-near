@@ -121,9 +121,14 @@
 html {
   scroll-padding-top: 130px;
   background: var(--bg);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overflow-x: clip;
 }
 
 body {
+  overflow-x: clip;
+  overscroll-behavior-x: none;
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-sans);

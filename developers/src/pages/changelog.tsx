@@ -114,7 +114,7 @@ const WEEKS: Week[] = [
         body: (
           <>
             <p className={p}>
-              The Money Moves plugin for PayBox lets an AI agent pay a payment link, invoice or store QR in USDC on Solana after the customer approves the transfer with a passkey. A business's agent can also create checkouts, retrieve payments and check its balance. Payments use the same webhooks and settlement flow as other crypto payments.
+              The Money Moves plugin for PayBox lets an AI assistant like Claude or ChatGPT pay a payment link, invoice or store QR in USDC on Solana, after the customer approves the transfer in PayBox. A business's agent can also create checkouts, retrieve payments and check its balance. Payments use the same webhooks and settlement flow as other crypto payments.
             </p>
             <p className={p}>
               <Link to="/agents">AI agents</Link>

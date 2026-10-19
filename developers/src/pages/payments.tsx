@@ -233,7 +233,7 @@ export function Invoices() {
         <C>invoice.paid</C> events.
       </P>
       <Note type="tip" title="Paid by an AI agent">
-        Customers can also give the invoice link to an agent using the <Link to="/agents">Money Moves plugin for PayBox</Link>, then approve the proposed payment in PayBox.
+        Customers can also give the invoice link to an AI assistant like Claude or ChatGPT, using the <Link to="/agents">Money Moves plugin for PayBox</Link>, then approve the proposed payment in PayBox.
       </Note>
     </Page>
   )
