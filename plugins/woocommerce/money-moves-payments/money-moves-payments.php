@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name:       Money Moves Payments
- * Plugin URI:        https://developers.usemoneymoves.xyz/woocommerce
+ * Plugin URI:        https://docs.usemoneymoves.xyz/woocommerce
  * Description:       Take payments by bank transfer, the Money Moves app or stablecoins (USDC and USDT) in your WooCommerce store, and get paid to your bank account, Money Moves account or business wallet the moment each order is paid.
  * Version:           1.0.0
  * Requires at least: 6.0

@@ -4,7 +4,7 @@
   "type": "library",
   "license": "MIT",
   "keywords": ["money moves", "payments", "checkout", "stablecoins", "usdc", "webhooks"],
-  "homepage": "https://developers.usemoneymoves.xyz/sdk/php",
+  "homepage": "https://docs.usemoneymoves.xyz/php",
   "require": {
     "php": ">=7.4",
     "ext-curl": "*",

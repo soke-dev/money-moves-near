@@ -1,6 +1,6 @@
 # Money Moves Business for PHP
 
-The official PHP library for the [Money Moves Business API](https://developers.usemoneymoves.xyz): take payments by bank transfer, the Money Moves app or stablecoins, and follow settlements, refunds and disputes.
+The official PHP library for the [Money Moves Business API](https://docs.usemoneymoves.xyz): take payments by bank transfer, the Money Moves app or stablecoins, and follow settlements, refunds and disputes.
 
 PHP 7.4 or later, with the `curl` and `json` extensions. No other dependencies.
 
