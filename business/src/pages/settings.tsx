@@ -42,6 +42,7 @@ import { reload, useApi } from '@/lib/useApi'
 import { feeOn, useFees, type Fees } from '@/state/fees'
 import { LogoControl } from '@/components/Pictures'
 import { useCan } from '@/state/roles'
+import { ApiSettleSetting } from '@/components/ApiSettleTo'
 
 function Section({ title, sub, children, aside }: { title: string; sub?: string; children: ReactNode; aside?: ReactNode }) {
   return (
@@ -311,6 +312,7 @@ function MethodsLive() {
     }
   }
   return (
+    <>
     <Section title="Checkout methods" sub="How customers can pay you, on every payment link, invoice, outlet and API checkout. Each one turns on once there’s somewhere for its money to go.">
       <div className="grid gap-3">
         {(['naira', 'app', 'crypto'] as Method[]).map((m) => {
@@ -351,6 +353,10 @@ function MethodsLive() {
       {problem && <p className="mt-3 text-[12.5px] text-red">{problem}</p>}
       {!can('settlement') && <p className="mt-3 text-[12.5px] text-dim">The owner, admins and finance can turn these on and off.</p>}
     </Section>
+    <Section title="API payments" sub="Where live checkouts you make with the API, from your website or app, settle. Each one settles the moment it's paid.">
+      <ApiSettleSetting />
+    </Section>
+    </>
   )
 }
 

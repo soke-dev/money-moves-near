@@ -461,8 +461,8 @@ export function Layout({ children }: { children: ReactNode }) {
               <footer className="mt-12 flex flex-wrap items-center justify-between gap-x-5 gap-y-2 border-t border-line pt-6 text-[13px] text-dim">
                 <span>© {new Date().getFullYear()} Money Moves</span>
                 <span className="flex gap-5">
-                  <a href="mailto:developers@usemoneymoves.xyz" className="plain hover:text-fg">
-                    developers@usemoneymoves.xyz
+                  <a href="mailto:support@usemoneymoves.xyz" className="plain hover:text-fg">
+                    support@usemoneymoves.xyz
                   </a>
                   <a href="https://usemoneymoves.xyz" className="plain hover:text-fg">
                     usemoneymoves.xyz

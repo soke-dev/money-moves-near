@@ -85,6 +85,10 @@ export function PhpSdk() {
 
       <H2>Install</H2>
       <Block lang="bash" code="composer require moneymoves/sdk" />
+      <P>
+        On <a href="https://packagist.org/packages/moneymoves/sdk" target="_blank" rel="noreferrer">Packagist</a>, with the source on{' '}
+        <a href="https://github.com/soke-dev/moneymoves-php" target="_blank" rel="noreferrer">GitHub</a>.
+      </P>
       <Code tabs={[{ label: 'PHP', lang: 'php', code: PHP_SETUP }]} />
       <P>
         Use a test key while you build and a live key when you go live; the library talks to the same base URL either way. Keep the key on your server. See <Link to="/authentication">Authentication</Link>.

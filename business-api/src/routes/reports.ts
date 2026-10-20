@@ -144,6 +144,89 @@ router.get("/exports/:kind", requireMember(), exporting, async (req, res) => {
 });
 
 /**
+ * The Reports page at a glance, for any dates: what came in, our fees, what
+ * went back and what settled, each against the same stretch just before; each
+ * day's takings; how customers paid; where it settled; the biggest customers;
+ * and the last twelve months, for the statements list.
+ */
+router.get("/overview", requireMember(), exporting, async (req, res) => {
+  const r = range.safeParse(req.query);
+  if (!r.success) throw new HttpError(400, r.error.issues[0]?.message ?? "Pick the dates.", "bad_range");
+  const { from, to } = r.data;
+  const businessId = req.member!.businessId;
+  const m = mode(req.query.mode);
+  const span = to.getTime() - from.getTime();
+  const before = new Date(from.getTime() - span);
+  const paid = (gte: Date, lt: Date): Prisma.PaymentWhereInput => ({ businessId, mode: m, status: { in: ["PAID", "UNDERPAID"] }, paidAt: { gte, lt } });
+  const yearAgo = new Date(Date.UTC(new Date(Date.now() + LAGOS_MS).getUTCFullYear(), new Date(Date.now() + LAGOS_MS).getUTCMonth() - 11, 1) - LAGOS_MS);
+
+  const [payments, prev, refunds, prevRefunds, settled, prevSettled, months] = await Promise.all([
+    prisma.payment.findMany({ where: paid(from, to), take: MAX_ROWS, select: { paidAt: true, method: true, receivedKobo: true, feeKobo: true, customerEmail: true, customerName: true } }),
+    prisma.payment.aggregate({ where: paid(before, from), _count: { _all: true }, _sum: { receivedKobo: true, feeKobo: true } }),
+    prisma.refund.aggregate({ where: { businessId, mode: m, status: "REFUNDED", doneAt: { gte: from, lt: to } }, _count: { _all: true }, _sum: { amountKobo: true } }),
+    prisma.refund.aggregate({ where: { businessId, mode: m, status: "REFUNDED", doneAt: { gte: before, lt: from } }, _sum: { amountKobo: true } }),
+    prisma.settlement.groupBy({ by: ["destination"], where: { businessId, mode: m, status: "SETTLED", settledAt: { gte: from, lt: to } }, _count: { _all: true }, _sum: { amountKobo: true } }),
+    prisma.settlement.aggregate({ where: { businessId, mode: m, status: "SETTLED", settledAt: { gte: before, lt: from } }, _sum: { amountKobo: true } }),
+    prisma.$queryRaw<{ month: string; payments: bigint; received: bigint | null; fees: bigint | null }[]>`
+      SELECT to_char(paid_at + interval '1 hour', 'YYYY-MM') AS month, count(*) AS payments, sum(received_kobo) AS received, sum(fee_kobo) AS fees
+      FROM payments
+      WHERE business_id = ${businessId} AND mode::text = ${m} AND status::text IN ('PAID', 'UNDERPAID') AND paid_at >= ${yearAgo}
+      GROUP BY 1`,
+  ]);
+
+  const received = payments.reduce((t, p) => t + (p.receivedKobo ?? 0), 0);
+  const fees = payments.reduce((t, p) => t + (p.feeKobo ?? 0), 0);
+  // Each Lagos day in the range, quiet days included, so the line doesn't skip.
+  const days = new Map<string, { kobo: number; count: number }>();
+  for (let t = from.getTime(); t < to.getTime() && days.size < 400; t += DAY) days.set(new Date(t + LAGOS_MS).toISOString().slice(0, 10), { kobo: 0, count: 0 });
+  const byMethod = new Map<string, { kobo: number; count: number }>();
+  const customers = new Map<string, { name: string | null; kobo: number; count: number }>();
+  for (const p of payments) {
+    const day = new Date(p.paidAt!.getTime() + LAGOS_MS).toISOString().slice(0, 10);
+    const d = days.get(day) ?? { kobo: 0, count: 0 };
+    days.set(day, { kobo: d.kobo + (p.receivedKobo ?? 0), count: d.count + 1 });
+    const k = METHOD[p.method] ?? p.method;
+    const v = byMethod.get(k) ?? { kobo: 0, count: 0 };
+    byMethod.set(k, { kobo: v.kobo + (p.receivedKobo ?? 0), count: v.count + 1 });
+    const who = (p.customerEmail ?? p.customerName ?? "").trim().toLowerCase();
+    if (who) {
+      const c = customers.get(who) ?? { name: p.customerName ?? p.customerEmail, kobo: 0, count: 0 };
+      customers.set(who, { name: c.name, kobo: c.kobo + (p.receivedKobo ?? 0), count: c.count + 1 });
+    }
+  }
+  const n = (v: bigint | number | null | undefined) => Number(v ?? 0);
+  res.json({
+    from,
+    to,
+    totals: {
+      payments: payments.length,
+      receivedNgn: received / 100,
+      feesNgn: fees / 100,
+      netNgn: (received - fees) / 100,
+      refunds: refunds._count._all,
+      refundedNgn: n(refunds._sum.amountKobo) / 100,
+      settledNgn: settled.reduce((t, s) => t + n(s._sum.amountKobo), 0) / 100,
+      customers: customers.size,
+      averageNgn: payments.length ? received / payments.length / 100 : 0,
+    },
+    previous: {
+      payments: prev._count._all,
+      receivedNgn: n(prev._sum.receivedKobo) / 100,
+      feesNgn: n(prev._sum.feeKobo) / 100,
+      netNgn: (n(prev._sum.receivedKobo) - n(prev._sum.feeKobo)) / 100,
+      refundedNgn: n(prevRefunds._sum.amountKobo) / 100,
+      settledNgn: n(prevSettled._sum.amountKobo) / 100,
+    },
+    days: [...days.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([day, v]) => ({ day, receivedNgn: v.kobo / 100, payments: v.count })),
+    byMethod: [...byMethod.entries()].map(([method, v]) => ({ method, payments: v.count, receivedNgn: v.kobo / 100 })).sort((a, b) => b.receivedNgn - a.receivedNgn),
+    settledBy: settled.map((s) => ({ to: DEST[s.destination] ?? s.destination, settlements: s._count._all, amountNgn: n(s._sum.amountKobo) / 100 })).sort((a, b) => b.amountNgn - a.amountNgn),
+    topCustomers: [...customers.values()].sort((a, b) => b.kobo - a.kobo).slice(0, 5).map((c) => ({ name: c.name, payments: c.count, receivedNgn: c.kobo / 100 })),
+    months: months.map((x) => ({ month: x.month, payments: n(x.payments), receivedNgn: n(x.received) / 100, netNgn: (n(x.received) - n(x.fees)) / 100 })).sort((a, b) => b.month.localeCompare(a.month)),
+    truncated: payments.length >= MAX_ROWS,
+  });
+});
+
+/**
  * One month's statement, in Lagos time: what came in and how, our fees, what
  * went back, and what settled where, with every payment and settlement listed.
  */

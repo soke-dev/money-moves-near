@@ -82,6 +82,9 @@ export function Sdk() {
 
       <H2>Install</H2>
       <Block lang="bash" code="npm install @moneymoves/sdk" />
+      <P>
+        On <a href="https://www.npmjs.com/package/@moneymoves/sdk" target="_blank" rel="noreferrer">npm</a>.
+      </P>
       <Code
         tabs={[
           { label: 'ES modules', lang: 'js', code: SETUP },

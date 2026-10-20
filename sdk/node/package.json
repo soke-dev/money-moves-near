@@ -1,22 +1,40 @@
 {
   "name": "@moneymoves/sdk",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "The Money Moves Business SDK for Node.js: checkouts, payments, settlements, refunds, balance, rates, events and webhook signatures.",
   "license": "MIT",
   "homepage": "https://docs.usemoneymoves.xyz/sdk",
-  "keywords": ["money moves", "payments", "checkout", "stablecoins", "usdc", "webhooks"],
+  "keywords": [
+    "money moves",
+    "payments",
+    "checkout",
+    "stablecoins",
+    "usdc",
+    "webhooks"
+  ],
   "type": "module",
   "main": "./dist/cjs/index.js",
   "module": "./dist/esm/index.js",
   "types": "./dist/esm/index.d.ts",
   "exports": {
     ".": {
-      "import": { "types": "./dist/esm/index.d.ts", "default": "./dist/esm/index.js" },
-      "require": { "types": "./dist/cjs/index.d.ts", "default": "./dist/cjs/index.js" }
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
     }
   },
-  "files": ["dist", "README.md"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "sideEffects": false,
   "scripts": {
     "build": "node scripts/build.mjs",
