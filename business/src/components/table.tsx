@@ -142,7 +142,7 @@ export function FilterMenu<T extends string>({ label, value, options, onChange, 
 /** Tabs as words with a line under the one you're on. */
 export function UnderlineTabs<T extends string>({ tabs, value, onChange }: { tabs: { id: T; label: string; count?: number }[]; value: T; onChange: (t: T) => void }) {
   return (
-    <div className="-mx-1 flex gap-6 overflow-x-auto border-b border-line px-1">
+    <div className="no-scrollbar -mx-1 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-line px-1">
       {tabs.map((t) => (
         <button
           key={t.id}

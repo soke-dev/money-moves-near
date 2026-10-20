@@ -7,8 +7,9 @@
  * Live, every change goes through the API; in preview it stays on the page.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowRight, Check, Copy, KeyRound, Mail, Monitor, Smartphone } from '@/components/icons'
-import { Link } from 'react-router-dom'
+import { Check, Copy, KeyRound, Mail, Monitor, Smartphone } from '@/components/icons'
+import { useSearchParams } from 'react-router-dom'
+import { UnderlineTabs } from '@/components/table'
 import { Avatar } from '@/components/brand'
 import { Badge, Button, Card, Field, Input, PageHeader, cx, type Tone } from '@/components/ui'
 import Qr from '@/components/Qr'
@@ -31,7 +32,45 @@ function Note({ bad, children }: { bad?: boolean; children: ReactNode }) {
   )
 }
 
+type ProfileTab = 'details' | 'security' | 'referrals'
+
+/**
+ * You: your details and businesses, how you sign in, and the businesses this
+ * one has invited, each a tab of its own.
+ */
 export function Profile() {
+  const { user } = useSession()
+  const allowed = useCan()('referrals')
+  const [params, setParams] = useSearchParams()
+  const asked = params.get('tab')
+  const tab: ProfileTab = asked === 'security' ? 'security' : asked === 'referrals' && allowed ? 'referrals' : 'details'
+  if (!user) return null
+  const tabs: { id: ProfileTab; label: string }[] = [
+    { id: 'details', label: 'Profile' },
+    { id: 'security', label: 'Security' },
+    ...(allowed ? [{ id: 'referrals' as const, label: 'Referrals' }] : []),
+  ]
+  return (
+    <>
+      <PageHeader title="Profile" sub="You, not the business. Your details and how you sign in follow you to every business you're part of." />
+      <UnderlineTabs tabs={tabs} value={tab} onChange={(t) => setParams(t === 'details' ? {} : { tab: t }, { replace: true })} />
+      <div className="mt-6">
+        {tab === 'details' && <ProfileDetails />}
+        {tab === 'security' && (
+          <div className="max-w-[760px] space-y-5">
+            <Password />
+            <TwoStep email={user.email} />
+            <Sessions />
+          </div>
+        )}
+        {tab === 'referrals' && <Referrals embedded />}
+      </div>
+    </>
+  )
+}
+
+/** Your name, email and phone, and the businesses you're part of. */
+function ProfileDetails() {
   const { live, user, businesses, business, applyMe } = useSession()
   // Live, the boxes start from the real names - not the email-based greeting used until verification.
   const startFirst = (live ? user?.firstName : user?.first) ?? ''
@@ -59,9 +98,7 @@ export function Profile() {
   }
   const shownName = `${first || user.first} ${last || user.last}`.trim()
   return (
-    <>
-      <PageHeader title="Profile" sub="You, not the business. Your details and how you sign in follow you to every business you're part of." />
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-5">
           <Card className="p-5 sm:p-6">
             <div className="border-b border-line pb-5">
@@ -94,10 +131,6 @@ export function Profile() {
               </Button>
             </div>
           </Card>
-
-          <Password />
-          <TwoStep email={user.email} />
-          <Sessions />
         </div>
 
         <div className="space-y-5">
@@ -114,40 +147,8 @@ export function Profile() {
               ))}
             </ul>
           </Card>
-          <ReferralsCard />
         </div>
-      </div>
-    </>
-  )
-}
-
-/** Under your businesses: this business's referrals at a glance, and the way to the page. */
-function ReferralsCard() {
-  const { business } = useSession()
-  const allowed = useCan()('referrals')
-  const live = useApi<{ businesses: { stage: Stage }[] }>(LIVE && business && allowed ? `/businesses/${business.id}/referrals` : null)
-  if (!allowed || !business) return null
-  const rows = LIVE ? (live.data?.businesses ?? null) : REFERRED
-  return (
-    <Link to="/settings/referrals" className="group block">
-      <Card className="p-5 transition group-hover:border-[#D3D0C7]">
-        <div className="flex items-center justify-between gap-3">
-          <div className="text-[14.5px] font-semibold text-fg">Referrals</div>
-          <ArrowRight className="size-4 text-dim transition group-hover:translate-x-0.5 group-hover:text-fg" />
-        </div>
-        <p className="mt-1 text-[12.5px] leading-relaxed text-muted">Invite other businesses to Money Moves with {business.name}'s link, and follow how they get on.</p>
-        <div className="mt-3 flex gap-6 border-t border-soft pt-3">
-          <span>
-            <span className="tabular block text-[17px] font-semibold text-fg">{rows ? rows.length : '…'}</span>
-            <span className="block text-[12px] text-dim">Invited</span>
-          </span>
-          <span>
-            <span className="tabular block text-[17px] font-semibold text-fg">{rows ? rows.filter((r) => r.stage === 'paying').length : '…'}</span>
-            <span className="block text-[12px] text-dim">Taking payments</span>
-          </span>
-        </div>
-      </Card>
-    </Link>
+    </div>
   )
 }
 
@@ -532,14 +533,14 @@ const STAGE: Record<Stage, [string, Tone]> = {
 }
 
 /** Your link, and each business that signed up with it. Live from the API; in preview, samples. */
-export function Referrals() {
+export function Referrals({ embedded = false }: { embedded?: boolean }) {
   const { business, user } = useSession()
   const allowed = useCan()('referrals')
   const live = useApi<{ code: string; link: string; businesses: { name: string; joinedAt: string; stage: Stage }[] }>(LIVE && business && allowed ? `/businesses/${business.id}/referrals` : null)
   if (LIVE && !allowed) {
     return (
       <>
-        <PageHeader title="Referrals" sub="Invite businesses to Money Moves, and see how they're getting on." />
+        {!embedded && <PageHeader title="Referrals" sub="Invite businesses to Money Moves, and see how they're getting on." />}
         <Empty title="Referrals are for the owner and admins." sub="Ask the owner or an admin for this business's referral link." />
       </>
     )
@@ -547,14 +548,14 @@ export function Referrals() {
   if (LIVE && !live.data) {
     return (
       <>
-        <PageHeader title="Referrals" sub="Invite businesses to Money Moves, and see how they're getting on." />
+        {!embedded && <PageHeader title="Referrals" sub="Invite businesses to Money Moves, and see how they're getting on." />}
         {live.error ? <Empty title="Couldn't load your referrals." sub={live.error.message} /> : <div className="h-40 animate-pulse rounded-[12px] bg-raise" />}
       </>
     )
   }
   const url = LIVE ? live.data!.link : `https://business.usemoneymoves.xyz/signup?ref=${(user?.first ?? 'friend').toUpperCase()}`
   const rows: Referred[] = LIVE ? live.data!.businesses.map((x, i) => ({ id: String(i), name: x.name, joined: x.joinedAt, stage: x.stage })) : REFERRED
-  return <ReferralsView url={url} code={LIVE ? live.data!.code : null} rows={rows} />
+  return <ReferralsView url={url} code={LIVE ? live.data!.code : null} rows={rows} embedded={embedded} />
 }
 
 /** The stages in order, and how far along each business is. */
@@ -567,7 +568,7 @@ const FUNNEL: { stage: Stage; label: string; sub: string }[] = [
   { stage: 'paying', label: 'Taking payments', sub: 'Had their first payment' },
 ]
 
-function ReferralsView({ url, code, rows }: { url: string; code: string | null; rows: Referred[] }) {
+function ReferralsView({ url, code, rows, embedded }: { url: string; code: string | null; rows: Referred[]; embedded?: boolean }) {
   const [copied, setCopied] = useState(false)
   const [show, setShow] = useState<Stage | 'all'>('all')
   const shown = url.replace(/^https?:\/\//, '')
@@ -590,6 +591,9 @@ function ReferralsView({ url, code, rows }: { url: string; code: string | null; 
 
   return (
     <>
+      {embedded ? (
+        <p className="mb-5 max-w-[70ch] text-[13.5px] text-muted">Invite other businesses to Money Moves, and follow each one from sign-up to its first payment.</p>
+      ) : (
       <PageHeader
         title="Referrals"
         sub="Invite other businesses to Money Moves, and follow each one from sign-up to its first payment."
@@ -599,6 +603,7 @@ function ReferralsView({ url, code, rows }: { url: string; code: string | null; 
           </Button>
         }
       />
+      )}
 
       {/* The link, the ways to share it, and a code to scan. */}
       <Card className="overflow-hidden">

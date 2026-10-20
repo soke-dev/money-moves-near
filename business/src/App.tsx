@@ -22,7 +22,7 @@ import { ApiKeys, DocsRedirect, Events, Logs, Webhooks } from '@/pages/developer
 import { Checkout, CheckoutPreviewFrame } from '@/pages/checkout'
 import { ReceiptPage } from '@/pages/receipt'
 import { GiveBackPage } from '@/pages/give-back'
-import { Profile, Referrals } from '@/pages/account'
+import { Profile } from '@/pages/account'
 import { SettingsFrame } from '@/components/SettingsFrame'
 import { Privacy, Prohibited, Terms } from '@/pages/legal'
 import { Button } from '@/components/ui'
@@ -135,7 +135,7 @@ export default function App() {
         <Route path="/settings/branding" element={<SettingsFrame><Branding /></SettingsFrame>} />
         <Route path="/settings/team" element={<SettingsFrame><Team /></SettingsFrame>} />
         <Route path="/settings/profile" element={<SettingsFrame><Profile /></SettingsFrame>} />
-        <Route path="/settings/referrals" element={<SettingsFrame><Referrals /></SettingsFrame>} />
+        <Route path="/settings/referrals" element={<Navigate to="/settings/profile?tab=referrals" replace />} />
         <Route path="/settings/roles" element={<SettingsFrame><Roles /></SettingsFrame>} />
         <Route path="/settings/activity" element={<SettingsFrame><Activity /></SettingsFrame>} />
         <Route path="/settings/api-keys" element={<ApiKeys />} />

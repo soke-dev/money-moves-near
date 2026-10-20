@@ -150,7 +150,6 @@ function crumbs(path: string): string[] {
   }
   if (path === SETTINGS.to) return ['Settings', 'Business']
   if (path === '/settings/profile') return ['You', 'Profile']
-  if (path === '/settings/referrals') return ['You', 'Referrals']
   const c = SETTINGS.children!.find((x) => x.to === path)
   return c ? ['Settings', c.label] : ['Overview']
 }
@@ -260,7 +259,7 @@ export default function AppShell() {
                   </span>
                   <h1 className="display mt-4 text-[22px] font-semibold text-fg">Set up an authenticator app</h1>
                   <p className="mt-2 text-[14px] leading-relaxed text-muted">{business?.name ?? 'This business'} asks everyone on its team to sign in with an authenticator app, like Google Authenticator. It takes a minute, from your profile.</p>
-                  <Link to="/settings/profile" className="mt-5 inline-flex h-10 items-center justify-center rounded-[10px] bg-fg px-5 text-[14px] font-semibold text-white">
+                  <Link to="/settings/profile?tab=security" className="mt-5 inline-flex h-10 items-center justify-center rounded-[10px] bg-fg px-5 text-[14px] font-semibold text-white">
                     Set it up
                   </Link>
                 </div>

@@ -436,8 +436,8 @@ function Security() {
     <>
       <p className="mb-6 rounded-[10px] border border-line bg-[#FAFAF8] px-3.5 py-3 text-[13px] leading-relaxed text-muted">
         Your password and 2-step sign-in are yours, not the business's. They're in your{' '}
-        <Link to="/settings/profile" className="font-medium text-fg underline underline-offset-2">
-          Profile
+        <Link to="/settings/profile?tab=security" className="font-medium text-fg underline underline-offset-2">
+          Profile, Security
         </Link>
         . These settings are for money leaving {business?.name ?? 'this business'}.
       </p>

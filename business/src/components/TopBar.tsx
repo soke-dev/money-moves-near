@@ -58,7 +58,7 @@ const PAGES: [string, string, string][] = [
   ['Logs', '/settings/logs', 'Developer portal, API requests'],
   ['IP whitelist', '/settings/ips', 'Developer portal'],
   ['Profile', '/settings/profile', 'Your name and sign-in'],
-  ['Referrals', '/settings/referrals', 'Invite businesses'],
+  ['Referrals', '/settings/profile?tab=referrals', 'Invite businesses'],
   ['Payout places', '/settings/settlement', 'Bank accounts, Money Moves, wallets'],
   ['Fees', '/settings/business?tab=fees', 'Settings'],
   ['Payment methods', '/settings/business?tab=methods', 'Settings'],
@@ -481,7 +481,7 @@ export function ProfileButton() {
             <Link to="/settings/business" onClick={() => setOpen(false)} className={item}>
               <Settings className="size-[18px] text-muted" /> All settings
             </Link>
-            <Link to="/settings/referrals" onClick={() => setOpen(false)} className={item}>
+            <Link to="/settings/profile?tab=referrals" onClick={() => setOpen(false)} className={item}>
               <Gift className="size-[18px] text-muted" /> Referrals
             </Link>
             <HideAmountsItem className={cx(item, 'sm:hidden')} />

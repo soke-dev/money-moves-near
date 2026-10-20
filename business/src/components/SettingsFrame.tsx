@@ -18,11 +18,27 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
   const can = useCan()
   // On a phone the menu is a row: bring the page you are on into view.
   const nav = useRef<HTMLElement>(null)
+  // Items that depend on your role arrive a moment later, so it looks again once they have.
+  const roleItems = [can('team'), can('referrals')].join()
   useEffect(() => {
-    const n = nav.current
-    const el = n?.querySelector<HTMLElement>('[aria-current="page"]')
-    if (n && el && n.scrollWidth > n.clientWidth) n.scrollLeft = el.offsetLeft - n.clientWidth / 2 + el.offsetWidth / 2
-  }, [pathname, params])
+    let id = 0
+    const centre = () => {
+      cancelAnimationFrame(id)
+      id = requestAnimationFrame(() => {
+        const n = nav.current
+        const el = n?.querySelector<HTMLElement>('[aria-current="page"]')
+        if (n && el && n.scrollWidth > n.clientWidth) n.scrollLeft = el.offsetLeft - n.clientWidth / 2 + el.offsetWidth / 2
+      })
+    }
+    centre()
+    // A phone turned on its side, or a window made narrow: the row appears, so centre it then too.
+    const wide = window.matchMedia('(min-width: 1024px)')
+    wide.addEventListener('change', centre)
+    return () => {
+      cancelAnimationFrame(id)
+      wide.removeEventListener('change', centre)
+    }
+  }, [pathname, params, roleItems])
   const groups: { title: string; items: Entry[] }[] = [
     {
       title: 'Business',
@@ -49,7 +65,6 @@ export function SettingsFrame({ children }: { children: ReactNode }) {
       title: 'You',
       items: [
         { label: 'Profile', to: '/settings/profile' },
-        { label: 'Referrals', to: '/settings/referrals', show: can('referrals') },
       ],
     },
   ]
