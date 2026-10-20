@@ -7,9 +7,10 @@
  * Live, every change goes through the API; in preview it stays on the page.
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Check, Copy, KeyRound, Mail, Monitor, Smartphone } from '@/components/icons'
+import { ArrowRight, Check, Copy, KeyRound, Mail, Monitor, Smartphone } from '@/components/icons'
+import { Link } from 'react-router-dom'
 import { Avatar } from '@/components/brand'
-import { Badge, Button, Card, Field, Input, PageHeader, Table, cx, type Tone } from '@/components/ui'
+import { Badge, Button, Card, Field, Input, PageHeader, cx, type Tone } from '@/components/ui'
 import Qr from '@/components/Qr'
 import { useSession } from '@/state/session'
 import { ago, copy, date } from '@/lib/format'
@@ -60,7 +61,7 @@ export function Profile() {
   return (
     <>
       <PageHeader title="Profile" sub="You, not the business. Your details and how you sign in follow you to every business you're part of." />
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="min-w-0 space-y-5">
           <Card className="p-5 sm:p-6">
             <div className="border-b border-line pb-5">
@@ -73,13 +74,15 @@ export function Profile() {
               <Field label="Last name">
                 <Input value={last} onChange={(e) => (setLast(e.target.value), setSaved(false))} />
               </Field>
-              <Field label="Email" hint="You sign in with this. Changing it needs a code sent to both addresses.">
-                <div className="flex h-10 items-center gap-2 rounded-[7px] border border-line bg-raise px-3 text-[14px] text-muted">
-                  <Mail className="size-4 shrink-0 text-dim" />
-                  <span className="min-w-0 flex-1 truncate">{user.email}</span>
-                  <Badge tone="good">Verified</Badge>
-                </div>
-              </Field>
+              <div className="sm:col-span-2">
+                <Field label="Email" hint="You sign in with this. Changing it needs a code sent to both addresses.">
+                  <div className="flex h-10 items-center gap-2 rounded-[7px] border border-line bg-raise px-3 text-[14px] text-muted">
+                    <Mail className="size-4 shrink-0 text-dim" />
+                    <span className="min-w-0 flex-1 truncate">{user.email}</span>
+                    <Badge tone="good">Verified</Badge>
+                  </div>
+                </Field>
+              </div>
               <Field label="Phone">
                 <Input value={phone} onChange={(e) => (setPhone(e.target.value), setSaved(false))} inputMode="tel" />
               </Field>
@@ -111,9 +114,40 @@ export function Profile() {
               ))}
             </ul>
           </Card>
+          <ReferralsCard />
         </div>
       </div>
     </>
+  )
+}
+
+/** Under your businesses: this business's referrals at a glance, and the way to the page. */
+function ReferralsCard() {
+  const { business } = useSession()
+  const allowed = useCan()('referrals')
+  const live = useApi<{ businesses: { stage: Stage }[] }>(LIVE && business && allowed ? `/businesses/${business.id}/referrals` : null)
+  if (!allowed || !business) return null
+  const rows = LIVE ? (live.data?.businesses ?? null) : REFERRED
+  return (
+    <Link to="/settings/referrals" className="group block">
+      <Card className="p-5 transition group-hover:border-[#D3D0C7]">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[14.5px] font-semibold text-fg">Referrals</div>
+          <ArrowRight className="size-4 text-dim transition group-hover:translate-x-0.5 group-hover:text-fg" />
+        </div>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-muted">Invite other businesses to Money Moves with {business.name}'s link, and follow how they get on.</p>
+        <div className="mt-3 flex gap-6 border-t border-soft pt-3">
+          <span>
+            <span className="tabular block text-[17px] font-semibold text-fg">{rows ? rows.length : '…'}</span>
+            <span className="block text-[12px] text-dim">Invited</span>
+          </span>
+          <span>
+            <span className="tabular block text-[17px] font-semibold text-fg">{rows ? rows.filter((r) => r.stage === 'paying').length : '…'}</span>
+            <span className="block text-[12px] text-dim">Taking payments</span>
+          </span>
+        </div>
+      </Card>
+    </Link>
   )
 }
 
@@ -523,110 +557,199 @@ export function Referrals() {
   return <ReferralsView url={url} code={LIVE ? live.data!.code : null} rows={rows} />
 }
 
+/** The stages in order, and how far along each business is. */
+const STAGES: Stage[] = ['joined', 'review', 'verified', 'paying']
+const reached = (r: Referred, s: Stage) => STAGES.indexOf(r.stage) >= STAGES.indexOf(s)
+const FUNNEL: { stage: Stage; label: string; sub: string }[] = [
+  { stage: 'joined', label: 'Signed up', sub: 'Opened an account with your link or code' },
+  { stage: 'review', label: 'Verifying', sub: 'Sent their verification' },
+  { stage: 'verified', label: 'Verified', sub: 'Approved by our review team' },
+  { stage: 'paying', label: 'Taking payments', sub: 'Had their first payment' },
+]
+
 function ReferralsView({ url, code, rows }: { url: string; code: string | null; rows: Referred[] }) {
   const [copied, setCopied] = useState(false)
+  const [show, setShow] = useState<Stage | 'all'>('all')
   const shown = url.replace(/^https?:\/\//, '')
   const text = encodeURIComponent(`I take payments with Money Moves: bank transfers, crypto and the Money Moves app, in one checkout. Sign up with my link: ${url}`)
+  const copyLink = () => {
+    copy(url)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  const count = (s: Stage) => rows.filter((r) => reached(r, s)).length
+  const list = show === 'all' ? rows : rows.filter((r) => r.stage === show)
+  // Sign-ups in each of the last six months, this one last.
+  const now = new Date()
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5 + i, 1))
+    const key = d.toISOString().slice(0, 7)
+    return { key, label: d.toLocaleDateString('en-GB', { month: 'short' }), n: rows.filter((r) => r.joined.slice(0, 7) === key).length }
+  })
+  const most = Math.max(1, ...months.map((m) => m.n))
+
   return (
     <>
-      <PageHeader title="Referrals" sub="Invite businesses to Money Moves, and see how they're getting on." />
+      <PageHeader
+        title="Referrals"
+        sub="Invite other businesses to Money Moves, and follow each one from sign-up to its first payment."
+        actions={
+          <Button variant="primary" icon={copied ? <Check className="size-4" strokeWidth={3} /> : <Copy className="size-4" />} onClick={copyLink}>
+            {copied ? 'Copied' : 'Copy your link'}
+          </Button>
+        }
+      />
 
-      <Card className="p-5 sm:p-6">
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_auto] lg:items-end">
-          <div className="min-w-0">
+      {/* The link, the ways to share it, and a code to scan. */}
+      <Card className="overflow-hidden">
+        <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_220px]">
+          <div className="min-w-0 p-5 sm:p-6">
             <div className="text-[13px] text-muted">Your link</div>
-            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-              <div className="flex h-11 min-w-0 flex-1 items-center rounded-[10px] border border-line bg-[#FAFAF8] px-3.5 font-mono text-[13.5px] text-fg">
-                <span className="truncate">{shown}</span>
+            <button onClick={copyLink} className="group mt-2 flex h-11 w-full min-w-0 items-center gap-3 rounded-[10px] border border-line bg-raise px-3.5 text-left transition hover:border-[#D3D0C7]">
+              <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-fg">{shown}</span>
+              <span className="shrink-0 text-[12.5px] font-medium text-muted group-hover:text-fg">{copied ? 'Copied' : 'Copy'}</span>
+            </button>
+            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <div className="text-[12.5px] text-dim">Share it</div>
+                <div className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[13.5px]">
+                  <a href={`https://wa.me/?text=${text}`} target="_blank" rel="noreferrer" className="font-medium text-fg underline-offset-2 hover:underline">
+                    WhatsApp
+                  </a>
+                  <a href={`https://x.com/intent/post?text=${text}`} target="_blank" rel="noreferrer" className="font-medium text-fg underline-offset-2 hover:underline">
+                    X
+                  </a>
+                  <a href={`mailto:?subject=${encodeURIComponent('Take payments with Money Moves')}&body=${text}`} className="font-medium text-fg underline-offset-2 hover:underline">
+                    Email
+                  </a>
+                </div>
               </div>
-              <Button
-                variant="primary"
-                className="h-11 px-4"
-                icon={copied ? <Check className="size-4" strokeWidth={3} /> : <Copy className="size-4" />}
-                onClick={() => {
-                  copy(url)
-                  setCopied(true)
-                  setTimeout(() => setCopied(false), 1500)
-                }}
-              >
-                {copied ? 'Copied' : 'Copy link'}
-              </Button>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px]">
-              <span className="text-dim">Share on</span>
-              <a href={`https://wa.me/?text=${text}`} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
-                WhatsApp
-              </a>
-              <a href={`https://x.com/intent/post?text=${text}`} target="_blank" rel="noreferrer" className="font-medium text-accent hover:underline">
-                X
-              </a>
-              <a href={`mailto:?subject=${encodeURIComponent('Take payments with Money Moves')}&body=${text}`} className="font-medium text-accent hover:underline">
-                Email
-              </a>
               {code && (
-                <span className="text-dim">
-                  Code <span className="font-mono font-medium text-fg">{code}</span>
-                </span>
+                <div>
+                  <div className="text-[12.5px] text-dim">Or they type your code at sign-up</div>
+                  <div className="mt-1 font-mono text-[17px] font-semibold tracking-[0.08em] text-fg">{code}</div>
+                </div>
               )}
             </div>
           </div>
-          <div className="flex gap-8 border-t border-line pt-5 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-            {[
-              ['Invited', rows.length],
-              ['Verified', rows.filter((r) => r.stage === 'verified' || r.stage === 'paying').length],
-              ['Taking payments', rows.filter((r) => r.stage === 'paying').length],
-            ].map(([l, v]) => (
-              <div key={l}>
-                <div className="text-[12.5px] text-muted">{l}</div>
-                <div className="display tabular mt-1 text-[24px] font-semibold leading-none text-fg">{v}</div>
-              </div>
-            ))}
+          <div className="flex items-center gap-4 border-t border-line bg-raise/50 p-5 md:flex-col md:justify-center md:border-l md:border-t-0">
+            <div className="rounded-[10px] bg-white p-2 shadow-[0_0_0_1px_#E6E4DE]">
+              <Qr value={url} size={128} />
+            </div>
+            <p className="text-[12.5px] leading-relaxed text-dim md:text-center">Scan to open your sign-up link, at a market, an event or a shop counter.</p>
           </div>
         </div>
       </Card>
 
-      <div className="mt-8 grid grid-cols-1 gap-8 lg:grid-cols-[300px_1fr]">
-        <div>
-          <h2 className="text-[15px] font-semibold text-fg">How it works</h2>
-          <ol className="mt-3 space-y-4">
+      {/* How far your invites have come. */}
+      <Card className="mt-5 p-5 sm:p-6">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <div className="text-[14px] font-semibold text-fg">How far they've come</div>
+          <div className="text-[12.5px] text-dim">{rows.length ? `${Math.round((count('paying') / rows.length) * 100)}% of sign-ups now take payments` : 'Nobody yet'}</div>
+        </div>
+        <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-6 lg:grid-cols-4">
+          {FUNNEL.map((f, i) => {
+            const n = count(f.stage)
+            const prev = i === 0 ? n : count(FUNNEL[i - 1]!.stage)
+            return (
+              <div key={f.stage} className="min-w-0">
+                <div className="flex items-center gap-2 text-[12.5px] text-muted">
+                  <span className="tabular flex size-5 items-center justify-center rounded-full border border-line text-[11px] font-semibold text-fg">{i + 1}</span>
+                  {f.label}
+                </div>
+                <div className="display tabular mt-2 text-[28px] font-semibold leading-none tracking-[-0.02em] text-fg">{n}</div>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-raise">
+                  <div className={cx('h-full rounded-full', i === FUNNEL.length - 1 ? 'bg-lime' : 'bg-fg')} style={{ width: `${rows.length ? (n / rows.length) * 100 : 0}%` }} />
+                </div>
+                <div className="mt-2 text-[12px] leading-snug text-dim">{i === 0 ? f.sub : prev ? `${Math.round((n / prev) * 100)}% of the step before` : f.sub}</div>
+              </div>
+            )
+          })}
+        </div>
+      </Card>
+
+      <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+        {/* When they joined. */}
+        <Card className="p-5">
+          <div className="flex items-baseline justify-between">
+            <div className="text-[14px] font-semibold text-fg">Sign-ups</div>
+            <div className="text-[12px] text-dim">Last 6 months</div>
+          </div>
+          <div className="mt-4 flex h-[96px] items-end gap-2">
+            {months.map((m, i) => (
+              <div key={m.key} className="flex h-full flex-1 flex-col items-center justify-end gap-1.5">
+                <span className="tabular text-[11px] text-dim">{m.n || ''}</span>
+                <div className={cx('w-full rounded-t-[4px]', i === months.length - 1 ? 'bg-lime' : 'bg-fg/80')} style={{ height: `${Math.max(m.n ? 8 : 2, (m.n / most) * 64)}px`, opacity: m.n ? 1 : 0.15 }} />
+                <span className="text-[11px] text-dim">{m.label}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* How it works. */}
+        <Card className="p-5">
+          <div className="text-[14px] font-semibold text-fg">How it works</div>
+          <ol className="relative mt-4 space-y-4 border-l border-line pl-5">
             {[
               ['They sign up with your link', 'Any business, registered or a freelancer. Or they type your code when they sign up.'],
-              ['They get verified', 'Business verification, the same as you did.'],
-              ['They start taking payments', 'You see each step here as it happens.'],
-            ].map(([t, s], i) => (
-              <li key={t} className="flex gap-3">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded-full border border-line text-[12px] font-semibold text-fg">{i + 1}</span>
-                <span>
-                  <span className="block text-[13.5px] font-medium text-fg">{t}</span>
-                  <span className="block text-[12.5px] leading-relaxed text-muted">{s}</span>
-                </span>
+              ['They get verified', 'The same business verification you went through.'],
+              ['They take their first payment', 'Each step shows here as it happens.'],
+            ].map(([t, s]) => (
+              <li key={t} className="relative">
+                <span className="absolute -left-[25px] top-1 size-2 rounded-full border-2 border-card bg-fg shadow-[0_0_0_1px_var(--color-line)]" />
+                <span className="block text-[13.5px] font-medium text-fg">{t}</span>
+                <span className="block text-[12.5px] leading-relaxed text-muted">{s}</span>
               </li>
             ))}
           </ol>
-        </div>
-        <div className="min-w-0">
-          <h2 className="mb-3 text-[15px] font-semibold text-fg">Businesses you invited</h2>
-          <Table
-            rowKey={(r) => r.id}
-            rows={rows}
-            empty={<Empty title="Nobody yet." sub="Share your link. Each business that signs up with it shows here, and moves along as it gets verified and starts taking payments." />}
-            columns={[
-              {
-                key: 'n',
-                header: 'Business',
-                render: (r) => (
-                  <div className="flex items-center gap-3">
-                    <Avatar name={r.name} size={28} square />
-                    <span className="font-medium">{r.name}</span>
-                  </div>
-                ),
-              },
-              { key: 'j', header: 'Joined', render: (r) => <span className="text-muted">{date(r.joined)}</span> },
-              { key: 's', header: 'Status', align: 'right', render: (r) => <Badge tone={STAGE[r.stage][1]}>{STAGE[r.stage][0]}</Badge> },
-            ]}
-          />
-        </div>
+        </Card>
       </div>
+
+      {/* Each business, and where it is. */}
+      <Card className="mt-5 min-w-0 overflow-hidden">
+        <div className="px-5 pt-5 sm:px-6">
+          <div className="text-[14px] font-semibold text-fg">Businesses you invited</div>
+        </div>
+        <div className="no-scrollbar mt-3 flex gap-5 overflow-x-auto overflow-y-hidden border-b border-line px-5 sm:px-6">
+          {([['all', 'All', rows.length], ...FUNNEL.map((f) => [f.stage, f.label, rows.filter((r) => r.stage === f.stage).length])] as [Stage | 'all', string, number][]).map(([id, label, n]) => (
+            <button key={id} onClick={() => setShow(id)} className={cx('-mb-px flex shrink-0 items-center gap-1.5 border-b-2 pb-2.5 text-[13.5px] transition', show === id ? 'border-fg font-medium text-fg' : 'border-transparent text-muted hover:text-fg')}>
+              {label}
+              <span className="tabular text-[12px] font-normal text-dim">{n}</span>
+            </button>
+          ))}
+        </div>
+        {list.length === 0 ? (
+          <div className="px-6 py-12 text-center">
+            <div className="text-[14px] font-medium text-fg">{rows.length ? 'None at this step.' : 'Nobody yet.'}</div>
+            <p className="mx-auto mt-1 max-w-[44ch] text-[13px] text-muted">
+              {rows.length ? 'Pick another step to see the rest.' : 'Share your link. Each business that signs up with it shows here, and moves along as it gets verified and starts taking payments.'}
+            </p>
+          </div>
+        ) : (
+          <ul className="divide-y divide-soft">
+            {list.map((r) => (
+              <li key={r.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-5 gap-y-2.5 px-5 py-3.5 sm:grid-cols-[minmax(0,1fr)_180px_130px] sm:px-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <Avatar name={r.name} size={30} square />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13.5px] font-medium text-fg">{r.name}</span>
+                    <span className="block text-[12px] text-dim">Joined {date(r.joined)}</span>
+                  </span>
+                </div>
+                <div className="col-span-2 flex items-center gap-1 sm:col-span-1" aria-label={`${STAGE[r.stage][0]}, step ${STAGES.indexOf(r.stage) + 1} of 4`}>
+                  {STAGES.map((s) => (
+                    <span key={s} className={cx('h-1.5 flex-1 rounded-full', reached(r, s) ? (r.stage === 'paying' ? 'bg-lime' : 'bg-fg') : 'bg-raise')} />
+                  ))}
+                </div>
+                <div className="col-start-2 row-start-1 text-right sm:col-start-auto sm:row-start-auto">
+                  <Badge tone={STAGE[r.stage][1]}>{STAGE[r.stage][0]}</Badge>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
+
     </>
   )
 }

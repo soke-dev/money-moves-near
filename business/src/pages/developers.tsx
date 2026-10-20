@@ -53,7 +53,7 @@ function Portal({ children }: { children: ReactNode }) {
         <h1 className="display text-[30px] font-semibold leading-tight tracking-[-0.03em] text-fg">Developer portal</h1>
         {mode === 'test' && <Badge tone="warn">Test mode</Badge>}
       </div>
-      <nav className="-mx-1 mt-5 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-line px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <nav className="-mx-1 mt-5 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-line px-1 no-scrollbar">
         {TABS.map(([label, to]) => (
           <Link
             key={to}

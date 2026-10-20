@@ -66,6 +66,14 @@ body {
   scrollbar-color: #D6D3CA transparent;
 }
 
+/* A row that scrolls sideways, like a tab bar, without a bar showing. */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .tabular {
   font-variant-numeric: tabular-nums;
 }
@@ -291,6 +299,7 @@ html[data-theme="dark"] .active\:bg-\[\#FAFAF8\]:not(.keep-light, .keep-light *)
 html[data-theme="dark"] .bg-\[\#B9B6AC\]:not(.keep-light, .keep-light *) { background-color: #353930; }
 html[data-theme="dark"] .bg-\[\#D6D3CA\]:not(.keep-light, .keep-light *) { background-color: #353930; }
 html[data-theme="dark"] .bg-\[\#D9D6CC\]:not(.keep-light, .keep-light *) { background-color: #353930; }
+html[data-theme="dark"] .bg-\[\#DDDAD2\]:not(.keep-light, .keep-light *) { background-color: #353930; }
 html[data-theme="dark"] .bg-\[\#E3ECF8\]:not(.keep-light, .keep-light *) { background-color: #2A2D26; }
 html[data-theme="dark"] .bg-\[\#E4F2E8\]:not(.keep-light, .keep-light *) { background-color: #2A2D26; }
 html[data-theme="dark"] .bg-\[\#E7E5DF\]:not(.keep-light, .keep-light *) { background-color: #2A2D26; }
@@ -355,6 +364,7 @@ html[data-theme="dark"] .hover\:text-\[\#0F2419\]:not(.keep-light, .keep-light *
 html[data-theme="dark"] .placeholder\:text-\[\#918F86\]:not(.keep-light, .keep-light *)::placeholder { color: #9EA196; }
 html[data-theme="dark"] .shadow-\[0_0_0_1px_\#121210\]:not(.keep-light, .keep-light *) { box-shadow: 0 0 0 1px #30342B, 0 1px 2px rgba(0,0,0,0.4); }
 html[data-theme="dark"] .shadow-\[0_0_0_1px_\#E6E4DE\,0_1px_2px_rgba\(18\,18\,16\,0\.05\)\]:not(.keep-light, .keep-light *) { box-shadow: 0 0 0 1px #30342B, 0 1px 2px rgba(0,0,0,0.4); }
+html[data-theme="dark"] .shadow-\[0_0_0_1px_\#E6E4DE\]:not(.keep-light, .keep-light *) { box-shadow: 0 0 0 1px #30342B, 0 1px 2px rgba(0,0,0,0.4); }
 html[data-theme="dark"] .text-\[\#0F2419\]:not(.keep-light, .keep-light *) { color: #8FD6A5; }
 html[data-theme="dark"] .text-\[\#143021\]:not(.keep-light, .keep-light *) { color: #8FD6A5; }
 html[data-theme="dark"] .text-\[\#1D4373\]:not(.keep-light, .keep-light *) { color: #A9CBF0; }
@@ -367,7 +377,9 @@ html[data-theme="dark"] .text-\[\#6E440A\]\/80:not(.keep-light, .keep-light *) {
 html[data-theme="dark"] .text-\[\#7A4A0A\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
 html[data-theme="dark"] .text-\[\#7A5A12\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
 html[data-theme="dark"] .text-\[\#7D1F19\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+html[data-theme="dark"] .text-\[\#8A5A12\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
 html[data-theme="dark"] .text-\[\#918F86\]:not(.keep-light, .keep-light *) { color: #9EA196; }
 html[data-theme="dark"] .text-\[\#9A4A10\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
+html[data-theme="dark"] .text-\[\#9A988F\]:not(.keep-light, .keep-light *) { color: #9EA196; }
 html[data-theme="dark"] .text-\[\#A4600B\]:not(.keep-light, .keep-light *) { color: #E8B27A; }
 /* ─── end of dark mode ─── */

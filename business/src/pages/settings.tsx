@@ -83,51 +83,21 @@ const PREFS: { id: Pref; label: string }[] = [
       ] as const)),
 ]
 
-const MORE: { label: string; to: string }[] = [
-  { label: 'Payout places', to: '/settings/settlement' },
-  { label: 'Branding', to: '/settings/branding' },
-  { label: 'Compliance', to: '/settings/compliance' },
-  { label: 'Team', to: '/settings/team' },
-  { label: 'Roles', to: '/settings/roles' },
-]
-
 export function BusinessPreferences() {
   const { business } = useSession()
-  const [params, setParams] = useSearchParams()
+  const [params] = useSearchParams()
   const asked = params.get('tab') as Pref | null
   const tab: Pref = asked && PREFS.some((p) => p.id === asked) ? asked : 'about'
   if (!business) return null
-  const item = (active: boolean) =>
-    cx(
-      'shrink-0 rounded-[8px] px-3 py-2 text-left text-[13.5px] transition lg:w-full',
-      active ? 'bg-card font-medium text-fg shadow-[0_0_0_1px_#E6E4DE,0_1px_2px_rgba(18,18,16,0.05)]' : 'text-muted hover:bg-raise hover:text-fg',
-    )
   return (
-    <>
-      <PageHeader title="Settings" sub={business.name} />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[190px_minmax(0,1fr)] lg:gap-10">
-        <nav className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1 lg:sticky lg:top-4 lg:mx-0 lg:flex-col lg:self-start lg:overflow-visible lg:px-0">
-          {PREFS.map((p) => (
-            <button key={p.id} onClick={() => setParams(p.id === 'about' ? {} : { tab: p.id }, { replace: true })} className={item(tab === p.id)}>
-              {p.label}
-            </button>
-          ))}
-          <div className="mx-3 my-2 hidden border-t border-line lg:block" />
-          {MORE.map((m) => (
-            <Link key={m.to} to={m.to} className={cx(item(false), 'hidden lg:block')}>
-              {m.label}
-            </Link>
-          ))}
-        </nav>
-        <div className="min-w-0 max-w-[820px]">
-          {tab === 'about' && (LIVE ? <AboutLive /> : <About />)}
-          {tab === 'methods' && (LIVE ? <MethodsLive /> : <PaymentMethods />)}
-          {tab === 'fees' && <Fees />}
-          {tab === 'notifications' && <Notifications />}
-          {tab === 'security' && <Security />}
-        </div>
-      </div>
-    </>
+    <div className="max-w-[820px]">
+      <PageHeader title={PREFS.find((p) => p.id === tab)!.label} sub={business.name} />
+      {tab === 'about' && (LIVE ? <AboutLive /> : <About />)}
+      {tab === 'methods' && (LIVE ? <MethodsLive /> : <PaymentMethods />)}
+      {tab === 'fees' && <Fees />}
+      {tab === 'notifications' && <Notifications />}
+      {tab === 'security' && <Security />}
+    </div>
   )
 }
 

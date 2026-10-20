@@ -13,6 +13,8 @@ import {
   ArrowSquareOutIcon,
   ArrowUpRightIcon,
   ArrowDownRightIcon,
+  SunIcon,
+  MoonIcon,
   ArrowsClockwiseIcon,
   BankIcon,
   BellIcon,
@@ -106,6 +108,8 @@ export const ArrowLeft = make(ArrowLeftIcon)
 export const ArrowRight = make(ArrowRightIcon)
 export const ArrowUpRight = make(ArrowUpRightIcon)
 export const ArrowDownRight = make(ArrowDownRightIcon)
+export const Sun = make(SunIcon)
+export const Moon = make(MoonIcon)
 export const Bell = make(BellIcon)
 export const BookOpen = make(BookOpenTextIcon)
 export const Building2 = make(BuildingsIcon)

@@ -36,6 +36,8 @@ import {
   Wallet,
   X,
   type IconWeight,
+  Sun,
+  Moon,
 } from '@/components/icons'
 import { useSession } from '@/state/session'
 import { useBrandingSync } from '@/state/branding'
@@ -122,7 +124,7 @@ const SETTINGS: Item = {
   to: '/settings/business',
   icon: Settings,
   children: [
-    { label: 'Settlement', to: '/settings/settlement' },
+    { label: 'Payout places', to: '/settings/settlement' },
     { label: 'Compliance', to: '/settings/compliance' },
     { label: 'Branding', to: '/settings/branding' },
     { label: 'Team', to: '/settings/team' },
@@ -449,21 +451,25 @@ function BusinessSwitcher() {
   )
 }
 
-/** Light or dark, for this dashboard in this browser. The checkout your customers see stays light. */
+/**
+ * Light or dark, for this dashboard in this browser: a sun and a moon side by
+ * side, so it never reads as a second on/off switch next to Production. The
+ * checkout your customers see stays light.
+ */
 function ThemeSwitch({ dark, onChange }: { dark: boolean; onChange: (dark: boolean) => void }) {
+  const seg = (on: boolean) =>
+    cx('flex h-[24px] w-[30px] items-center justify-center rounded-full transition', on ? 'bg-card text-fg shadow-[0_0_0_1px_var(--color-line),0_1px_2px_rgba(18,18,16,0.08)]' : 'text-dim hover:text-fg')
   return (
     <div className="flex items-center justify-between rounded-lg px-2.5 py-1.5">
-      <span className={cx('text-[13px]', dark ? 'font-medium text-fg' : 'text-muted')}>Dark mode</span>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={dark}
-        aria-label="Dark mode"
-        onClick={() => onChange(!dark)}
-        className={cx('relative h-[22px] w-[38px] shrink-0 rounded-full border transition', dark ? 'border-lime bg-lime' : 'border-[#CFCCC3] bg-[#E7E5DF]')}
-      >
-        <span className={cx('theme-knob absolute top-[2px] size-4 rounded-full transition-all', dark ? 'left-[18px] bg-[#0A0C08]' : 'left-[2px] bg-white shadow-sm')} />
-      </button>
+      <span className="text-[13px] text-muted">Theme</span>
+      <div role="radiogroup" aria-label="Theme" className="flex rounded-full border border-line bg-raise p-[2px]">
+        <button type="button" role="radio" aria-checked={!dark} aria-label="Light" title="Light" onClick={() => onChange(false)} className={seg(!dark)}>
+          <Sun className="size-3.5" />
+        </button>
+        <button type="button" role="radio" aria-checked={dark} aria-label="Dark" title="Dark" onClick={() => onChange(true)} className={seg(dark)}>
+          <Moon className="size-3.5" />
+        </button>
+      </div>
     </div>
   )
 }

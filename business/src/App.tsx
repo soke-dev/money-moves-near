@@ -23,6 +23,7 @@ import { Checkout, CheckoutPreviewFrame } from '@/pages/checkout'
 import { ReceiptPage } from '@/pages/receipt'
 import { GiveBackPage } from '@/pages/give-back'
 import { Profile, Referrals } from '@/pages/account'
+import { SettingsFrame } from '@/components/SettingsFrame'
 import { Privacy, Prohibited, Terms } from '@/pages/legal'
 import { Button } from '@/components/ui'
 import ChatBubble from '@/components/ChatBubble'
@@ -128,15 +129,15 @@ export default function App() {
         <Route path="/collect/addresses" element={<DepositAddresses />} />
         <Route path="/payouts" element={<Navigate to="/balances" replace />} />
         <Route path="/payouts/beneficiaries" element={<Navigate to="/balances" replace />} />
-        <Route path="/settings/business" element={<BusinessPreferences />} />
-        <Route path="/settings/settlement" element={<SettlementSettings />} />
-        <Route path="/settings/compliance" element={<Compliance />} />
-        <Route path="/settings/branding" element={<Branding />} />
-        <Route path="/settings/team" element={<Team />} />
-        <Route path="/settings/profile" element={<Profile />} />
-        <Route path="/settings/referrals" element={<Referrals />} />
-        <Route path="/settings/roles" element={<Roles />} />
-        <Route path="/settings/activity" element={<Activity />} />
+        <Route path="/settings/business" element={<SettingsFrame><BusinessPreferences /></SettingsFrame>} />
+        <Route path="/settings/settlement" element={<SettingsFrame><SettlementSettings /></SettingsFrame>} />
+        <Route path="/settings/compliance" element={<SettingsFrame><Compliance /></SettingsFrame>} />
+        <Route path="/settings/branding" element={<SettingsFrame><Branding /></SettingsFrame>} />
+        <Route path="/settings/team" element={<SettingsFrame><Team /></SettingsFrame>} />
+        <Route path="/settings/profile" element={<SettingsFrame><Profile /></SettingsFrame>} />
+        <Route path="/settings/referrals" element={<SettingsFrame><Referrals /></SettingsFrame>} />
+        <Route path="/settings/roles" element={<SettingsFrame><Roles /></SettingsFrame>} />
+        <Route path="/settings/activity" element={<SettingsFrame><Activity /></SettingsFrame>} />
         <Route path="/settings/api-keys" element={<ApiKeys />} />
         <Route path="/settings/webhooks" element={<Webhooks />} />
         <Route path="/settings/events" element={<Events />} />
