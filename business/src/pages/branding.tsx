@@ -117,7 +117,7 @@ export function Branding() {
       />
       {!canEdit && <p className="-mt-2 mb-6 text-[13px] text-muted">The owner or an admin can change the branding. This is how your checkout looks now.</p>}
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-[400px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-8 xl:grid-cols-[minmax(0,1fr)_350px]">
         {/* The controls */}
         <Card className="divide-y divide-line self-start">
           <section className="p-5">

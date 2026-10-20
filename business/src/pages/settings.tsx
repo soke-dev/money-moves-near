@@ -883,13 +883,13 @@ function SettleChainCard() {
     }
   }
   return (
-    <div className="mb-6 max-w-[820px] rounded-[12px] border border-line bg-card px-4 py-3.5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-w-0 flex-1">
+    <div className="mb-6 max-w-[820px] rounded-[12px] border border-line bg-card px-4 py-4">
+      <div>
+        <div className="min-w-0">
           <div className="text-[14px] font-semibold text-fg">Crypto settles as USDC on</div>
           <div className="mt-0.5 text-[12.5px] leading-relaxed text-muted">Whatever coin or chain a customer pays with, you get USDC on this chain, in your business wallet or Money Moves account.</div>
         </div>
-        <div className="inline-flex shrink-0 rounded-full border border-line bg-[#FAFAF8] p-0.5">
+        <div className="mt-3.5 grid grid-cols-3 gap-2">
           {offered.map(([id, chain]) => (
             <button
               key={id}
@@ -897,11 +897,11 @@ function SettleChainCard() {
               disabled={!canChange || !!busy}
               onClick={() => void pick(id)}
               className={cx(
-                'flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] transition disabled:cursor-not-allowed',
-                current === id ? 'bg-card font-medium text-fg shadow-[0_1px_2px_rgba(18,18,16,0.08)] ring-1 ring-line' : 'text-muted hover:text-fg',
+                'flex min-w-0 items-center justify-center gap-1 rounded-full border px-1.5 py-2 text-[12.5px] transition disabled:cursor-not-allowed sm:gap-1.5 sm:px-2.5 sm:text-[13px]',
+                current === id ? 'border-fg bg-card font-medium text-fg shadow-[0_0_0_1px_var(--color-fg)]' : 'border-line bg-card text-muted hover:border-[#D3D0C7] hover:text-fg',
               )}
             >
-              {busy === id ? <Loader2 className="size-4 animate-spin" /> : <ChainIcon chain={chain} size={16} />} {chain}
+              {busy === id ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <ChainIcon chain={chain} size={16} />} <span className="truncate">{chain}</span>
             </button>
           ))}
         </div>

@@ -376,7 +376,7 @@ export function Card({ children, className }: { children: ReactNode; className?:
 
 export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { id: T; label: string; badge?: ReactNode }[]; value: T; onChange: (t: T) => void }) {
   return (
-    <div className="mb-6 flex gap-5 overflow-x-auto border-b border-line">
+    <div className="no-scrollbar mb-6 flex gap-5 overflow-x-auto overflow-y-hidden border-b border-line">
       {tabs.map((t) => (
         <button
           key={t.id}
