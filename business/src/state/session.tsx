@@ -29,6 +29,9 @@ export interface User {
   hasPassword?: boolean
   google?: boolean
   passwordChangedAt?: string | null
+  /** How the code after the password comes: by email, or from an authenticator app. */
+  twoStep?: 'EMAIL' | 'APP'
+  recoveryLeft?: number | null
   /** Live only: their photo's address. */
   avatar?: string | null
 }
@@ -98,6 +101,8 @@ function toUser(u: ApiUser): User {
     hasPassword: u.hasPassword,
     google: u.google,
     passwordChangedAt: u.passwordChangedAt,
+    twoStep: u.twoStep,
+    recoveryLeft: u.recoveryLeft ?? null,
     avatar: u.avatar ?? null,
   }
 }

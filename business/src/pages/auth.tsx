@@ -9,13 +9,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link, Navigate, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { inviteFrom, keepReferral, referralCode } from '@/state/referral'
-import { ArrowLeft, ArrowRight, Check, Mail, Plus } from '@/components/icons'
+import { ArrowLeft, ArrowRight, Check, Mail, Plus, Smartphone } from '@/components/icons'
 import AuthLayout, { Scribble } from '@/layouts/AuthLayout'
 import { useSession } from '@/state/session'
 import { Avatar, Logo } from '@/components/brand'
 import { Button, Checkbox, Field, Input, OtpInput, PasswordInput, SearchBox, Select, cx } from '@/components/ui'
 import { GoogleSignIn } from '@/components/GoogleSignIn'
-import { ApiError, api, type Challenge, type Me } from '@/lib/api'
+import { ApiError, api, type Challenge, type Me, isChallenge } from '@/lib/api'
 
 /* ─── Shared pieces ────────────────────────────────────────────────── */
 
@@ -235,7 +235,9 @@ export function SignUp() {
 
   const google = (idToken: string) =>
     run(async () => {
-      const me = await api<Me>('POST', '/auth/google', { idToken })
+      const r = await api<Me | Challenge>('POST', '/auth/google', { idToken })
+      if (isChallenge(r)) return navigate(`/login${invite ? `?invite=${invite}` : ''}`, { state: { appChallenge: r.challenge } })
+      const me = r
       applyMe(me)
       if (invite) return navigate(`/invite/${invite}`)
       if (me.businesses.length) return navigate(afterSignIn(me))
@@ -465,7 +467,11 @@ export function Login() {
   const [email, setEmail] = useState(params.get('email') ?? '')
   const [password, setPassword] = useState('')
   /** Set once the password is right: the code step that follows. */
-  const [pending, setPending] = useState<{ challenge: string; step: 'two_step' | 'verify_email' } | null>(null)
+  // Arriving from sign up with Google, with the authenticator app on: straight to its code.
+  const fromGoogle = (useLocation().state as { appChallenge?: string } | null)?.appChallenge
+  const [pending, setPending] = useState<{ challenge: string; step: 'two_step' | 'verify_email'; method?: 'email' | 'app' } | null>(fromGoogle ? { challenge: fromGoogle, step: 'two_step', method: 'app' } : null)
+  /** With the app: a recovery code instead, for a lost phone. */
+  const [recovery, setRecovery] = useState(false)
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<ReactNode>('')
@@ -504,7 +510,8 @@ export function Login() {
         return
       }
       const r = await api<Challenge>('POST', '/auth/login', { email, password })
-      setPending({ challenge: r.challenge, step: r.step ?? 'two_step' })
+      setPending({ challenge: r.challenge, step: r.step ?? 'two_step', method: r.method })
+      setRecovery(false)
       setCode('')
       clock.restart()
     })
@@ -520,10 +527,18 @@ export function Login() {
 
   const google = (idToken: string) =>
     run(async () => {
-      const me = await api<Me>('POST', '/auth/google', { idToken })
-      applyMe(me)
-      navigate(afterSignIn(me))
+      const r = await api<Me | Challenge>('POST', '/auth/google', { idToken })
+      if (isChallenge(r)) {
+        setPending({ challenge: r.challenge, step: 'two_step', method: 'app' })
+        setCode('')
+        setRecovery(false)
+        return
+      }
+      applyMe(r)
+      navigate(afterSignIn(r))
     })
+  const app = pending?.method === 'app'
+  const codeReady = recovery ? code.replace(/[^A-Za-z0-9]/g, '').length === 8 : code.length === 6
 
   return (
     <AuthLayout
@@ -542,28 +557,56 @@ export function Login() {
         <form
           onSubmit={(e) => {
             e.preventDefault()
-            if (code.length === 6 && !busy) void verify()
+            if (codeReady && !busy) void verify()
           }}
         >
           <BackLink onClick={() => (setPending(null), setError(''))} label="Use a different account" />
           <div className="flex items-center gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-lime text-fg">
-              <Mail className="size-5" />
-            </span>
-            <h1 className="display text-[28px] font-bold leading-[1.08] text-fg">{pending.step === 'verify_email' ? 'Confirm your email' : 'Enter your code'}</h1>
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-lime text-fg">{app ? <Smartphone className="size-5" /> : <Mail className="size-5" />}</span>
+            <h1 className="display text-[28px] font-bold leading-[1.08] text-fg">{pending.step === 'verify_email' ? 'Confirm your email' : app ? (recovery ? 'Use a recovery code' : 'Enter your app code') : 'Enter your code'}</h1>
           </div>
           <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">
-            We sent a six-digit code to <span className="font-medium text-fg">{email}</span>.{' '}
-            {pending.step === 'verify_email' ? 'Confirm the address to finish setting up.' : 'It keeps your account yours, even if your password gets out.'}
+            {app ? (
+              recovery ? (
+                'One of the ten codes you saved when you turned on the authenticator app. Each works once.'
+              ) : (
+                'Open your authenticator app and enter the six-digit code for Money Moves Business.'
+              )
+            ) : (
+              <>
+                We sent a six-digit code to <span className="font-medium text-fg">{email}</span>.{' '}
+                {pending.step === 'verify_email' ? 'Confirm the address to finish setting up.' : 'It keeps your account yours, even if your password gets out.'}
+              </>
+            )}
           </p>
           <div className="mt-7">
-            <OtpInput value={code} onChange={setCode} />
+            {recovery ? (
+              <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 9))} placeholder="K7Q2-9XHD" autoFocus autoComplete="one-time-code" className="h-12 text-center font-mono text-[18px] tracking-[0.2em]" />
+            ) : (
+              <OtpInput value={code} onChange={setCode} />
+            )}
           </div>
           <Problem>{error}</Problem>
-          <Button type="submit" variant="primary" size="lg" full className="mt-6" disabled={code.length < 6 || busy}>
+          <Button type="submit" variant="primary" size="lg" full className="mt-6" disabled={!codeReady || busy}>
             {busy ? 'Checking…' : 'Log in'}
           </Button>
-          <ResendLine left={clock.left} busy={busy} onResend={() => void start()} />
+          {app ? (
+            <p className="mt-5 text-center text-[13.5px] text-muted">
+              <button
+                type="button"
+                onClick={() => {
+                  setRecovery((r) => !r)
+                  setCode('')
+                  setError('')
+                }}
+                className="font-medium text-fg underline underline-offset-4"
+              >
+                {recovery ? 'Use the app instead' : 'Lost your phone? Use a recovery code'}
+              </button>
+            </p>
+          ) : (
+            <ResendLine left={clock.left} busy={busy} onResend={() => void start()} />
+          )}
         </form>
       ) : (
         <>

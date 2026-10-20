@@ -21,6 +21,7 @@ import businessRoutes from "./routes/businesses";
 import { bankAccountsRouter, banksRouter } from "./routes/banks";
 import { invitesRouter, teamRouter } from "./routes/team";
 import disputeRoutes from "./routes/disputes";
+import reportRoutes from "./routes/reports";
 import linkRoutes from "./routes/links";
 import moneyRoutes from "./routes/money";
 import payRoutes from "./routes/pay";
@@ -90,6 +91,7 @@ app.use("/api/businesses/:businessId/api-keys", apiKeyRoutes);
 app.use("/api/businesses/:businessId/developers", developerRoutes);
 app.use("/api/businesses/:businessId/team", teamRouter);
 app.use("/api/businesses/:businessId/disputes", disputeRoutes);
+app.use("/api/businesses/:businessId/reports", reportRoutes);
 app.use("/api/businesses/:businessId", moneyRoutes);
 app.use("/api/businesses", businessRoutes);
 // The customer's checkout: no sign-in.

@@ -28,6 +28,10 @@ export function describe(action: string, d: Detail): { text: string; group: Acti
       return { text: `Changed ${str(x.email) || "a teammate"} from ${role(x.from)} to ${role(x.to)}`, group: "team" };
     case "team_removed":
       return { text: `Removed ${str(x.email) || "a teammate"} from the team`, group: "team" };
+    case "team_app_required":
+      return { text: "Asked everyone on the team to sign in with an authenticator app", group: "team" };
+    case "team_app_optional":
+      return { text: "Stopped asking the team to use an authenticator app", group: "team" };
     case "team_left":
       return { text: `Left the team`, group: "team" };
     case "refund_requested":
@@ -48,6 +52,12 @@ export function describe(action: string, d: Detail): { text: string; group: Acti
       return { text: `Unlinked @${str(x.username)}`, group: "settings" };
     case "settlement_chain_changed":
       return { text: `Set crypto to settle on ${CHAIN[str(x.settleChain)] ?? str(x.settleChain)}`, group: "settings" };
+    case "method_on":
+      return { text: `Turned on ${({ NAIRA: "bank transfers", APP: "Money Moves app payments", CRYPTO: "crypto payments" } as Record<string, string>)[str(x.method)] ?? str(x.method)}`, group: "settings" };
+    case "method_off":
+      return { text: `Turned off ${({ NAIRA: "bank transfers", APP: "Money Moves app payments", CRYPTO: "crypto payments" } as Record<string, string>)[str(x.method)] ?? str(x.method)}`, group: "settings" };
+    case "api_settlement_changed":
+      return { text: x.settleTo ? `Set API payments to settle to ${({ BANK: "the bank account", MONEY_MOVES: "the Money Moves account", WALLET: "the business wallet" } as Record<string, string>)[str(x.settleTo)]}` : "Set API payments to settle automatically", group: "settings" };
     case "fee_payer_changed":
       return { text: x.payer === "CUSTOMER" ? "Set customers to pay the processing fee" : "Set the business to pay the processing fee", group: "settings" };
     case "branding_changed":
@@ -70,6 +80,8 @@ export function describe(action: string, d: Detail): { text: string; group: Acti
       return { text: `Sent invoice ${str(x.number)}`, group: "collect" };
     case "invoice_reminded":
       return { text: `Sent a reminder for invoice ${str(x.number)}`, group: "collect" };
+    case "invoice_repeat_stopped":
+      return { text: `Stopped invoice ${str(x.number)} repeating`, group: "collect" };
     case "invoice_voided":
       return { text: `Voided invoice ${str(x.number)}`, group: "collect" };
     case "outlet_created":

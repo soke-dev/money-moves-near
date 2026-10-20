@@ -16,6 +16,7 @@ import { DepositAddresses } from '@/pages/deposits'
 import { BusinessPreferences, SettlementSettings } from '@/pages/settings'
 import { Roles, Team } from '@/pages/team'
 import { Activity } from '@/pages/activity'
+import { Reports } from '@/pages/reports'
 import { InvitePage } from '@/pages/invite'
 import { ApiKeys, DocsRedirect, Events, Logs, Webhooks } from '@/pages/developers'
 import { Checkout, CheckoutPreviewFrame } from '@/pages/checkout'
@@ -119,6 +120,7 @@ export default function App() {
         <Route path="/balances" element={<BusinessWallet />} />
         <Route path="/balances/history" element={<Navigate to="/balances" replace />} />
         <Route path="/balances/settlements" element={<Settlements />} />
+        <Route path="/reports" element={<Reports />} />
         <Route path="/balances/conversions" element={<Navigate to="/balances" replace />} />
         <Route path="/collect/links" element={<PaymentLinks />} />
         <Route path="/collect/invoices" element={<Invoices />} />

@@ -25,6 +25,8 @@ import { requireUser } from "../middleware/auth";
 import { limited } from "../lib/limits";
 import { checkSignupEmail } from "../lib/email-check";
 import { MAX_IMAGE, imageUrl, storeImage } from "../lib/images";
+import { randomUUID } from "crypto";
+import { checkTotp, newRecoveryCodes, newSecret, openSecret, otpauthUri, sealSecret, useRecoveryCode } from "../lib/totp";
 
 const router = Router();
 
@@ -46,6 +48,8 @@ const publicUser = (u: User) => ({
   lastName: u.lastName,
   phone: u.phone,
   twoStep: u.twoStep,
+  /** Recovery codes left, for a lost phone. */
+  recoveryLeft: u.twoStep === "APP" ? u.recoveryCodes.length : null,
   hasPassword: !!u.passwordHash,
   google: !!u.googleSub,
   passwordChangedAt: u.passwordChangedAt,
@@ -63,6 +67,61 @@ async function me(userId: string) {
 const failCode = (reason: keyof typeof CODE_ERRORS): never => {
   throw new HttpError(400, CODE_ERRORS[reason], `code_${reason}`);
 };
+
+// ─── The authenticator app ────────────────────────────────────────────────
+
+const APP_MINUTES = 10;
+const APP_TRIES = 5;
+/** A code from the app, or a recovery code. */
+const appCode = z.string().trim().min(6, "Enter the 6-digit code from your app.").max(14);
+const APP_ERRORS = {
+  expired: "That sign-in took too long. Sign in again.",
+  wrong: "That code isn't right. Check the app and try the latest code.",
+  too_many: "Too many wrong tries. Sign in again.",
+} as const;
+
+/** After the password or Google: a challenge whose code comes from the app, not an email. */
+async function appChallenge(userId: string, via: "password" | "google") {
+  await prisma.loginCode.updateMany({ where: { userId, purpose: "SIGN_IN_APP", usedAt: null }, data: { usedAt: new Date() } });
+  const id = randomUUID();
+  await prisma.loginCode.create({ data: { id, userId, purpose: "SIGN_IN_APP", codeHash: "-", via, expiresAt: new Date(Date.now() + APP_MINUTES * 60_000) } });
+  return id;
+}
+
+/**
+ * Checks a code from someone's app (or one of their recovery codes), once. The
+ * step it was right for is claimed with a conditional update, so the same code
+ * can't be used twice, even by two requests at once.
+ */
+async function appCodeIsRight(user: User, code: string): Promise<boolean> {
+  if (!user.totpSecret) return false;
+  const digits = code.replace(/\s+/g, "");
+  if (/^\d{6}$/.test(digits)) {
+    const step = checkTotp(openSecret(user.totpSecret), digits, user.totpLastStep);
+    if (step == null) return false;
+    const claimed = await prisma.user.updateMany({ where: { id: user.id, OR: [{ totpLastStep: null }, { totpLastStep: { lt: step } }] }, data: { totpLastStep: step } });
+    return claimed.count === 1;
+  }
+  const left = useRecoveryCode(user.recoveryCodes, code);
+  if (!left) return false;
+  const claimed = await prisma.user.updateMany({ where: { id: user.id, recoveryCodes: { equals: user.recoveryCodes } }, data: { recoveryCodes: left } });
+  if (claimed.count === 1) void sendEmail(user.email, "A recovery code was used to sign in", `Someone signed in to your Money Moves Business account with one of your recovery codes. You have ${left.length} left.\n\nIf this wasn't you, change your password now and write to support@usemoneymoves.xyz.`, { label: "Security" }).catch(() => false);
+  return claimed.count === 1;
+}
+
+async function checkAppChallenge(challengeId: string, code: string): Promise<{ ok: true; userId: string; via: string } | { ok: false; reason: keyof typeof APP_ERRORS }> {
+  const row = await prisma.loginCode.findUnique({ where: { id: challengeId } }).catch(() => null);
+  if (!row || row.purpose !== "SIGN_IN_APP" || row.usedAt || row.expiresAt < new Date()) return { ok: false, reason: "expired" };
+  if (row.attempts >= APP_TRIES) return { ok: false, reason: "too_many" };
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: row.userId } });
+  if (!(await appCodeIsRight(user, code))) {
+    await prisma.loginCode.update({ where: { id: row.id }, data: { attempts: { increment: 1 } } });
+    return { ok: false, reason: row.attempts + 1 >= APP_TRIES ? "too_many" : "wrong" };
+  }
+  const used = await prisma.loginCode.updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: new Date() } });
+  if (!used.count) return { ok: false, reason: "expired" };
+  return { ok: true, userId: row.userId, via: row.via ?? "password" };
+}
 
 // ─── Sign up ──────────────────────────────────────────────────────────────
 
@@ -123,12 +182,27 @@ router.post("/login", authLimiter, async (req, res) => {
     res.json({ challenge: await issueCode(user, "VERIFY_EMAIL"), step: "verify_email" });
     return;
   }
-  // 2-step is always on. Authenticator apps arrive with the profile screen; until then the code goes by email.
+  // 2-step is always on: a code from the authenticator app when it's set up, otherwise by email.
+  if (user.twoStep === "APP" && user.totpSecret) {
+    res.json({ challenge: await appChallenge(user.id, "password"), step: "two_step", method: "app" });
+    return;
+  }
   res.json({ challenge: await issueCode(user, "SIGN_IN"), step: "two_step", method: "email" });
 });
 
 router.post("/login/verify", codeLimiter, async (req, res) => {
-  const b = body(z.object({ challenge, code }), req);
+  const b = body(z.object({ challenge, code: appCode }), req);
+  const row = await prisma.loginCode.findUnique({ where: { id: b.challenge }, select: { purpose: true } }).catch(() => null);
+  if (row?.purpose === "SIGN_IN_APP") {
+    const r = await checkAppChallenge(b.challenge, b.code);
+    if (!r.ok) throw new HttpError(400, APP_ERRORS[r.reason], `code_${r.reason}`);
+    const method = r.via === "google" ? "google" : "password";
+    await startSession(req, res, r.userId, method);
+    await audit(req, "signed_in", { userId: r.userId, detail: { method, twoStep: "app" } });
+    res.json(await me(r.userId));
+    return;
+  }
+  if (!/^\d{6}$/.test(b.code)) throw new HttpError(400, "Enter the 6-digit code.", "code_wrong");
   const r = await checkCode(b.challenge, b.code, "SIGN_IN");
   if (!r.ok) return failCode(r.reason);
   await startSession(req, res, r.userId, "password");
@@ -163,6 +237,11 @@ router.post("/google", authLimiter, async (req, res) => {
           },
         })
       : await prisma.user.create({ data: { email: g.email, googleSub: g.sub, emailVerified: new Date(), firstName: g.firstName, lastName: g.lastName } });
+  }
+  // With the authenticator app on, Google gets them as far as the code, the same as a password does.
+  if (user.twoStep === "APP" && user.totpSecret) {
+    res.json({ challenge: await appChallenge(user.id, "google"), step: "two_step", method: "app" });
+    return;
   }
   await startSession(req, res, user.id, "google");
   await audit(req, "signed_in", { userId: user.id, detail: { method: "google" } });
@@ -204,6 +283,62 @@ router.delete("/me/avatar", requireUser, async (req, res) => {
   await prisma.user.update({ where: { id: req.auth!.userId }, data: { avatarId: null } });
   await audit(req, "photo_removed");
   res.json(await me(req.auth!.userId));
+});
+
+// ─── 2-step: the authenticator app ────────────────────────────────────────
+
+const appLimiter = limited(20);
+
+/** A new secret to scan. Nothing changes until a code from the app confirms it. */
+router.post("/me/two-step/app/start", requireUser, appLimiter, async (req, res) => {
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });
+  const secret = newSecret();
+  await prisma.user.update({ where: { id: user.id }, data: { totpPending: sealSecret(secret) } });
+  res.json({ secret, uri: otpauthUri(secret, user.email) });
+});
+
+/** The first code from the app: it's on, and here are the recovery codes, shown this once. */
+router.post("/me/two-step/app/confirm", requireUser, appLimiter, async (req, res) => {
+  const b = body(z.object({ code: z.string().trim().regex(/^\d{6}$/, "Enter the 6-digit code from your app.") }), req);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });
+  if (!user.totpPending) throw new HttpError(400, "Start again: scan a new code first.", "no_pending");
+  const secret = openSecret(user.totpPending);
+  const step = checkTotp(secret, b.code, null);
+  if (step == null) throw new HttpError(400, "That code isn't right. Check the app's clock is set automatically, and try the latest code.", "code_wrong");
+  const rc = newRecoveryCodes();
+  await prisma.user.update({ where: { id: user.id }, data: { twoStep: "APP", totpSecret: user.totpPending, totpPending: null, totpLastStep: step, recoveryCodes: rc.hashes } });
+  await audit(req, "two_step_app_on");
+  void sendEmail(user.email, "Your authenticator app is on", "From now on, signing in to Money Moves Business asks for the 6-digit code from your authenticator app instead of an email.\n\nIf you didn't turn this on, change your password now and write to support@usemoneymoves.xyz.", { label: "Security" }).catch(() => false);
+  res.json({ ...(await me(user.id)), recoveryCodes: rc.codes });
+});
+
+/** Back to codes by email: it takes a code from the app (or a recovery code), and no business may require the app. */
+router.post("/me/two-step/email", requireUser, appLimiter, async (req, res) => {
+  const b = body(z.object({ code: appCode }), req);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });
+  if (user.twoStep !== "APP") {
+    res.json(await me(user.id));
+    return;
+  }
+  const requiring = await prisma.member.findFirst({ where: { userId: user.id, business: { requireAppTwoStep: true } }, include: { business: { select: { name: true } } } });
+  if (requiring) throw new HttpError(409, `${requiring.business.name} asks everyone on its team to use an authenticator app, so it can't be turned off.`, "app_required");
+  if (!(await appCodeIsRight(user, b.code))) throw new HttpError(400, APP_ERRORS.wrong, "code_wrong");
+  await prisma.user.update({ where: { id: user.id }, data: { twoStep: "EMAIL", totpSecret: null, totpPending: null, totpLastStep: null, recoveryCodes: [] } });
+  await audit(req, "two_step_app_off");
+  void sendEmail(user.email, "Your authenticator app is off", "Signing in to Money Moves Business now sends a code to this email instead of asking your authenticator app.\n\nIf you didn't do this, change your password now and write to support@usemoneymoves.xyz.", { label: "Security" }).catch(() => false);
+  res.json(await me(user.id));
+});
+
+/** A fresh set of recovery codes, for a code from the app. The old ones stop working. */
+router.post("/me/two-step/recovery", requireUser, appLimiter, async (req, res) => {
+  const b = body(z.object({ code: appCode }), req);
+  const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });
+  if (user.twoStep !== "APP") throw new HttpError(400, "Turn on the authenticator app first.", "not_app");
+  if (!(await appCodeIsRight(user, b.code))) throw new HttpError(400, APP_ERRORS.wrong, "code_wrong");
+  const rc = newRecoveryCodes();
+  await prisma.user.update({ where: { id: user.id }, data: { recoveryCodes: rc.hashes } });
+  await audit(req, "two_step_recovery_codes");
+  res.json({ ...(await me(user.id)), recoveryCodes: rc.codes });
 });
 
 // ─── Where you're signed in ───────────────────────────────────────────────

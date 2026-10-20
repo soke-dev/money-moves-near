@@ -42,6 +42,7 @@ import { invoiceShape } from "./invoices";
 import { outletShape, outletStats } from "./outlets";
 import { approveChange, changeShape, currentDetails, declineChange } from "../services/detail-changes";
 import { REASON_WORDS, filesOf, isOpen, messageShape, recordBankClaim, teamDecide, teamMessage } from "../services/disputes";
+import { dailyLimitNgn, takenTodayKobo, unusualToday } from "../lib/risk";
 
 const router = Router();
 router.use(limited(900), requireAdmin);
@@ -228,6 +229,7 @@ router.get("/overview", async (req, res) => {
     // Live disputes still open: customers waiting on a business, bank claims waiting on the bank's word.
     prisma.dispute.count({ where: { mode: "LIVE", status: { in: ["NEEDS_REPLY", "UNDER_REVIEW"] } } }),
   ]);
+  const unusual = (await unusualToday(await platform())).length;
   const count = (s: BusinessStatus) => byStatus.find((x) => x.status === s)?._count._all ?? 0;
   const day = (mode: Mode) => {
     const m = paidToday.find((x) => x.mode === mode);
@@ -235,7 +237,7 @@ router.get("/overview", async (req, res) => {
   };
   res.json({
     businesses: { total: byStatus.reduce((a, x) => a + x._count._all, 0), unverified: count("UNVERIFIED"), inReview: count("IN_REVIEW"), verified: count("VERIFIED"), suspended: count("SUSPENDED"), newThisWeek },
-    attention: { failed, held, stuck, review, refundsToSend, chatsWaiting, detailChanges, cryptoReturns, disputesOpen, inReview: count("IN_REVIEW"), applications, waitingBanks, testFailed, documentsLocked: vaultState().state === "locked" },
+    attention: { failed, held, stuck, review, refundsToSend, chatsWaiting, detailChanges, cryptoReturns, disputesOpen, unusual, inReview: count("IN_REVIEW"), applications, waitingBanks, testFailed, documentsLocked: vaultState().state === "locked" },
     mode: mode.toLowerCase(),
     today: { live: day("LIVE"), test: day("TEST"), settled: { count: settledToday._count._all, amountNgn: (settledToday._sum.amountKobo ?? 0) / 100 } },
     recent: recent.map(paymentView),
@@ -389,6 +391,8 @@ router.get("/businesses/:id", async (req, res) => {
       settleChain: effectiveChain(b.settleChain, p),
       adminNote: b.adminNote,
       referral: { code: b.referralCode, referredBy: referrer, referred: referredCount },
+      /** Past this in a day, its live settlements wait for a person. */
+      risk: { ownLimitNgn: b.dailyLimitNgn, limitNgn: dailyLimitNgn(b, p), takenTodayNgn: (await takenTodayKobo(prisma, b.id)) / 100 },
       updatedAt: b.updatedAt,
       statusChangedBy: statusEntry ? byOf(statusEntry, people) : null,
       nameOnRecord: await nameOnRecord(id),
@@ -460,6 +464,8 @@ const editInput = z.object({
   /** Basis points: 50 is 0.5%. Null puts the default back. */
   feeRateBps: z.number().int().min(0).max(1000, "Keep the rate at 10% or under.").nullish(),
   feeCapNgn: z.number().min(0).max(100_000, "Keep the cap at ₦100,000 or under.").nullish(),
+  /** Its own daily limit in naira. Null puts the platform's default back. */
+  dailyLimitNgn: z.number().int().min(0).max(10_000_000_000).nullish(),
   password: z.string().max(200).optional(),
 });
 
@@ -469,7 +475,7 @@ router.patch("/businesses/:id", async (req, res) => {
   const before = await prisma.business.findUnique({ where: { id } });
   if (!before) throw new HttpError(404, "No business with that id.", "not_found");
   // A name decides whose bank accounts can be paid, and a fee is money: both take the password. A note doesn't.
-  const sensitive = b.name !== undefined || b.kind !== undefined || b.feeRateBps !== undefined || b.feeCapNgn !== undefined;
+  const sensitive = b.name !== undefined || b.kind !== undefined || b.feeRateBps !== undefined || b.feeCapNgn !== undefined || b.dailyLimitNgn !== undefined;
   if (sensitive) await needActionPassword(req, b.password, "edit_business");
   const data: Prisma.BusinessUpdateInput = {};
   if (b.name !== undefined) data.name = b.name;
@@ -478,6 +484,7 @@ router.patch("/businesses/:id", async (req, res) => {
   if (b.adminNote !== undefined) data.adminNote = b.adminNote || null;
   if (b.feeRateBps !== undefined) data.feeRateBps = b.feeRateBps;
   if (b.feeCapNgn !== undefined) data.feeCapKobo = b.feeCapNgn == null ? null : Math.round(b.feeCapNgn * 100);
+  if (b.dailyLimitNgn !== undefined) data.dailyLimitNgn = b.dailyLimitNgn;
   await prisma.business.update({ where: { id }, data });
   if (b.name !== undefined || b.kind !== undefined) await recheckBanks(id);
   const changed = Object.keys(data);
@@ -1075,6 +1082,33 @@ router.post("/refunds/:id/sent", async (req, res) => {
   await record(req, "refund_sent", r.businessId, { refundId: r.id, ref: r.ref });
   const full = await prisma.refund.findUniqueOrThrow({ where: { id: r.id }, include: { ...refundIncludes, events: { orderBy: { createdAt: "asc" } } } });
   res.json({ refund: refundView(full) });
+});
+
+// ─── Unusual activity ─────────────────────────────────────────────────────
+
+/** Live businesses worth a look today: past their daily limit, or far above their usual day. */
+router.get("/risk", async (_req, res) => {
+  res.json({ unusual: await unusualToday(await platform()) });
+});
+
+// ─── Someone locked out of their authenticator app ────────────────────────
+
+/**
+ * They lost the phone and the recovery codes. Once our team has checked it's
+ * really them, this switches them back to codes by email and signs out every
+ * device. They're emailed, so a reset they didn't ask for doesn't go unnoticed.
+ */
+router.post("/users/reset-two-step", async (req, res) => {
+  const b = body(z.object({ email: z.string().trim().toLowerCase().email(), password: z.string().max(200).optional() }), req);
+  await needActionPassword(req, b.password, "reset_two_step");
+  const user = await prisma.user.findUnique({ where: { email: b.email } });
+  if (!user) throw new HttpError(404, "No one with that email.", "not_found");
+  if (user.twoStep !== "APP") throw new HttpError(400, "They don't use an authenticator app.", "not_app");
+  await prisma.user.update({ where: { id: user.id }, data: { twoStep: "EMAIL", totpSecret: null, totpPending: null, totpLastStep: null, recoveryCodes: [] } });
+  await prisma.session.updateMany({ where: { userId: user.id, revokedAt: null }, data: { revokedAt: new Date() } });
+  await record(req, "two_step_reset", null, { email: user.email });
+  void sendEmail(user.email, "Your authenticator app was reset", "At your request, our team switched your Money Moves Business sign-in back to codes by email, and signed out every device. Turn the authenticator app on again from your profile.\n\nIf you didn't ask for this, write to support@usemoneymoves.xyz now.", { label: "Security" }).catch(() => {});
+  res.json({ ok: true });
 });
 
 // ─── Disputes ─────────────────────────────────────────────────────────────

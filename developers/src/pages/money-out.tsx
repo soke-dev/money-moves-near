@@ -34,7 +34,8 @@ export function Settlement() {
       <UL>
         <li>Choose a settlement destination for each payment link, invoice and store QR when you create it. Different links can use different accounts.</li>
         <li>
-          An API checkout uses its <C>settle_to</C> value. If you omit it, funds go to a verified bank account, then to a linked Money Moves account, or to your business wallet if neither is available.
+          An API checkout uses its <C>settle_to</C> value. If you omit it, funds go where you chose for API payments in the dashboard's Developer portal: a bank account, your Money Moves account or your business wallet. On Automatic, or while
+          the place you chose can't take payments, they go to a verified bank account, then a linked Money Moves account, then your business wallet. Each settles the moment it's paid.
         </li>
         <li>A business signed up as an individual settles everything to its business wallet.</li>
       </UL>

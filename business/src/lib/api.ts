@@ -65,6 +65,20 @@ export interface ApiPlatform {
 }
 
 /** What a live checkout can take today; each needs switching on by us, and the app and crypto need their side ready. */
+/** A way to pay, for this business: on once it has somewhere to settle, unless the business switched it off. */
+export interface ApiMethodState {
+  on: boolean
+  off: boolean
+  ready: boolean
+  /** What to link first, while it has nowhere to settle. */
+  why: string | null
+}
+/** The business's payment settings: its checkout methods, and where API payments settle. */
+export interface ApiPaymentSettings {
+  methods: Record<'NAIRA' | 'APP' | 'CRYPTO', ApiMethodState>
+  api: { settleTo: ApiDestination | null; bankAccountId: string | null; now: ApiDestination; nowBankAccountId: string | null; justMe: boolean }
+}
+
 export interface ApiLiveMethods {
   naira: boolean
   app: boolean
@@ -80,6 +94,8 @@ export interface ApiUser {
   lastName: string | null
   phone: string | null
   twoStep: 'EMAIL' | 'APP'
+  /** Recovery codes left, with the authenticator app on. */
+  recoveryLeft?: number | null
   hasPassword: boolean
   google: boolean
   passwordChangedAt: string | null
@@ -122,7 +138,12 @@ export interface Me {
 export interface Challenge {
   challenge: string
   step?: 'two_step' | 'verify_email'
+  /** Where the code comes from: an email, or the person's authenticator app. */
+  method?: 'email' | 'app'
 }
+
+/** Google's answer: signed in, or (with an authenticator app on) one more step. */
+export const isChallenge = (r: unknown): r is Challenge => !!r && typeof r === 'object' && 'challenge' in r
 
 /* ─── Money: payout places, links, payments, settlements ──────────── */
 
@@ -307,6 +328,8 @@ export interface PublicInvoice {
   paymentRef: string | null
 }
 
+export type InvoiceRepeat = 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY'
+
 export interface ApiInvoice {
   id: string
   number: string
@@ -331,6 +354,10 @@ export interface ApiInvoice {
   destination: ApiDestination
   bankAccountId: string | null
   createdAt: string
+  /** Sent again on a schedule. */
+  repeat?: { every: InvoiceRepeat; until: string | null; next: string | null } | null
+  /** Sent from a series: the first invoice's id. */
+  repeatOf?: string | null
   payment: { ref: string; method: ApiMethod; paidAt: string | null; receivedNgn: number | null; amountUsd: number } | null
 }
 

@@ -1,5 +1,5 @@
 /**
- * The live business wallet: the owner's own.
+ * The live business wallet: the owner's own. Admins see it too, but can't send.
  *
  * Loaded only on the Wallet page, so the wallet sign-in code never slows the
  * rest of the dashboard. The owner signs in with the email they use here (a
@@ -102,10 +102,15 @@ function WalletPage() {
   if (error) return <Shell><Empty title="Couldn’t open your wallet." sub={error} actions={<Button onClick={() => void reload()}>Try again</Button>} /></Shell>
   if (!state) return <Shell><Spinner /></Shell>
 
-  // The wallet is the owner's alone: nobody else on the team sees it.
-  if (!state.isOwner) {
-    return <Shell><Empty title="The business wallet is the owner’s." sub="Only the business’s owner can see the wallet and send from it. Payments still settle where they’re set to, and you can follow them in Settlements." actions={<Link to="/balances/settlements"><Button>Settlements</Button></Link>} /></Shell>
+  // The owner's wallet: admins see it, with its balance and history, and nobody else on the team does.
+  if (!state.isOwner && !state.wallet) {
+    return state.exists ? (
+      <Shell><Empty title="The business wallet is the owner’s." sub="Only the owner and admins can see the wallet, and only the owner can send from it. Payments still settle where they’re set to, and you can follow them in Settlements." actions={<Link to="/balances/settlements"><Button>Settlements</Button></Link>} /></Shell>
+    ) : (
+      <Shell><Empty title="No business wallet yet." sub="The owner creates it, once the business is verified. Until then, payments settle to the bank account or Money Moves account they’re set to." actions={<Link to="/balances/settlements"><Button>Settlements</Button></Link>} /></Shell>
+    )
   }
+  if (!state.isOwner && state.wallet) return <WalletView wallet={state.wallet} owner={false} onChanged={() => void reload()} />
   if (!state.wallet) {
     if (!state.verified) {
       return (

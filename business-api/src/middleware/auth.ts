@@ -46,12 +46,19 @@ export function requireMember(...roles: Role[]) {
   return async (req: Request, _res: Response, next: NextFunction) => {
     if (!req.auth) throw new HttpError(401, "Sign in to continue.", "signed_out");
     const businessId = String(req.params.businessId ?? "");
-    const member = businessId ? await prisma.member.findUnique({ where: { businessId_userId: { businessId, userId: req.auth.userId } } }) : null;
-    if (!member) throw new HttpError(404, "No business here.", "not_found");
+    const found = businessId
+      ? await prisma.member.findUnique({
+          where: { businessId_userId: { businessId, userId: req.auth.userId } },
+          include: { business: { select: { status: true, requireAppTwoStep: true } }, user: { select: { twoStep: true } } },
+        })
+      : null;
+    if (!found) throw new HttpError(404, "No business here.", "not_found");
+    const { business: b, user, ...member } = found;
+    // The owner asked everyone to sign in with an authenticator app: nothing here until they have.
+    if (b.requireAppTwoStep && user.twoStep !== "APP") throw new HttpError(403, "This business asks everyone on its team to sign in with an authenticator app. Turn it on in your profile to carry on.", "two_step_required");
     if (roles.length && !roles.includes(member.role)) throw new HttpError(403, "Your role can't do that. Ask an owner or admin.", "forbidden");
     if (!READS.has(req.method)) {
-      const b = await prisma.business.findUnique({ where: { id: businessId }, select: { status: true } });
-      if (b?.status === "SUSPENDED") throw new HttpError(403, "Money Moves has deactivated this business, so nothing can be changed. You can still see its history. Write to support@usemoneymoves.xyz about it.", "business_deactivated");
+      if (b.status === "SUSPENDED") throw new HttpError(403, "Money Moves has deactivated this business, so nothing can be changed. You can still see its history. Write to support@usemoneymoves.xyz about it.", "business_deactivated");
     }
     req.member = member;
     next();

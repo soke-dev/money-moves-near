@@ -1,0 +1,20 @@
+{
+  "name": "moneymoves/sdk",
+  "description": "The official PHP library for the Money Moves Business API: checkouts, payments, settlements, refunds, disputes and webhooks.",
+  "type": "library",
+  "license": "MIT",
+  "keywords": ["money moves", "payments", "checkout", "stablecoins", "usdc", "webhooks"],
+  "homepage": "https://developers.usemoneymoves.xyz/sdk/php",
+  "require": {
+    "php": ">=7.4",
+    "ext-curl": "*",
+    "ext-json": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "MoneyMoves\\": "src/"
+    },
+    "files": ["src/Errors.php", "src/MoneyMoves.php"]
+  },
+  "minimum-stability": "stable"
+}

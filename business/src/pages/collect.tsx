@@ -35,7 +35,7 @@ import { ago, copy, date, dateTime, ngn, usd } from '@/lib/format'
 import { useTestMode } from '@/components/TestMode'
 import { useSession } from '@/state/session'
 import { DestLine, SettlementChoice, canChoose, effectiveDest, useReadiness } from '@/components/Settlement'
-import { ApiError, LIVE, api, type ApiAccept, type ApiInvoice, type ApiLink, type ApiOutlet, type PublicLink } from '@/lib/api'
+import { ApiError, LIVE, api, type ApiAccept, type ApiInvoice, type ApiLink, type ApiOutlet, type ApiPaymentSettings, type PublicLink } from '@/lib/api'
 import { reload, useApi } from '@/lib/useApi'
 import { BuilderHead, BuilderPage, BuilderSubmit, CheckRow, Choice, Eyebrow, Fold, GroupLabel, SheetField, type PreviewPayload } from '@/components/Builder'
 import { useBranding } from '@/state/branding'
@@ -881,13 +881,34 @@ function MoneyInput({ currency, value, onChange, placeholder }: { currency: Curr
  * The three ways to pay, one under the other. Any mix, but at least one. Test
  * mode simulates all three, so a business can try each before it's real.
  */
+const METHOD_API = { naira: 'NAIRA', app: 'APP', crypto: 'CRYPTO' } as const
+
 function MethodRows({ value, onChange }: { value: Method[]; onChange: (m: Method[]) => void }) {
-  const { mode } = useSession()
+  const { mode, business } = useSession()
+  // The business's own switches, from Settings: one that's off isn't offered to customers, whatever is ticked here.
+  const settings = useApi<ApiPaymentSettings>(LIVE && business ? `/businesses/${business.id}/payment-settings?mode=${mode}` : null)
+  const shut = (m: Method) => settings.data?.methods[METHOD_API[m]]?.on === false
   return (
     <div>
       <div className="-mx-1.5">
         {METHOD_ORDER.map((m) => {
           const on = value.includes(m)
+          const off = shut(m)
+          if (off && !on) {
+            return (
+              <div key={m} className="flex items-center gap-3 rounded-[6px] px-1.5 py-2 opacity-60">
+                <span className="size-[18px] shrink-0 rounded-[5px] border border-[#C9C6BC] bg-raise" />
+                <span className="text-[#6B6A64]">{METHOD_LINE[m]}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] text-fg">{METHODS[m].short}</span>
+                  <span className="block text-[12px] text-dim">
+                    Off for your business.{' '}
+                    <Link to="/settings/business?tab=methods" className="underline underline-offset-2">Turn it on in Settings</Link>
+                  </span>
+                </span>
+              </div>
+            )
+          }
           return (
             <label key={m} className="flex cursor-pointer items-center gap-3 rounded-[6px] px-1.5 py-2 hover:bg-raise">
               <span className={cx('flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border transition', on ? 'border-fg bg-fg' : 'border-[#C9C6BC] bg-card')}>
@@ -902,7 +923,7 @@ function MethodRows({ value, onChange }: { value: Method[]; onChange: (m: Method
               <span className="text-[#6B6A64]">{METHOD_LINE[m]}</span>
               <span className="min-w-0 flex-1">
                 <span className="block text-[14px] text-fg">{METHODS[m].short}</span>
-                <span className="block text-[12px] text-dim">{METHOD_TILE[m]}</span>
+                <span className="block text-[12px] text-dim">{off ? 'Off for your business, so customers won’t see it until it’s on in Settings.' : METHOD_TILE[m]}</span>
               </span>
             </label>
           )
@@ -1386,6 +1407,8 @@ function toInvoice(i: ApiInvoice): Invoice {
     sentAt: i.sentAt ?? undefined,
     viewedAt: i.viewedAt ?? undefined,
     remindedAt: i.remindedAt ?? undefined,
+    repeat: i.repeat ?? undefined,
+    repeatOf: i.repeatOf ?? undefined,
     paid: i.payment ? { at: i.payment.paidAt ?? i.paidAt ?? i.createdAt, method: METHOD_FROM_API[i.payment.method], ref: i.payment.ref } : undefined,
   }
 }
@@ -1606,6 +1629,7 @@ export function Invoices() {
         }}
         onSend={send}
         onRemind={remind}
+        onStopRepeat={LIVE ? (i) => void act(() => api('POST', `${invPath}/${i.id}/stop-repeat`)) : undefined}
         onPreview={preview}
         onDelete={(i) => {
           setViewingId(null)
@@ -1665,6 +1689,7 @@ function InvoiceDrawer({
   onRemind,
   onPreview,
   onDelete,
+  onStopRepeat,
 }: {
   inv: Invoice | null
   /** What went wrong with the last thing done to it. */
@@ -1674,6 +1699,8 @@ function InvoiceDrawer({
   onRemind: (i: Invoice) => void
   onPreview: (i: Invoice) => void
   onDelete: (i: Invoice) => void
+  /** Live: no more from this series. */
+  onStopRepeat?: (i: Invoice) => void
 }) {
   const { business } = useSession()
   const { test } = useTestMode()
@@ -1717,6 +1744,29 @@ function InvoiceDrawer({
             </div>
             <div className="display tabular mt-3 text-[34px] font-semibold leading-none text-fg">{invMoney(inv)}</div>
             <div className="tabular mt-2 text-[12.5px] text-dim">≈ {inv.currency === 'NGN' ? usd(inv.amountUsd) : ngn(Math.round(inv.amountUsd * NGN_RATE))}</div>
+
+            {inv.repeat && (
+              <div className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[10px] bg-raise px-3.5 py-3 text-[13px]">
+                <span className="text-muted">
+                  {inv.repeat.next ? (
+                    <>
+                      Repeats {REPEAT_WORDS[inv.repeat.every]}. Next one goes out <span className="font-medium text-fg">{date(inv.repeat.next)}</span>
+                      {inv.repeat.until ? `, until ${date(inv.repeat.until)}` : ''}.
+                    </>
+                  ) : inv.status === 'draft' ? (
+                    <>Repeats {REPEAT_WORDS[inv.repeat.every]} once it's sent.</>
+                  ) : (
+                    <>Stopped repeating.</>
+                  )}
+                </span>
+                {inv.repeat.next && onStopRepeat && (
+                  <Button size="sm" variant="ghost" onClick={() => onStopRepeat(inv)}>
+                    Stop repeating
+                  </Button>
+                )}
+              </div>
+            )}
+            {inv.repeatOf && <div className="mt-5 rounded-[10px] bg-raise px-3.5 py-2.5 text-[13px] text-muted">Sent on schedule, from a repeating invoice.</div>}
 
             <div className="mt-5 flex items-center gap-3 rounded-[10px] border border-line px-3.5 py-3">
               <Avatar name={inv.customer} size={34} />
@@ -1858,7 +1908,9 @@ function InvoiceDrawer({
   )
 }
 
-const BLANK_INVOICE = { customer: '', email: '', due: '', currency: 'USD', note: '' }
+const BLANK_INVOICE = { customer: '', email: '', due: '', currency: 'USD', note: '', repeat: '', until: '' }
+
+const REPEAT_WORDS: Record<string, string> = { WEEKLY: 'every week', MONTHLY: 'every month', QUARTERLY: 'every 3 months', YEARLY: 'every year' }
 
 function CreateInvoice({ open, onClose, number, onSave }: { open: boolean; onClose: () => void; number: string; onSave: (i: Invoice) => void }) {
   const { business, mode, setDestination } = useSession()
@@ -1911,6 +1963,7 @@ function CreateInvoice({ open, onClose, number, onSave }: { open: boolean; onClo
         bankAccountId: pay.savedBank ?? null,
         feePayer,
         send: true,
+        repeat: f.repeat ? { every: f.repeat, until: f.until || null } : null,
       })
       await reload(path)
       setMade({ number: r.invoice.number, token: r.invoice.token, emailed: r.emailed })
@@ -2020,6 +2073,24 @@ function CreateInvoice({ open, onClose, number, onSave }: { open: boolean; onClo
             <Field label="Due date" required>
               <Input type="date" value={f.due} onChange={set('due')} />
             </Field>
+            {LIVE && (
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <Field label="Repeat" hint={f.repeat ? 'A fresh invoice goes out on schedule, due the same time after.' : undefined}>
+                  <Select value={f.repeat} onChange={(e) => setF((p) => ({ ...p, repeat: e.target.value }))}>
+                    <option value="">Doesn't repeat</option>
+                    <option value="WEEKLY">Every week</option>
+                    <option value="MONTHLY">Every month</option>
+                    <option value="QUARTERLY">Every 3 months</option>
+                    <option value="YEARLY">Every year</option>
+                  </Select>
+                </Field>
+                {f.repeat && (
+                  <Field label="Until" optional hint="Leave empty to keep going until you stop it.">
+                    <Input type="date" value={f.until} min={f.due || undefined} onChange={(e) => setF((p) => ({ ...p, until: e.target.value }))} />
+                  </Field>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="my-7 h-px bg-line" />

@@ -20,6 +20,8 @@ import { brandOf } from "../lib/brand";
 import { MAX_IMAGE, imageUrl, storeImage } from "../lib/images";
 import { newReferralCode } from "../lib/money";
 import { dashboardUrl } from "../lib/email";
+import { methodStates } from "../lib/methods";
+import { defaultDestination } from "./v1";
 
 const router = Router();
 
@@ -186,6 +188,63 @@ router.get("/:businessId/referrals", requireMember("OWNER", "ADMIN"), async (req
       stage: paying.has(x.id) ? "paying" : x.status === "VERIFIED" ? "verified" : x.status === "IN_REVIEW" || x.application?.submittedAt ? "review" : "joined",
     })),
   });
+});
+
+// ─── Payment methods and API payments ─────────────────────────────────────
+
+const SETTINGS_ROLES = ["OWNER", "ADMIN", "FINANCE"] as const;
+const mode = (q: unknown) => (String(q).toLowerCase() === "test" ? "TEST" : "LIVE");
+
+/**
+ * The ways to pay, each on or off and why, and where API payments settle:
+ * what was chosen, and where they're going right now.
+ */
+router.get("/:businessId/payment-settings", requireMember(), async (req, res) => {
+  const businessId = req.member!.businessId;
+  const m = mode(req.query.mode);
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { id: true, kind: true, methodsOff: true, apiSettleTo: true, apiBankAccountId: true } });
+  const [methods, now] = await Promise.all([methodStates(business, m), defaultDestination(businessId, "LIVE", await platform())]);
+  res.json({
+    methods,
+    api: { settleTo: business.apiSettleTo, bankAccountId: business.apiBankAccountId, now: now.destination, nowBankAccountId: now.bankAccountId ?? null, justMe: business.kind === "INDIVIDUAL" },
+  });
+});
+
+/** A way to pay, on or off for every checkout. Turning one on needs somewhere for its money to go. */
+router.patch("/:businessId/methods", requireMember(...SETTINGS_ROLES), async (req, res) => {
+  const b = body(z.object({ method: z.enum(["NAIRA", "APP", "CRYPTO"]), on: z.boolean() }), req);
+  const businessId = req.member!.businessId;
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { id: true, kind: true, methodsOff: true } });
+  if (b.on) {
+    const live = await methodStates({ ...business, methodsOff: [] }, "LIVE");
+    if (!live[b.method].ready) throw new HttpError(400, live[b.method].why ?? "Link a payout place first.", "method_not_ready");
+  }
+  const off = new Set(business.methodsOff);
+  if (b.on) off.delete(b.method);
+  else off.add(b.method);
+  await prisma.business.update({ where: { id: businessId }, data: { methodsOff: [...off] } });
+  await audit(req, b.on ? "method_on" : "method_off", { businessId, detail: { method: b.method } });
+  res.json({ methods: await methodStates({ ...business, methodsOff: [...off] }, mode(req.query.mode)) });
+});
+
+/** Where API payments settle when a checkout doesn't say: a bank account, the Money Moves account, the business wallet, or automatic. */
+router.patch("/:businessId/api-settlement", requireMember(...SETTINGS_ROLES), async (req, res) => {
+  const b = body(z.object({ settleTo: z.enum(["BANK", "MONEY_MOVES", "WALLET"]).nullable(), bankAccountId: z.string().min(1).nullish() }), req);
+  const businessId = req.member!.businessId;
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { kind: true } });
+  if (business.kind === "INDIVIDUAL" && b.settleTo && b.settleTo !== "WALLET") throw new HttpError(400, "A Just me account settles everything to its business wallet.", "just_me");
+  let bankAccountId: string | null = null;
+  if (b.settleTo === "BANK") {
+    const bank = await prisma.bankAccount.findFirst({ where: { businessId, removedAt: null, nameMatches: true, ...(b.bankAccountId ? { id: b.bankAccountId } : {}) }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
+    if (!bank) throw new HttpError(400, "Add a checked bank account in Payout places first.", "no_bank");
+    bankAccountId = b.bankAccountId ? bank.id : null;
+  }
+  if (b.settleTo === "MONEY_MOVES" && !(await prisma.moneyMovesLink.count({ where: { businessId, status: "LINKED" } }))) throw new HttpError(400, "Link your Money Moves account in Payout places first.", "no_money_moves");
+  if (b.settleTo === "WALLET" && !(await prisma.businessWallet.count({ where: { businessId } }))) throw new HttpError(400, "Create your business wallet first.", "no_wallet");
+  await prisma.business.update({ where: { id: businessId }, data: { apiSettleTo: b.settleTo, apiBankAccountId: bankAccountId } });
+  await audit(req, "api_settlement_changed", { businessId, detail: { settleTo: b.settleTo } });
+  const now = await defaultDestination(businessId, "LIVE", await platform());
+  res.json({ api: { settleTo: b.settleTo, bankAccountId, now: now.destination, nowBankAccountId: now.bankAccountId ?? null, justMe: business.kind === "INDIVIDUAL" } });
 });
 
 router.get("/:businessId/members", requireMember(), async (req, res) => {

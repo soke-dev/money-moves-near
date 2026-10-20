@@ -17,7 +17,7 @@ import { ApiError, LIVE, api, type Me } from '@/lib/api'
 import { Empty } from '@/components/ui'
 import { BusinessMark, PhotoControl } from '@/components/Pictures'
 import { useCan } from '@/state/roles'
-import { useApi } from '@/lib/useApi'
+import { reload, useApi } from '@/lib/useApi'
 
 const problem = (e: unknown) => (e instanceof ApiError ? e.message : 'Something went wrong. Try again in a moment.')
 
@@ -207,74 +207,168 @@ function Password() {
   )
 }
 
-/** The code on top of the password: by email, or from an authenticator app. */
+/**
+ * The code on top of the password: by email, or from an authenticator app.
+ * Turning the app on is scan, then one code to prove it works, then ten
+ * recovery codes shown once. Turning it off takes a code from the app.
+ */
 function TwoStep({ email }: { email: string }) {
-  const { live } = useSession()
-  const [how, setHow] = useState<'email' | 'app'>('email')
-  const [pending, setPending] = useState(false)
+  const { live, user, applyMe, business } = useSession()
+  const on = live ? user?.twoStep === 'APP' : false
+  const [setup, setSetup] = useState<{ secret: string; uri: string } | null>(null)
+  const [codes, setCodes] = useState<string[] | null>(null)
+  const [action, setAction] = useState<'off' | 'recovery' | null>(null)
   const [code, setCode] = useState('')
-  const secret = 'JBSWY3DPEHPK3PXP'
-  const option = (id: 'email' | 'app', title: string, sub: string, disabled?: boolean) => {
-    const on = pending ? id === 'app' : how === id
-    return (
-      <button
-        type="button"
-        disabled={disabled}
-        onClick={() => {
-          if (id === how) return
-          if (id === 'app') setPending(true)
-          else {
-            setHow('email')
-            setPending(false)
-          }
-        }}
-        className={cx('flex w-full items-start gap-3 rounded-[12px] border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-60', on ? 'border-fg shadow-[0_0_0_1px_#121210]' : 'border-line hover:border-[#D3D0C7]')}
-      >
-        <span className={cx('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border', on ? 'border-fg bg-fg' : 'border-[#C9C6BC]')}>{on && <span className="size-1.5 rounded-full bg-white" />}</span>
-        <span className="min-w-0">
-          <span className="block text-[14px] font-medium text-fg">{title}</span>
-          <span className="block truncate text-[12.5px] text-muted">{sub}</span>
-        </span>
-      </button>
-    )
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true)
+    setError('')
+    try {
+      await fn()
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : 'Something went wrong. Try again in a moment.')
+    } finally {
+      setBusy(false)
+    }
   }
+  const start = () =>
+    run(async () => {
+      if (!live) {
+        setSetup({ secret: 'JBSWY3DPEHPK3PXP', uri: `otpauth://totp/Money%20Moves:${encodeURIComponent(email)}?secret=JBSWY3DPEHPK3PXP&issuer=Money%20Moves` })
+        return
+      }
+      setSetup(await api<{ secret: string; uri: string }>('POST', '/auth/me/two-step/app/start'))
+      setCode('')
+    })
+  const confirm = () =>
+    run(async () => {
+      if (!live) return
+      const r = await api<Me & { recoveryCodes: string[] }>('POST', '/auth/me/two-step/app/confirm', { code })
+      applyMe(r)
+      setSetup(null)
+      setCode('')
+      setCodes(r.recoveryCodes)
+      // A team that asks for the app opens again now.
+      if (business) void reload(`/businesses/${business.id}`)
+    })
+  const finish = () =>
+    run(async () => {
+      if (action === 'off') {
+        applyMe(await api<Me>('POST', '/auth/me/two-step/email', { code }))
+        setAction(null)
+      } else {
+        const r = await api<Me & { recoveryCodes: string[] }>('POST', '/auth/me/two-step/recovery', { code })
+        applyMe(r)
+        setAction(null)
+        setCodes(r.recoveryCodes)
+      }
+      setCode('')
+    })
+  const save = () => {
+    const blob = new Blob([`Money Moves Business recovery codes for ${email}\nEach works once, if you lose your phone.\n\n${(codes ?? []).join('\n')}\n`], { type: 'text/plain' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = 'money-moves-recovery-codes.txt'
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000)
+  }
+
   return (
     <Card className="p-5 sm:p-6">
-      <div className="text-[15px] font-semibold text-fg">2-step sign-in</div>
-      <p className="mt-1 text-[13px] text-muted">A code on top of your password, every time you sign in. It can't be turned off.</p>
-      <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-        {option('email', 'Code by email', email)}
-        {live ? option('app', 'Authenticator app', 'Next: Google Authenticator, 1Password, Authy', true) : option('app', 'Authenticator app', how === 'app' ? 'Set up and on' : 'Google Authenticator, 1Password, Authy')}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold text-fg">2-step sign-in</div>
+          <p className="mt-1 text-[13px] text-muted">A code on top of your password, every time you sign in. It can't be turned off, only moved to an app.</p>
+        </div>
+        <Badge tone={on ? 'good' : 'neutral'}>{on ? 'Authenticator app' : 'Code by email'}</Badge>
       </div>
-      {pending && !live && (
+
+      {codes ? (
+        <div className="rise mt-4 rounded-[12px] border border-line bg-[#FAFAF8] p-4">
+          <div className="text-[14px] font-semibold text-fg">Save your recovery codes</div>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted">If you lose your phone, each of these signs you in once. Keep them somewhere safe, away from your phone. They won't be shown again.</p>
+          <div className="mt-3 grid grid-cols-2 gap-1.5 rounded-[10px] bg-white p-3 font-mono text-[13.5px] text-fg ring-1 ring-line sm:grid-cols-5">
+            {codes.map((c) => (
+              <span key={c}>{c}</span>
+            ))}
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Button size="sm" icon={<Copy className="size-3.5" />} onClick={() => copy(codes.join('\n'))}>
+              Copy
+            </Button>
+            <Button size="sm" onClick={save}>
+              Download
+            </Button>
+            <Button size="sm" variant="primary" onClick={() => setCodes(null)}>
+              I've saved them
+            </Button>
+          </div>
+        </div>
+      ) : setup ? (
         <div className="rise mt-4 flex flex-col gap-5 rounded-[12px] border border-line bg-[#FAFAF8] p-4 sm:flex-row sm:items-start">
-          <div className="shrink-0 self-center rounded-[10px] bg-white p-2 sm:self-start">
-            <Qr value={`otpauth://totp/Money%20Moves:${encodeURIComponent(email)}?secret=${secret}&issuer=Money%20Moves`} size={132} />
+          <div className="shrink-0 self-center sm:self-start">
+            <Qr value={setup.uri} size={148} />
           </div>
           <div className="min-w-0 flex-1">
-            <div className="text-[14px] font-medium text-fg">Scan this with your app</div>
-            <p className="mt-1 text-[12.5px] leading-relaxed text-muted">Or type the key in by hand, then enter the 6-digit code it shows.</p>
-            <button onClick={() => copy(secret)} className="mt-2 flex items-center gap-1.5 rounded-[6px] bg-white px-2 py-1 font-mono text-[12.5px] text-fg ring-1 ring-line">
-              {secret} <Copy className="size-3.5 text-dim" />
+            <div className="text-[14px] font-medium text-fg">Scan this with your authenticator app</div>
+            <p className="mt-1 text-[12.5px] leading-relaxed text-muted">Google Authenticator, 1Password, Authy or Microsoft Authenticator. Or type the key in by hand, then enter the 6-digit code it shows.</p>
+            <button onClick={() => copy(setup.secret)} className="mt-2 flex max-w-full items-center gap-1.5 break-all rounded-[6px] bg-white px-2 py-1 text-left font-mono text-[12.5px] text-fg ring-1 ring-line">
+              {setup.secret.replace(/(.{4})/g, '$1 ').trim()} <Copy className="size-3.5 shrink-0 text-dim" />
             </button>
-            <div className="mt-3 flex gap-2">
-              <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" inputMode="numeric" className="w-32 font-mono tracking-[0.2em]" />
-              <Button
-                variant="primary"
-                disabled={code.length !== 6}
-                onClick={() => {
-                  setHow('app')
-                  setPending(false)
-                  setCode('')
-                }}
-              >
-                Turn on
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="123456" inputMode="numeric" autoComplete="one-time-code" className="w-32 font-mono tracking-[0.2em]" autoFocus />
+              <Button variant="primary" disabled={code.length !== 6 || busy || !live} onClick={() => void confirm()}>
+                {busy ? 'Checking…' : 'Turn on'}
               </Button>
-              <Button variant="ghost" onClick={() => (setPending(false), setCode(''))}>
+              <Button variant="ghost" onClick={() => (setSetup(null), setCode(''), setError(''))}>
                 Cancel
               </Button>
             </div>
+            {error && <p className="mt-2 text-[12.5px] text-red">{error}</p>}
           </div>
+        </div>
+      ) : action ? (
+        <div className="rise mt-4 rounded-[12px] border border-line bg-[#FAFAF8] p-4">
+          <div className="text-[14px] font-medium text-fg">{action === 'off' ? 'Go back to codes by email' : 'Make new recovery codes'}</div>
+          <p className="mt-1 text-[12.5px] leading-relaxed text-muted">
+            {action === 'off' ? 'Enter a code from your app, or a recovery code, to confirm it’s you.' : 'Enter a code from your app. Your old recovery codes stop working.'}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Input value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 9))} placeholder="123456" autoComplete="one-time-code" className="w-36 font-mono tracking-[0.15em]" autoFocus />
+            <Button variant="primary" disabled={code.length < 6 || busy} onClick={() => void finish()}>
+              {busy ? 'Checking…' : action === 'off' ? 'Turn the app off' : 'Make new codes'}
+            </Button>
+            <Button variant="ghost" onClick={() => (setAction(null), setCode(''), setError(''))}>
+              Cancel
+            </Button>
+          </div>
+          {error && <p className="mt-2 text-[12.5px] text-red">{error}</p>}
+        </div>
+      ) : on ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-line px-4 py-3">
+          <div className="min-w-0 text-[13px] text-muted">
+            Signing in asks for your app's code. {user?.recoveryLeft != null && <span>{user.recoveryLeft} recovery code{user.recoveryLeft === 1 ? '' : 's'} left.</span>}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" onClick={() => setAction('recovery')}>
+              New recovery codes
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setAction('off')}>
+              Use email instead
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[12px] border border-line px-4 py-3">
+          <div className="min-w-0 text-[13px] text-muted">
+            Codes go to <span className="font-medium text-fg">{email}</span>. An authenticator app is safer: someone who gets into your email still can't sign in.
+          </div>
+          <Button size="sm" variant="primary" icon={<Smartphone className="size-3.5" />} disabled={busy} onClick={() => void start()}>
+            Use an authenticator app
+          </Button>
+          {error && <p className="w-full text-[12.5px] text-red">{error}</p>}
         </div>
       )}
     </Card>

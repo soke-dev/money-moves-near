@@ -465,6 +465,10 @@ export interface Invoice {
   /** When the customer first opened it. */
   viewedAt?: string
   remindedAt?: string
+  /** Live: sent again on a schedule, and when the next goes. */
+  repeat?: { every: 'WEEKLY' | 'MONTHLY' | 'QUARTERLY' | 'YEARLY'; until: string | null; next: string | null }
+  /** Live: sent from a series. */
+  repeatOf?: string
   paid?: { at: string; method: Method; ref: string; asset?: Asset; chain?: Chain }
 }
 

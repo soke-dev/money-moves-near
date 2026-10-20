@@ -461,6 +461,7 @@ export type BusinessDetail = {
   business: BusinessRow & {
     settleChain: string
     adminNote: string | null
+    risk?: { ownLimitNgn: number | null; limitNgn: number; takenTodayNgn: number }
     referral?: { code: string | null; referredBy: { id: string; name: string } | null; referred: number }
     updatedAt: string
     statusChangedBy: string | null
@@ -623,6 +624,7 @@ export type Platform = {
   fees: { nairaRateBps: number; nairaCapNgn: number; cryptoRateBps: number; cryptoCapUsd: number; appRateBps: number; payoutNgn: number }
   limits: { businessMinNgn: number; businessMaxNgn: number; freelancerMinNgn: number; freelancerMaxNgn: number }
   review: { nairaAboveNgn: number; cryptoAboveUsd: number }
+  risk: { newDays: number; newDailyNgn: number; dailyNgn: number; spikeTimes: number; spikeMinNgn: number }
 }
 /** What is actually live: null when it is, else why not. */
 export type Live = {

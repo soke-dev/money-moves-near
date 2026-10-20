@@ -12,14 +12,15 @@ import { AlertTriangle, Check, Copy, MoreHorizontal, Pencil, Plus, RefreshCw, Ro
 import { Logo } from '@/components/brand'
 import { FilterMenu, RowCount, Rows } from '@/components/table'
 import { Badge, Button, Checkbox, CopyField, Drawer, Input, Modal, Toggle, cx } from '@/components/ui'
-import { ApiError, LIVE, api } from '@/lib/api'
-import { useApi } from '@/lib/useApi'
+import { ApiError, LIVE, api, type ApiDestination, type ApiPaymentSettings } from '@/lib/api'
+import { reload, useApi } from '@/lib/useApi'
+import { useCan } from '@/state/roles'
 import { useSession } from '@/state/session'
 import { createStore } from '@/state/store'
 import { bankLabel, banksOf, defaultBankOf, defaultMmOf, mmsOf, resolveApiSettlement, useTargets, type ApiChoice } from '@/state/targets'
 import { canChoose } from '@/components/Settlement'
-import { ago, copy, dateTime } from '@/lib/format'
-import { API_BASE, DOCS_URL } from '@/lib/links'
+import { ago, copy, date, dateTime } from '@/lib/format'
+import { DOCS_URL } from '@/lib/links'
 
 type Env = 'test' | 'live'
 
@@ -48,14 +49,11 @@ function Portal({ children }: { children: ReactNode }) {
   const { mode } = useSession()
   return (
     <>
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <h1 className="display text-[30px] font-semibold leading-tight tracking-[-0.03em] text-fg">Developer portal</h1>
-        <span className="flex items-center gap-2 pb-1 text-[12.5px] text-dim">
-          {mode === 'test' && <Badge tone="warn">Test mode</Badge>}
-          <span className="font-mono">{LIVE ? liveApiBase() : API_BASE}</span>
-        </span>
+        {mode === 'test' && <Badge tone="warn">Test mode</Badge>}
       </div>
-      <nav className="-mx-1 mt-5 flex gap-6 overflow-x-auto border-b border-line px-1">
+      <nav className="-mx-1 mt-5 flex gap-6 overflow-x-auto overflow-y-hidden border-b border-line px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {TABS.map(([label, to]) => (
           <Link
             key={to}
@@ -227,49 +225,54 @@ function LiveApiKeys() {
         ) : (
           <div className="overflow-hidden rounded-[12px] border border-line">
             {keys.map((k, i) => (
-              <div key={k.id} className={cx('flex flex-wrap items-center gap-x-6 gap-y-1 px-5 py-4', i > 0 && 'border-t border-line')}>
+              <div key={k.id} className={cx('flex items-start gap-4 px-4 py-3.5 sm:items-center sm:px-5', i > 0 && 'border-t border-line')}>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[14px] font-medium text-fg">{k.name}</span>
-                    {live ? <Badge tone="good">Live</Badge> : <Badge tone="warn">Test</Badge>}
+                  <div className="truncate text-[14px] font-medium text-fg">{k.name}</div>
+                  <div className="mt-0.5 truncate font-mono text-[12.5px] text-dim">{k.prefix}••••••••</div>
+                  <div className="mt-1 text-[12px] text-dim">
+                    {k.lastUsedAt ? `Used ${ago(k.lastUsedAt)}` : 'Never used'} · Made {date(k.createdAt)}
                   </div>
-                  <div className="mt-0.5 font-mono text-[12.5px] text-dim">{k.prefix}••••••••</div>
                 </div>
-                <div className="text-[12.5px] text-dim">{k.lastUsedAt ? `Used ${ago(k.lastUsedAt)}` : 'Never used'}</div>
-                <div className="text-[12.5px] text-dim">Made {dateTime(k.createdAt)}</div>
-                <Button size="sm" onClick={() => setRevoking(k)}>
+                <button onClick={() => setRevoking(k)} className="shrink-0 rounded-full px-2.5 py-1 text-[13px] font-medium text-muted transition hover:bg-raise hover:text-red">
                   Revoke
-                </Button>
+                </button>
               </div>
             ))}
           </div>
         )}
       </Section>
 
-      <Section title={live ? 'Make a checkout' : 'Make a test checkout'} sub="Send the customer to the url that comes back. Read the checkout again to see when it's paid.">
-        <div className="relative overflow-hidden rounded-[12px] bg-[#121210]">
-          <div className="absolute right-3 top-3">
-            <CopyButton value={example} />
-          </div>
-          <pre className="overflow-x-auto p-5 pr-24 font-mono text-[12.5px] leading-relaxed text-[#E8E6DF]">{example}</pre>
+      <section className="min-w-0 rounded-[12px] border border-line bg-card p-4 sm:p-5">
+        <div className="text-[15px] font-semibold text-fg">Start building</div>
+        <div className="mt-3 flex min-w-0 items-center gap-2 rounded-[8px] bg-raise px-3 py-2">
+          <span className="shrink-0 text-[12.5px] text-dim">API</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-fg">{base}</span>
+          <CopyButton value={base} />
         </div>
-        <div className="mt-4 grid gap-3 text-[13px] text-muted sm:grid-cols-2">
-          <div className="rounded-[10px] border border-line px-4 py-3">
-            <div className="font-medium text-fg">POST {base.replace(window.location.origin, '')}/checkouts</div>
-            <div className="mt-0.5">amount, currency (NGN or USD), and optionally description, reference, metadata, customer, expires_in, redirect_url.</div>
-          </div>
-          <div className="rounded-[10px] border border-line px-4 py-3">
-            <div className="font-medium text-fg">GET {base.replace(window.location.origin, '')}/checkouts/:id</div>
-            <div className="mt-0.5">status. Open, paid, expired or cancelled, and the payment once it's paid.</div>
-          </div>
+        <p className="mt-3 text-[13px] leading-relaxed text-muted">
+          Call it from your server, never a website or app, and keep keys secret.{!live && ' Test checkouts are paid with the test buttons on the page.'}
+        </p>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[13px]">
+          {docsLink('/quickstart', 'Quickstart')}
+          {docsLink('/api/checkouts', 'Checkouts API')}
+          {docsLink('/sdk', 'SDKs')}
         </div>
-        <ul className="mt-4 space-y-1.5 text-[13px] text-muted">
-          {!live && <li>· Test checkouts can only be paid with the test buttons on the page. Nothing real can arrive.</li>}
-          <li>· Keys work from your server only. A request from a website or an app is refused.</li>
-          <li>· Keep the key secret, like a password. Revoke it here the moment it might have leaked.</li>
-          <li>· Payments, settlements, refunds, balance, rates and events have endpoints too. {docsLink('/api', 'See them all')}</li>
-        </ul>
-      </Section>
+        <details className="group mt-4">
+          <summary className="cursor-pointer list-none text-[13px] font-medium text-muted hover:text-fg [&::-webkit-details-marker]:hidden">
+            <span className="group-open:hidden">Show an example request</span>
+            <span className="hidden group-open:inline">Hide the example</span>
+          </summary>
+          <div className="mt-3 min-w-0 overflow-hidden rounded-[10px] bg-[#121210]">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-2">
+              <span className="font-mono text-[11.5px] text-[#9A988F]">curl</span>
+              <CopyButton value={example} />
+            </div>
+            <pre className="whitespace-pre-wrap break-all p-4 font-mono text-[12px] leading-relaxed text-[#E8E6DF]">{example}</pre>
+          </div>
+        </details>
+      </section>
+
+      <ApiSettlementLive />
 
       <Modal open={making} onClose={() => setMaking(false)} title={secret ? 'Copy your key now' : `Create a ${word} key`} width={480}
         footer={
@@ -902,7 +905,7 @@ function ApiSettlement() {
           {dot(choice.dest === 'onchain')}
           <span className="min-w-0 flex-1">
             <span className="flex items-center gap-1.5 whitespace-nowrap text-[14px] font-semibold text-fg">
-              Business wallet <Badge>Default</Badge>
+              Business wallet
             </span>
             <span className="mt-0.5 block truncate text-[12.5px] text-muted">Self-custodial, yours alone</span>
           </span>
@@ -918,7 +921,7 @@ function ApiSettlement() {
           {dot(choice.dest === 'bank')}
           <span className="min-w-0">
             <span className="block whitespace-nowrap text-[14px] font-semibold text-fg">Bank account</span>
-            <span className="mt-0.5 block truncate text-[12.5px] text-muted">{why ?? (bankOk ? 'As naira, within 24 hours' : 'Add a bank account first')}</span>
+            <span className="mt-0.5 block truncate text-[12.5px] text-muted">{why ?? (bankOk ? 'As naira, the moment it’s paid' : 'Add a bank account first')}</span>
           </span>
         </button>
       </div>
@@ -990,8 +993,169 @@ function ApiSettlement() {
       )}
       {choice.dest === 'bank' && (
         <p className="mt-3 text-[12px] leading-relaxed text-dim">
-          Each payment is sold for naira and sent to this account within 24 hours. No fee. If the account is removed, API payments go to your default bank account, then your business wallet.
+          Each payment is paid out to this account as naira the moment it’s paid. If the account is removed, API payments go to your default bank account, then your business wallet.
         </p>
+      )}
+    </section>
+  )
+}
+
+type ApiPick = 'AUTO' | ApiDestination
+
+/**
+ * Live: where API checkouts settle when the checkout doesn't say, as the
+ * business chose it. Automatic goes to a checked bank account, then a linked
+ * Money Moves account, then the business wallet. Each settles the moment the
+ * payment is made. A place that goes away falls back to automatic.
+ */
+function ApiSettlementLive() {
+  const { business, mode } = useSession()
+  const can = useCan()
+  const [targets] = useTargets(business?.id)
+  const path = business ? `/businesses/${business.id}/payment-settings?mode=live` : null
+  const settings = useApi<ApiPaymentSettings>(path)
+  const now = settings.data?.api
+  const banks = banksOf(targets).filter((b) => b.verified)
+  const linked = mmsOf(targets).filter((m) => m.linked)
+  const hasWallet = !!targets?.businessWallet
+  const saved: { pick: ApiPick; bankId: string | null } = { pick: now?.settleTo ?? 'AUTO', bankId: now?.bankAccountId ?? null }
+  const [draft, setDraft] = useState<{ pick: ApiPick; bankId: string | null } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [problem, setProblem] = useState('')
+  const [justSaved, setJustSaved] = useState(false)
+  const choice = draft ?? saved
+  const dirty = !!draft && (draft.pick !== saved.pick || (draft.pick === 'BANK' && draft.bankId !== saved.bankId))
+  const pick = (next: { pick: ApiPick; bankId: string | null }) => {
+    setDraft(next)
+    setJustSaved(false)
+    setProblem('')
+  }
+  const bankName = (id: string | null) => {
+    const b = banks.find((x) => x.id === id) ?? defaultBankOf(targets) ?? banks[0]
+    return b ? bankLabel(b) : 'Bank account'
+  }
+  const placeName = (d: ApiDestination, bankId: string | null) => (d === 'BANK' ? bankName(bankId) : d === 'MONEY_MOVES' ? (defaultMmOf(targets)?.username ?? 'Money Moves account') : 'Business wallet')
+  const save = async () => {
+    if (!business || !draft) return
+    setBusy(true)
+    setProblem('')
+    try {
+      await api('PATCH', `/businesses/${business.id}/api-settlement`, { settleTo: draft.pick === 'AUTO' ? null : draft.pick, bankAccountId: draft.pick === 'BANK' ? draft.bankId : null })
+      reload(path!)
+      setDraft(null)
+      setJustSaved(true)
+    } catch (e) {
+      setProblem(e instanceof ApiError ? e.message : "That didn't go through. Try again in a moment.")
+    } finally {
+      setBusy(false)
+    }
+  }
+  const justMe = !!now?.justMe
+  const editable = can('settlement') && !justMe
+  // The place chosen, while it can't take payments: automatic takes over.
+  const fellBack = !!now?.settleTo && now.settleTo !== now.now
+  const options: { id: ApiPick; title: string; sub: string; ok: boolean }[] = [
+    { id: 'AUTO', title: 'Automatic', sub: 'Bank account, then Money Moves, then the wallet', ok: true },
+    { id: 'BANK', title: 'Bank account', sub: banks.length ? 'As naira, the moment it’s paid' : 'Add a bank account first', ok: banks.length > 0 },
+    { id: 'MONEY_MOVES', title: 'Money Moves account', sub: linked.length ? 'Lands in the app, ready to spend' : 'Link an account first', ok: linked.length > 0 },
+    { id: 'WALLET', title: 'Business wallet', sub: hasWallet ? 'As USDC, self custody' : 'Create the wallet first', ok: hasWallet },
+  ]
+  const card = (on: boolean, disabled?: boolean) =>
+    cx(
+      'flex w-full min-w-0 items-start gap-3 rounded-[12px] border px-3.5 py-3 text-left transition',
+      on ? 'border-fg bg-card shadow-[0_0_0_1px_#121210]' : disabled ? 'cursor-not-allowed border-line bg-[#FAFAF8] opacity-70' : 'border-line bg-card hover:border-[#D3D0C7]',
+    )
+  const dot = (on: boolean) => (
+    <span className={cx('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border', on ? 'border-fg bg-fg' : 'border-[#C9C6BC]')}>{on && <span className="size-1.5 rounded-full bg-white" />}</span>
+  )
+  const chip = (on: boolean) => cx('rounded-full border px-3 py-1 text-[12.5px] font-medium transition', on ? 'border-fg bg-fg text-white' : 'border-line bg-card text-muted hover:text-fg')
+
+  return (
+    <section className="mt-12 border-t border-line pt-8">
+      <div className="mb-1 flex flex-wrap items-baseline justify-between gap-2">
+        <span className="text-[17px] font-semibold text-fg">Where API payments land</span>
+        {now && (
+          <span className="text-[12.5px] text-dim">
+            Now: <span className="font-medium text-fg">{placeName(now.now, now.nowBankAccountId)}</span>
+          </span>
+        )}
+      </div>
+      <p className="mb-4 text-[13px] text-muted">
+        Live checkouts you make with the API, from your website or app, settle here the moment they’re paid, unless the checkout names a place with <code className="font-mono text-[12px]">settle_to</code>.
+        {mode === 'test' && ' Test checkouts are simulated and settle nowhere.'}
+      </p>
+      {settings.error ? (
+        <p className="text-[12.5px] text-red">{settings.error.message}</p>
+      ) : !now ? (
+        <div className="h-[68px] animate-pulse rounded-[12px] bg-raise" />
+      ) : justMe ? (
+        <div className="rounded-[10px] border border-line bg-[#FAFAF8] px-3.5 py-2.5 text-[13px] text-muted">A Just me account settles everything to its business wallet, API payments included.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {options.map((o) => {
+              const on = choice.pick === o.id
+              const disabled = !editable || (!o.ok && !on)
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => pick({ pick: o.id, bankId: o.id === 'BANK' ? choice.bankId : null })}
+                  className={card(on, disabled && !on)}
+                >
+                  {dot(on)}
+                  <span className="min-w-0">
+                    <span className="block whitespace-nowrap text-[14px] font-semibold text-fg">{o.title}</span>
+                    <span className="mt-0.5 block truncate text-[12.5px] text-muted">{o.sub}</span>
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+
+          {choice.pick === 'BANK' && banks.length > 1 && editable && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <span className="text-[12.5px] text-muted">Which account?</span>
+              <button onClick={() => pick({ pick: 'BANK', bankId: null })} className={chip(choice.bankId === null)}>
+                The default
+              </button>
+              {banks.map((b) => (
+                <button key={b.id} onClick={() => pick({ pick: 'BANK', bankId: b.id })} className={chip(choice.bankId === b.id)}>
+                  {bankLabel(b)}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {dirty ? (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-[10px] border border-line bg-[#FAFAF8] px-3.5 py-2.5">
+              <span className="text-[13px] text-muted">
+                API payments will go to <span className="font-medium text-fg">{draft!.pick === 'AUTO' ? 'the first place that can take them' : placeName(draft!.pick, draft!.bankId)}</span> once you save.
+              </span>
+              <div className="flex gap-2">
+                <Button size="sm" variant="ghost" onClick={() => setDraft(null)} disabled={busy}>
+                  Cancel
+                </Button>
+                <Button size="sm" variant="primary" onClick={() => void save()} disabled={busy}>
+                  {busy ? 'Saving…' : 'Save'}
+                </Button>
+              </div>
+            </div>
+          ) : justSaved ? (
+            <div className="mt-3 flex items-center gap-2 text-[13px] text-good">
+              <Check className="size-4" strokeWidth={3} /> Saved. New API payments go to {placeName(now.now, now.nowBankAccountId)}.
+            </div>
+          ) : null}
+          {problem && <p className="mt-3 text-[12.5px] text-red">{problem}</p>}
+
+          {!dirty && fellBack && (
+            <div className="mt-3 rounded-[10px] border border-[#EBD3A6] bg-[#FDF6E7] px-3.5 py-2.5 text-[12.5px] text-[#6E440A]">
+              The place you chose can’t take payments right now, so API payments are going to {placeName(now.now, now.nowBankAccountId)}. Check Payout places, or pick another.
+            </div>
+          )}
+          {!can('settlement') && <p className="mt-3 text-[12px] text-dim">The owner, admins and finance can change this.</p>}
+        </>
       )}
     </section>
   )

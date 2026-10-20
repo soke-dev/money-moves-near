@@ -133,7 +133,7 @@ export function Services() {
     setDraft((d) => (d ? ({ ...d, [group]: typeof d[group] === 'object' ? { ...(d[group] as object), [key]: value } : value } as Platform) : d))
   const flip = (group: keyof Platform, key: string) => (v: boolean) => set(group, key, v)
 
-  const TABS: readonly (readonly [Tab, string, string[]])[] = [["switches","Switches",["payouts","newBusinesses","maintenance"]],["pay","Ways to pay",["methods","coins","networks"]],["checkouts","Checkouts",["channels"]],["settle","Settlement",["destinations","settleChains"]],["fees","Fees",["fees"]],["limits","Limits & review",["limits","review"]]]
+  const TABS: readonly (readonly [Tab, string, string[]])[] = [["switches","Switches",["payouts","newBusinesses","maintenance"]],["pay","Ways to pay",["methods","coins","networks"]],["checkouts","Checkouts",["channels"]],["settle","Settlement",["destinations","settleChains"]],["fees","Fees",["fees"]],["limits","Limits & review",["limits","review","risk"]]]
   // Each tab counts the changes waiting to be saved in it.
   const waiting = (keys: string[]) => [...diff].filter((d) => keys.includes(d.split('.')[0]!)).length
 
@@ -258,6 +258,19 @@ export function Services() {
           onChange={(v) => set('review', 'cryptoAboveUsd', v)}
           changed={diff.has('review.cryptoAboveUsd')}
         />
+      </Group>
+      )}
+
+      {tab === 'limits' && (
+      <Group
+        title="Daily limits"
+        sub="Past what a business takes in live in a day, its settlements wait in Settlements, To review. Payments still come in. Set a business's own limit on its page. Businesses are never told."
+      >
+        <NumberRow label="New businesses for" sub="How long a business counts as new" unit="days" value={draft.risk.newDays} onChange={(v) => set('risk', 'newDays', v)} changed={diff.has('risk.newDays')} />
+        <NumberRow label="New businesses: a day" unit="₦" value={draft.risk.newDailyNgn} onChange={(v) => set('risk', 'newDailyNgn', v)} changed={diff.has('risk.newDailyNgn')} />
+        <NumberRow label="Everyone else: a day" unit="₦" value={draft.risk.dailyNgn} onChange={(v) => set('risk', 'dailyNgn', v)} changed={diff.has('risk.dailyNgn')} />
+        <NumberRow label="Unusual: times a usual day" sub="Shown on the overview" unit="×" value={draft.risk.spikeTimes} onChange={(v) => set('risk', 'spikeTimes', v)} changed={diff.has('risk.spikeTimes')} />
+        <NumberRow label="Unusual: at least" sub="So a quiet business's first sale isn't flagged" unit="₦" value={draft.risk.spikeMinNgn} onChange={(v) => set('risk', 'spikeMinNgn', v)} changed={diff.has('risk.spikeMinNgn')} />
       </Group>
       )}
 

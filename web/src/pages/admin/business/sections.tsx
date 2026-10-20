@@ -43,7 +43,7 @@ function usePage(filters: string) {
 
 type OverviewData = {
   businesses: { total: number; unverified: number; inReview: number; verified: number; suspended: number; newThisWeek: number }
-  attention: { failed: number; held: number; stuck: number; review?: number; refundsToSend?: number; disputesOpen?: number; chatsWaiting?: number; detailChanges?: number; cryptoReturns?: number; inReview: number; applications?: number; waitingBanks: number; testFailed: number; documentsLocked?: boolean }
+  attention: { failed: number; held: number; stuck: number; review?: number; refundsToSend?: number; disputesOpen?: number; unusual?: number; chatsWaiting?: number; detailChanges?: number; cryptoReturns?: number; inReview: number; applications?: number; waitingBanks: number; testFailed: number; documentsLocked?: boolean }
   today: { live: { payments: number; volumeNgn: number }; test: { payments: number; volumeNgn: number }; settled: { count: number; amountNgn: number } }
   recent: Pay[]
 }
@@ -117,6 +117,7 @@ export function Overview({ onJump }: { onJump: (j: BizJump) => void }) {
           </div>
         )}
       </Panel>
+      {(a.unusual ?? 0) > 0 && <UnusualPanel />}
 
       <Segmented value={mode} onChange={setMode} items={[['live', 'Live'], ['test', 'Test']]} />
 
@@ -335,5 +336,37 @@ export function Payments() {
         {data && <Pager page={data.pagination.page} pages={data.pagination.pages} total={data.pagination.total} unit="payment" onPage={setPage} />}
       </Panel>
     </div>
+  )
+}
+
+type Unusual = { businessId: string; name: string; todayNgn: number; usualNgn: number; limitNgn: number; overLimit: boolean; spike: boolean; ageDays: number }
+
+/** Live businesses worth a look today: past their daily limit, or far above their usual day. */
+function UnusualPanel() {
+  const { data } = useLoad<{ unusual: Unusual[] }>('/risk')
+  const { open } = useRecord()
+  const list = data?.unusual ?? []
+  if (!list.length) return null
+  return (
+    <Panel title="Unusual today" sub="Past their daily limit (their settlements wait in To review), or taking in far more than usual." flush>
+      <div className="divide-y divide-[#171B12]">
+        {list.map((u) => (
+          <button key={u.businessId} type="button" onClick={() => open('business', u.businessId, { from: 'Overview' })} className="flex w-full items-center gap-4 px-4 py-3.5 text-left transition-colors hover:bg-white/[0.025]">
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-medium" style={{ color: C.text }}>
+                {u.name}
+              </div>
+              <div className="mt-0.5 text-[12.5px]" style={{ color: C.muted }}>
+                {[u.overLimit && `Past its ₦${u.limitNgn.toLocaleString()} limit`, u.spike && `Usually about ₦${u.usualNgn.toLocaleString()} a day`, u.ageDays < 30 && `${u.ageDays} day${u.ageDays === 1 ? '' : 's'} old`].filter(Boolean).join('. ')}
+              </div>
+            </div>
+            <span className="text-[15px] font-semibold tabular-nums" style={{ color: u.overLimit ? C.red : C.amber }}>
+              ₦{u.todayNgn.toLocaleString()}
+            </span>
+            <ChevronRight size={16} color={C.dim} />
+          </button>
+        ))}
+      </div>
+    </Panel>
   )
 }

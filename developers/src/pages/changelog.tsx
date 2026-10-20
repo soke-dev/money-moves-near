@@ -9,6 +9,38 @@ const p = 'mt-3 text-[15.5px] leading-[1.75] text-body'
 
 const WEEKS: Week[] = [
   {
+    week: 'Week of Oct 19, 2026',
+    entries: [
+      {
+        title: 'A PHP SDK and a WooCommerce plugin',
+        body: (
+          <>
+            <p className={p}>
+              <C>moneymoves/sdk</C> for PHP covers every endpoint, on PHP 7.4 or later with no dependencies beyond <C>curl</C> and <C>json</C>. Lists have an <C>each</C> generator that walks every page, and <C>webhooks-&gt;constructEvent</C> checks a
+              signature in one call. <Link to="/php">Get started with the PHP SDK</Link>
+            </p>
+            <p className={p}>
+              The Money Moves Payments plugin for WooCommerce adds bank transfer, Money Moves app and stablecoin payments to your store's checkout, classic or block, and marks each order paid from our signed webhook. <Link to="/woocommerce">Set up WooCommerce</Link>
+            </p>
+          </>
+        ),
+      },
+      {
+        title: 'Choose where API payments settle, and switch methods on and off',
+        body: (
+          <>
+            <p className={p}>
+              In the Developer portal you can now send API payments to a bank account, your Money Moves account or your business wallet, each the moment it's paid. A checkout's own <C>settle_to</C> still wins. <Link to="/settlement">Settlement</Link>
+            </p>
+            <p className={p}>
+              Each method is on once it has somewhere to settle, and can be switched off in Settings, Payment methods. An API checkout that asks for a method that's off gets <C>method_off</C>. <Link to="/payment-methods">Methods, coins and networks</Link>
+            </p>
+          </>
+        ),
+      },
+    ],
+  },
+  {
     week: 'Week of Oct 12, 2026',
     entries: [
       {

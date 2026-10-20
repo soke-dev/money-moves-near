@@ -276,6 +276,15 @@ export function PaymentMethods() {
         ]}
       />
 
+      <H2>Turning methods on and off</H2>
+      <P>
+        Each method is on once there's somewhere for its money to go, and you can switch any of them off in the dashboard, under Settings, Payment methods. Local fiat needs a checked bank account, the Money Moves app needs a linked Money Moves
+        account, and crypto needs your business wallet or a linked Money Moves account. A method that's off isn't offered on any payment link, invoice, store QR or API checkout. In test mode only the switch counts.
+      </P>
+      <P>
+        An API checkout that leaves out <C>methods</C> offers every method that's on. One that asks for a method that's off is refused with <C>method_off</C>, so you can tell your customer before they reach checkout.
+      </P>
+
       <H2>Coins and networks</H2>
       <P>Customers can pay with USDC or USDT on the networks listed below. Most networks provide a unique address for each payment. Stellar and TON use a shared address and a payment-specific memo.</P>
       <Table

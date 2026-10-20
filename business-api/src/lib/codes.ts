@@ -15,7 +15,10 @@ import { codeEmail, sendEmail } from "./email";
 const MINUTES = 10;
 const TRIES = 5;
 
-export async function issueCode(user: { id: string; email: string }, purpose: CodePurpose) {
+/** Email codes only: an app sign-in has no code to send. */
+type EmailPurpose = Exclude<CodePurpose, "SIGN_IN_APP">;
+
+export async function issueCode(user: { id: string; email: string }, purpose: EmailPurpose) {
   await prisma.loginCode.updateMany({ where: { userId: user.id, purpose, usedAt: null }, data: { usedAt: new Date() } });
   const id = randomUUID();
   const code = newCode();

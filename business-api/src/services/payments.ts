@@ -46,6 +46,8 @@ import { COIN_NETWORKS, offeredAccept, type Coin, type Network } from "../lib/ac
 import { env } from "../config/env";
 import { paymentEvent, settlementEvent } from "./events";
 import { askRefund } from "./refunds";
+import { overDailyLimit } from "../lib/risk";
+import { methodsOpen } from "../lib/methods";
 
 const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -143,6 +145,7 @@ export async function admit(c: Checkout, method: PayMethod, input: OpenInput) {
   if (!c.active) throw new HttpError(410, INACTIVE[c.kind], c.kind === "link" ? "link_inactive" : "checkout_inactive");
   if (c.business.status === "SUSPENDED") throw new HttpError(403, "This business isn't taking payments right now.", "business_suspended");
   if (!c.methods.includes(method)) throw new HttpError(400, METHOD_OFF[method], "method_off");
+  if (!(await methodsOpen(c.business, c.mode)).has(method)) throw new HttpError(400, METHOD_OFF[method], "method_off");
   // Live app payments need the app's side switched on; in test mode the simulator stands in.
   if (method === "APP" && c.mode === "LIVE" && !appPayReady()) throw new HttpError(503, "Paying with the Money Moves app isn't switched on yet. Use a bank transfer or stablecoins.", "method_unavailable");
   if (c.mode === "LIVE" && c.business.status !== "VERIFIED") throw new HttpError(403, "This business can't take payments yet.", "business_unverified");
@@ -511,13 +514,16 @@ async function settlementFor(
     if (dest === "BANK") return { why: null, data: { ...base, destination: "BANK", status: "QUEUED", bankCode: "TEST", bankName: "Test Bank", accountNumber: "0000000001", accountName: business.name.toUpperCase() } };
     return { why: null, data: { ...base, destination: dest, status: "SETTLED", settledAt: new Date() } };
   }
+  // Held for a person, before the payout size is even looked at: a deactivated business, or one past its daily limit.
+  const over = business.status === "SUSPENDED" ? null : await overDailyLimit(tx, business, rules);
+  const held = business.status === "SUSPENDED" ? { reason: "deactivated" } : over ? { reason: "daily_limit", ...over } : null;
 
   // Settling to a bank switched off on Services: it waits, like a business with no checked account.
   if (dest === "BANK" && places.bank) {
     const banks = await tx.bankAccount.findMany({ where: { businessId: p.businessId, removedAt: null, nameMatches: true }, orderBy: { createdAt: "asc" } });
     const pick = banks.find((b) => b.id === source?.bankAccountId) ?? banks.find((b) => b.isDefault) ?? banks[0];
     if (pick) {
-      const why = business.status === "SUSPENDED" ? { reason: "deactivated" } : needsReview(rules, { kobo: amountKobo }) ? { limitNgn: rules.review.nairaAboveNgn } : null;
+      const why = held ?? (needsReview(rules, { kobo: amountKobo }) ? { limitNgn: rules.review.nairaAboveNgn } : null);
       return {
         why,
         data: { ...base, destination: "BANK", status: why ? "REVIEW" : "QUEUED", bankAccountId: pick.id, bankCode: pick.bankCode, bankName: pick.bankName, accountNumber: pick.accountNumber, accountName: pick.accountName },
@@ -532,7 +538,7 @@ async function settlementFor(
       return { why: null, data: { ...base, destination: "MONEY_MOVES", status: "HELD", failureReason: links[0] ? "Settling to Money Moves is paused right now." : "No linked Money Moves account." } };
     }
     const amountMicros = BigInt(Math.floor((amountKobo / 100 / p.ngnPerUsd) * 1e6));
-    const why = business.status === "SUSPENDED" ? { reason: "deactivated" } : needsReview(rules, { usd: Number(amountMicros) / 1e6 }) ? { limitUsd: rules.review.cryptoAboveUsd } : null;
+    const why = held ?? (needsReview(rules, { usd: Number(amountMicros) / 1e6 }) ? { limitUsd: rules.review.cryptoAboveUsd } : null);
     const chain = effectiveChain(business.settleChain, rules);
     return { why, data: { ...base, destination: "MONEY_MOVES", status: why ? "REVIEW" : "QUEUED", chain, amountMicros, providerRef: links[0].appLinkId, failureReason: pausedNote(chain, rules) } };
   }
@@ -554,7 +560,7 @@ async function settlementFor(
   }
   const amountMicros = BigInt(Math.floor((amountKobo / 100 / p.ngnPerUsd) * 1e6));
   const usd = Number(amountMicros) / 1e6;
-  const why = business.status === "SUSPENDED" ? { reason: "deactivated" } : needsReview(rules, { usd }) ? { limitUsd: rules.review.cryptoAboveUsd } : null;
+  const why = held ?? (needsReview(rules, { usd }) ? { limitUsd: rules.review.cryptoAboveUsd } : null);
   return { why, data: { ...base, destination: "WALLET", status: why ? "REVIEW" : "QUEUED", chain, toAddress, amountMicros, failureReason: pausedNote(chain, rules) } };
 }
 

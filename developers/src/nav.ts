@@ -42,7 +42,15 @@ export const NAV: Group[] = [
   {
     tab: 'guides',
     title: 'SDKs',
-    pages: [{ slug: '/sdk', title: 'Node.js SDK', summary: 'The official SDK: typed objects, pages you can loop over, safe retries and webhook signatures.' }],
+    pages: [
+      { slug: '/sdk', title: 'Node.js SDK', summary: 'The official SDK: typed objects, pages you can loop over, safe retries and webhook signatures.' },
+      { slug: '/php', title: 'PHP SDK', summary: 'The official PHP library: every endpoint, lists you can loop over, safe retries and webhook signatures.' },
+    ],
+  },
+  {
+    tab: 'guides',
+    title: 'Plugins',
+    pages: [{ slug: '/woocommerce', title: 'WooCommerce', summary: 'Take bank transfer, Money Moves app and stablecoin payments in your WooCommerce store, without code.' }],
   },
   {
     tab: 'guides',

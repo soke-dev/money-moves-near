@@ -30,6 +30,7 @@ import {
   Rocket,
   Settings,
   ShieldAlert,
+  Smartphone,
   Store,
   Users,
   Wallet,
@@ -41,7 +42,8 @@ import { useBrandingSync } from '@/state/branding'
 import { useApplyTheme, useTheme } from '@/state/theme'
 import { BusinessMark } from '@/components/Pictures'
 import { Banner, cx } from '@/components/ui'
-import { api } from '@/lib/api'
+import { LIVE, api } from '@/lib/api'
+import { useApi } from '@/lib/useApi'
 import { copy } from '@/lib/format'
 import { FeedbackButton, HideAmountsButton, NotificationsButton, ProfileButton, SearchButton } from '@/components/TopBar'
 import { useChecklist } from '@/pages/home'
@@ -58,7 +60,7 @@ interface Item {
   external?: string
   /** Other pages that count as this one - the portal's tabs. */
   also?: { label: string; to: string }[]
-  /** The owner's alone: hidden from everyone else on the team. */
+  /** The owner and admins only: hidden from the rest of the team. */
   ownerOnly?: boolean
 }
 
@@ -93,6 +95,7 @@ const GROUPS: { label?: string; items: Item[] }[] = [
     items: [
       { label: 'Settlements', to: '/balances/settlements', icon: Landmark },
       { label: 'Business wallet', to: '/balances', icon: Wallet, ownerOnly: true },
+      { label: 'Reports', to: '/reports', icon: FileText },
     ],
   },
   {
@@ -158,6 +161,9 @@ export default function AppShell() {
   const [mobileNav, setMobileNav] = useState(false)
   useEffect(() => setMobileNav(false), [location.pathname])
   useBrandingSync(business?.id)
+  // The owner asked the team to sign in with an authenticator app, and this person hasn't yet: only their profile opens.
+  const gate = useApi<unknown>(LIVE && business ? `/businesses/${business.id}` : null)
+  const appRequired = gate.error?.code === 'two_step_required' && location.pathname !== '/settings/profile'
   const [theme, setTheme] = useTheme()
   useApplyTheme(theme)
 
@@ -198,7 +204,7 @@ export default function AppShell() {
               <div key={gi} className={gi > 0 ? 'mt-5' : 'mt-1'}>
                 {g.label && <div className="mb-1 px-2 text-[11.5px] font-medium text-dim">{g.label}</div>}
                 {g.items
-                  .filter((it) => owner || !it.ownerOnly)
+                  .filter((it) => owner || role === 'ADMIN' || !it.ownerOnly)
                   .map((it) => (
                     <NavItem key={it.to} item={it} path={location.pathname} />
                   ))}
@@ -245,7 +251,20 @@ export default function AppShell() {
 
           <main className="min-h-0 flex-1 overflow-y-auto">
             <div key={location.pathname} className="rise mx-auto w-full max-w-[1120px] px-4 py-7 max-sm:pt-5 max-lg:pb-28 sm:px-8 sm:py-9">
-              <Outlet />
+              {appRequired ? (
+                <div className="mx-auto max-w-[520px] rounded-[14px] border border-line bg-card p-6 text-center sm:p-8">
+                  <span className="mx-auto flex size-11 items-center justify-center rounded-full bg-raise text-fg">
+                    <Smartphone className="size-5" />
+                  </span>
+                  <h1 className="display mt-4 text-[22px] font-semibold text-fg">Set up an authenticator app</h1>
+                  <p className="mt-2 text-[14px] leading-relaxed text-muted">{business?.name ?? 'This business'} asks everyone on its team to sign in with an authenticator app, like Google Authenticator. It takes a minute, from your profile.</p>
+                  <Link to="/settings/profile" className="mt-5 inline-flex h-10 items-center justify-center rounded-[10px] bg-fg px-5 text-[14px] font-semibold text-white">
+                    Set it up
+                  </Link>
+                </div>
+              ) : (
+                <Outlet />
+              )}
             </div>
           </main>
         </div>
@@ -266,8 +285,9 @@ const TABS: { label: string; to: string; icon: Icon; match: string[]; ownerOnly?
 ]
 
 function TabBar({ path, onMore }: { path: string; onMore: () => void }) {
-  // Four places and More: the owner gets the wallet, everyone else disputes.
-  const owner = useRole() === 'OWNER'
+  // Four places and More: the owner and admins get the wallet, everyone else disputes.
+  const r = useRole()
+  const owner = r === 'OWNER' || r === 'ADMIN'
   const tabs = TABS.filter((t) => (owner ? t.to !== '/transactions/disputes' : !t.ownerOnly))
   const elsewhere = !tabs.some((t) => t.match.includes(path))
   const tab = (on: boolean) => cx('flex flex-col items-center gap-1 pb-2 pt-2.5 text-[11px] transition', on ? 'font-medium text-fg' : 'text-dim')

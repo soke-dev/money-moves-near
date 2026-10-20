@@ -158,7 +158,7 @@ export function ApiCheckouts() {
             { name: 'metadata', type: 'object', children: 'Up to 20 custom keys, each up to 40 characters. Values can be strings (up to 500 characters), numbers or booleans.' },
             { name: 'expires_in', type: 'integer', children: <>Seconds until the checkout expires: 300 to 2,592,000 (30 days). Use <C>expires_at</C> with an ISO timestamp instead.</> },
             { name: 'fee_payer', type: 'enum', children: 'Who pays the processing fee. If omitted, your business setting applies.', values: ['business', 'customer'] },
-            { name: 'settle_to', type: 'enum', children: <>The settlement destination. If omitted, funds go to a verified bank account, then a linked Money Moves account, or your business wallet. See <Link to="/settlement">Settlement</Link>.</>, values: ['bank', 'money_moves', 'wallet'] },
+            { name: 'settle_to', type: 'enum', children: <>The settlement destination. If omitted, funds go where you chose for API payments in the dashboard, or on Automatic to a verified bank account, then a linked Money Moves account, then your business wallet. See <Link to="/settlement">Settlement</Link>.</>, values: ['bank', 'money_moves', 'wallet'] },
             { name: 'redirect_url', type: 'string', children: 'An HTTPS URL where the customer is sent after payment.' },
           ]}
         />

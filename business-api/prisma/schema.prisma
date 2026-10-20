@@ -37,7 +37,15 @@ model User {
   googleSub         String?   @unique @map("google_sub")
 
   /// How the code after a password arrives. 2-step can't be turned off.
-  twoStep TwoStep @default(EMAIL) @map("two_step")
+  twoStep       TwoStep  @default(EMAIL) @map("two_step")
+  /// The authenticator app's secret, sealed. Set once the first code from the app checks out.
+  totpSecret    String?  @map("totp_secret")
+  /// A secret shown for setting up, not yet confirmed with a code.
+  totpPending   String?  @map("totp_pending")
+  /// The last 30-second step a code was accepted for: the same code never works twice.
+  totpLastStep  Int?     @map("totp_last_step")
+  /// One-time recovery codes for a lost phone, kept only as hashes.
+  recoveryCodes String[] @default([]) @map("recovery_codes")
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -87,6 +95,8 @@ model LoginCode {
   purpose  CodePurpose
   codeHash String      @map("code_hash")
   attempts Int         @default(0)
+  /// For an app sign-in: how they got this far, "password" or "google".
+  via      String?
 
   createdAt DateTime  @default(now()) @map("created_at")
   expiresAt DateTime  @map("expires_at")
@@ -101,6 +111,8 @@ model LoginCode {
 enum CodePurpose {
   VERIFY_EMAIL
   SIGN_IN
+  /// Signing in with an authenticator app: the code comes from the app, not an email.
+  SIGN_IN_APP
   RESET_PASSWORD
   /**
    * The business wallet's transfer PIN, forgotten: the owner proves it's them by email.
@@ -139,6 +151,17 @@ model Business {
   /// The naira fee for this business when it isn't the default: basis points (50 = 0.5%) and a cap in kobo.
   feeRateBps      Int?      @map("fee_rate_bps")
   feeCapKobo      Int?      @map("fee_cap_kobo")
+
+  /// The owner's rule: everyone on the team signs in with an authenticator app.
+  requireAppTwoStep Boolean      @default(false) @map("require_app_two_step")
+  /// How much it can take in live in a day before its settlements wait for our team. Null: the platform's default for its age.
+  dailyLimitNgn     Int?         @map("daily_limit_ngn")
+  /// Where payments made through the API settle when a checkout doesn't say. Null: a checked bank account, then a linked Money Moves account, then the business wallet.
+  apiSettleTo       Destination? @map("api_settle_to")
+  /// The bank account API payments settle to, when it's a bank.
+  apiBankAccountId  String?      @map("api_bank_account_id")
+  /// Ways to pay the business has switched off on every checkout. The rest are on wherever their money has somewhere to go.
+  methodsOff        PayMethod[]  @default([]) @map("methods_off")
 
   /// Its own code for inviting other businesses, made the first time it's asked for.
   referralCode String? @unique @map("referral_code")
@@ -389,46 +412,63 @@ enum InvoiceStatus {
 
 /// A bill to one customer, by email: line items, a due date, and a link to pay it from.
 model Invoice {
-  id            String        @id @default(cuid())
-  businessId    String        @map("business_id")
+  id            String         @id @default(cuid())
+  businessId    String         @map("business_id")
   mode          Mode
   /// INV-0001 and up, counted per business and mode.
   number        String
   /// The customer's link - random, so it can't be worked out from the number.
-  token         String        @unique
-  customerName  String        @map("customer_name")
-  customerEmail String        @map("customer_email")
+  token         String         @unique
+  customerName  String         @map("customer_name")
+  customerEmail String         @map("customer_email")
   currency      Currency
   /// [{ name, qty, priceMinor }], in the invoice's currency.
   items         Json
   note          String?
   /// The total, in the currency's minor units.
-  amountMinor   Int           @map("amount_minor")
+  amountMinor   Int            @map("amount_minor")
   methods       PayMethod[]
   /// Coins and networks it takes from a crypto wallet: { "USDC": ["Base", ...] }. Null: every one that's switched on.
   accept        Json?
   destination   Destination
-  bankAccountId String?       @map("bank_account_id")
-  status        InvoiceStatus @default(DRAFT)
-  dueAt         DateTime      @map("due_at")
+  bankAccountId String?        @map("bank_account_id")
+  status        InvoiceStatus  @default(DRAFT)
+  dueAt         DateTime       @map("due_at")
   /// Who pays the processing fee on this invoice; null follows the business's default.
-  feePayer      FeePayer?     @map("fee_payer")
-  sentAt        DateTime?     @map("sent_at")
+  feePayer      FeePayer?      @map("fee_payer")
+  sentAt        DateTime?      @map("sent_at")
   /// When the customer first opened it.
-  viewedAt      DateTime?     @map("viewed_at")
-  remindedAt    DateTime?     @map("reminded_at")
-  paidAt        DateTime?     @map("paid_at")
-  voidedAt      DateTime?     @map("voided_at")
-  createdById   String?       @map("created_by_id")
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  viewedAt      DateTime?      @map("viewed_at")
+  remindedAt    DateTime?      @map("reminded_at")
+  paidAt        DateTime?      @map("paid_at")
+  voidedAt      DateTime?      @map("voided_at")
+  /// Sent again on a schedule: a fresh invoice each time, with the same customer and items.
+  repeatEvery   InvoiceRepeat? @map("repeat_every")
+  /// No more after this day. Null: until it's stopped.
+  repeatUntil   DateTime?      @map("repeat_until")
+  /// When the next one goes out. Cleared when the series stops.
+  nextIssueAt   DateTime?      @map("next_issue_at")
+  /// The first invoice of the series this one was sent from.
+  repeatOfId    String?        @map("repeat_of_id")
+  createdById   String?        @map("created_by_id")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
 
   business Business  @relation(fields: [businessId], references: [id], onDelete: Restrict)
   payments Payment[]
 
   @@unique([businessId, mode, number])
   @@index([businessId, mode, status])
+  @@index([nextIssueAt])
+  @@index([repeatOfId])
   @@map("invoices")
+}
+
+enum InvoiceRepeat {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
 }
 
 /// A till or a shop: a QR on the counter and a link. The customer types the amount.

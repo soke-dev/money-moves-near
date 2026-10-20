@@ -33,6 +33,7 @@ import { walletHoldings, type Holding } from "../lib/chain-balances";
 import { EVENT_TYPES, eventObject } from "../lib/webhooks";
 import { METHOD_IN, checkoutObject, disputeObject, paymentObject, refundObject, settlementObject } from "../lib/api-objects";
 import { CUSTOMER_REASONS, businessReply, customerAccept, filesOf, raiseCustomerDispute } from "../services/disputes";
+import { methodStates } from "../lib/methods";
 import { askRefund, cancelRefund, checkRefundFunding, simulateFunding } from "../services/refunds";
 import { hashKey } from "./api-keys";
 
@@ -280,19 +281,30 @@ function defaultMethods(mode: Mode, p: Platform): PayMethod[] {
   return out;
 }
 
-/** Where a checkout's money goes when it doesn't say: a checked bank account, then a linked Money Moves account, then the business wallet. */
-async function defaultDestination(businessId: string, mode: Mode, p: Platform): Promise<Destination> {
-  if (mode === "TEST") return "BANK";
+/**
+ * Where a checkout's money goes when it doesn't say: the place the business
+ * chose for API payments, while it can take them; otherwise a checked bank
+ * account, then a linked Money Moves account, then the business wallet.
+ */
+export async function defaultDestination(businessId: string, mode: Mode, p: Platform): Promise<{ destination: Destination; bankAccountId?: string }> {
+  if (mode === "TEST") return { destination: "BANK" };
   const on = forMode(p, mode).destinations;
+  const chosen = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { apiSettleTo: true, apiBankAccountId: true } });
+  if (chosen.apiSettleTo === "BANK" && on.bank) {
+    const bank = await prisma.bankAccount.findFirst({ where: { businessId, removedAt: null, nameMatches: true, ...(chosen.apiBankAccountId ? { id: chosen.apiBankAccountId } : {}) } });
+    if (bank) return { destination: "BANK", bankAccountId: bank.id };
+  }
+  if (chosen.apiSettleTo === "MONEY_MOVES" && on.moneyMoves && (await prisma.moneyMovesLink.count({ where: { businessId, status: "LINKED" } }))) return { destination: "MONEY_MOVES" };
+  if (chosen.apiSettleTo === "WALLET" && on.wallet && (await prisma.businessWallet.count({ where: { businessId } }))) return { destination: "WALLET" };
   const [bank, linked, wallet] = await Promise.all([
     prisma.bankAccount.count({ where: { businessId, removedAt: null, nameMatches: true } }),
     prisma.moneyMovesLink.count({ where: { businessId, status: "LINKED" } }),
     prisma.businessWallet.count({ where: { businessId } }),
   ]);
-  if (bank && on.bank) return "BANK";
-  if (linked && on.moneyMoves) return "MONEY_MOVES";
-  if (wallet && on.wallet) return "WALLET";
-  return "BANK";
+  if (bank && on.bank) return { destination: "BANK" };
+  if (linked && on.moneyMoves) return { destination: "MONEY_MOVES" };
+  if (wallet && on.wallet) return { destination: "WALLET" };
+  return { destination: "BANK" };
 }
 
 function expiryOf(b: { expires_in?: number; expires_at?: string }): Date | null {
@@ -324,11 +336,21 @@ router.post("/checkouts", async (req, res) => {
   const key = req.apiKey!;
   const b = input(createInput, req.body);
   const p = await platform();
-  const methods: PayMethod[] = b.methods ? [...new Set(b.methods.map((m) => METHOD_IN[m]))] : defaultMethods(key.mode, p);
-  if (!methods.length) throw new HttpError(503, "No way to pay is switched on right now. Try again a little later.", "methods_paused");
+  // The business's own switches: a way to pay it turned off, or has nowhere to settle, isn't offered.
+  const owner = await prisma.business.findUniqueOrThrow({ where: { id: key.businessId }, select: { id: true, kind: true, methodsOff: true } });
+  const states = await methodStates(owner, key.mode);
+  const wanted: PayMethod[] = b.methods ? [...new Set(b.methods.map((m) => METHOD_IN[m]))] : defaultMethods(key.mode, p);
+  const shut = wanted.filter((m) => !states[m].on);
+  if (b.methods && shut.length) {
+    const name = { NAIRA: "bank_transfer", APP: "app", CRYPTO: "crypto" } as const;
+    throw new HttpError(400, `${shut.map((m) => name[m]).join(", ")} is switched off for this business. ${states[shut[0]!].why ?? "Turn it on in the dashboard, Settings, Payment methods."}`, "method_off");
+  }
+  const methods = wanted.filter((m) => states[m].on);
+  if (!methods.length) throw new HttpError(503, "No way to pay is switched on for this business. Turn one on in the dashboard, Settings, Payment methods.", "methods_paused");
   if (b.accept && !methods.includes("CRYPTO")) throw new HttpError(400, "accept is for crypto. Add crypto to methods, or leave accept out.", "invalid_request");
-  const asked = b.settle_to ? DEST_IN[b.settle_to] : await defaultDestination(key.businessId, key.mode, p);
-  const { destination, bankAccountId, business } = await placesFor(key.businessId, key.mode, { methods, destination: asked });
+  const fallback = b.settle_to ? null : await defaultDestination(key.businessId, key.mode, p);
+  const asked = b.settle_to ? DEST_IN[b.settle_to] : fallback!.destination;
+  const { destination, bankAccountId, business } = await placesFor(key.businessId, key.mode, { methods, destination: asked, bankAccountId: fallback?.bankAccountId });
   const amountMinor = await minorFor(b.amount, b.currency, "The amount", limitsFor(p, business.kind, key.mode));
   const expiresAt = expiryOf(b);
   for (let attempt = 0; attempt < 5; attempt++) {

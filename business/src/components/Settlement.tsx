@@ -4,8 +4,9 @@
  * There is no one default. Each store QR, payment link and invoice says where
  * its payments go, chosen when it is made - the business's bank as naira, its
  * Money Moves account, or its business wallet. API
- * payments, from the business's own app or website, go to the business
- * wallet by default, or to a linked Money Moves account chosen on API keys. Settings only holds the details of each place, and a place can't be
+ * payments, from the business's own app or website, go where the business
+ * chose in the Developer portal, or a bank account, then Money Moves, then the
+ * wallet. Settings only holds the details of each place, and a place can't be
  * picked until it exists and checks out (see state/targets).
  *
  * Every payment comes into an address we control for that one checkout -

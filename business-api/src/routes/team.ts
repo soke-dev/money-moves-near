@@ -79,11 +79,13 @@ async function inviterName(userId: string) {
 
 teamRouter.get("/", requireMember(), async (req, res) => {
   const businessId = req.member!.businessId;
-  const [members, invites] = await Promise.all([
+  const [members, invites, business] = await Promise.all([
     prisma.member.findMany({ where: { businessId }, include: { user: true }, orderBy: { createdAt: "asc" } }),
     prisma.invite.findMany({ where: { businessId, acceptedAt: null, revokedAt: null }, orderBy: { createdAt: "desc" }, take: 100 }),
+    prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { requireAppTwoStep: true } }),
   ]);
   res.json({
+    requireAppTwoStep: business.requireAppTwoStep,
     members: members.map((m) => ({
       id: m.id,
       role: m.role,
@@ -91,6 +93,8 @@ teamRouter.get("/", requireMember(), async (req, res) => {
       name: [m.user.firstName, m.user.lastName].filter(Boolean).join(" ") || null,
       email: m.user.email,
       you: m.userId === req.auth!.userId,
+      /** How they sign in: a code by email, or an authenticator app. */
+      twoStep: m.user.twoStep,
     })),
     invites: invites.map(inviteShape),
   });
@@ -164,16 +168,32 @@ teamRouter.delete("/members/:memberId", requireMember(), async (req, res) => {
   res.json({ ok: true });
 });
 
+/**
+ * The owner's rule: everyone on the team signs in with an authenticator app.
+ * Turning it on needs the owner's own app first, so they can't lock themselves out.
+ * Anyone without one is asked to set it up before they can open the business.
+ */
+teamRouter.patch("/security", requireMember("OWNER"), async (req, res) => {
+  const b = body(z.object({ requireAppTwoStep: z.boolean() }), req);
+  const me = req.member!;
+  if (b.requireAppTwoStep) {
+    const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId }, select: { twoStep: true } });
+    if (user.twoStep !== "APP") throw new HttpError(400, "Turn on your own authenticator app first, in your profile.", "owner_needs_app");
+  }
+  await prisma.business.update({ where: { id: me.businessId }, data: { requireAppTwoStep: b.requireAppTwoStep } });
+  await audit(req, b.requireAppTwoStep ? "team_app_required" : "team_app_optional", { businessId: me.businessId });
+  res.json({ requireAppTwoStep: b.requireAppTwoStep });
+});
+
 // ─── Activity ─────────────────────────────────────────────────────────────
 
 /**
  * What the team has done, newest first, in words: invites and roles, refunds
  * and dispute replies, payout places and settings, links and invoices, keys
- * and webhooks. For the owner and admins. Wallet entries are the owner's alone.
+ * and webhooks, and the business wallet. For the owner and admins.
  */
 teamRouter.get("/activity", requireMember(...MANAGERS), limited(240), async (req, res) => {
   const me = req.member!;
-  const owner = me.role === "OWNER";
   const before = typeof req.query.before === "string" && !Number.isNaN(Date.parse(req.query.before)) ? new Date(req.query.before) : null;
   const who = typeof req.query.who === "string" && req.query.who ? req.query.who : null;
   const group = typeof req.query.group === "string" ? (req.query.group as ActivityGroup) : null;
@@ -181,7 +201,7 @@ teamRouter.get("/activity", requireMember(...MANAGERS), limited(240), async (req
   const out: { id: string; at: Date; text: string; group: ActivityGroup; who: { id: string; name: string | null; email: string } | null }[] = [];
   let cursor = before;
   let exhausted = false;
-  // Some entries aren't shown (our team's, the wallet's to an admin): read on until a page is full.
+  // Our team's own entries aren't shown: read on until a page is full.
   for (let round = 0; round < 6 && out.length < PAGE; round++) {
     const rows = await prisma.auditLog.findMany({
       where: { businessId: me.businessId, NOT: { action: { startsWith: "admin_" } }, ...(who ? { userId: who } : {}), ...(cursor ? { createdAt: { lt: cursor } } : {}) },
@@ -197,7 +217,7 @@ teamRouter.get("/activity", requireMember(...MANAGERS), limited(240), async (req
     const byId = new Map(users.map((u) => [u.id, u]));
     for (const r of rows) {
       const d = describe(r.action, (r.detail as Record<string, unknown> | null) ?? null);
-      if (!d || (d.group === "wallet" && !owner) || (group && d.group !== group)) continue;
+      if (!d || (group && d.group !== group)) continue;
       const u = r.userId ? byId.get(r.userId) : undefined;
       out.push({ id: r.id, at: r.createdAt, text: d.text, group: d.group, who: u ? { id: u.id, name: [u.firstName, u.lastName].filter(Boolean).join(" ") || null, email: u.email } : null });
       if (out.length >= PAGE) break;

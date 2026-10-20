@@ -5,8 +5,8 @@
  * with the same email they use here, and the wallet is theirs - we keep only
  * its addresses. They set a transfer PIN as they create it; moving money out
  * takes the PIN as well as their signature. A forgotten PIN is reset with a
- * code sent to the owner's email. The wallet is the owner's alone: nobody else
- * on the team can see it or move it.
+ * code sent to the owner's email. Only the owner can move it. Admins can see
+ * it, its balances and its history; the rest of the team can't.
  */
 import { Router } from "express";
 import { z } from "zod";
@@ -63,15 +63,19 @@ export const walletShape = (w: BusinessWallet | null) =>
     createdAt: w.createdAt,
   };
 
+/** Who can see the wallet: the owner, and admins, who can't send from it. */
+const VIEWERS = ["OWNER", "ADMIN"] as const;
+
 const walletOf = (businessId: string) => prisma.businessWallet.findUnique({ where: { businessId } });
 
 router.get("/", requireMember(), async (req, res) => {
   const businessId = req.member!.businessId;
   const [wallet, business] = await Promise.all([walletOf(businessId), prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { status: true } })]);
   const owner = req.member!.role === "OWNER";
+  const sees = owner || req.member!.role === "ADMIN";
   res.json({
-    // The rest of the team only learns that it exists: its addresses, balances and history are the owner's.
-    wallet: owner ? walletShape(wallet) : null,
+    // Admins see the wallet, its balances and history, and can't move it. The rest of the team only learns that it exists.
+    wallet: sees ? walletShape(wallet) : null,
     exists: !!wallet,
     // What the page needs to say next: verify first, ask the owner, or create it.
     canCreate: !wallet && business.status === "VERIFIED" && req.member!.role === "OWNER",
@@ -81,7 +85,7 @@ router.get("/", requireMember(), async (req, res) => {
 });
 
 /** What the wallet holds, read from each chain. */
-router.get("/balances", requireMember("OWNER"), limited(60), async (req, res) => {
+router.get("/balances", requireMember(...VIEWERS), limited(60), async (req, res) => {
   const w = await walletOf(req.member!.businessId);
   // With today's rate, so a bank payout can be typed in naira and shown in USDC.
   const [balances, rate] = await Promise.all([w ? walletHoldings(w) : [], ngnPerUsd().catch(() => null)]);
@@ -91,7 +95,7 @@ router.get("/balances", requireMember("OWNER"), limited(60), async (req, res) =>
 // ─── Stellar ──────────────────────────────────────────────────────────────
 
 /** The wallet on Stellar: its address (the Solana key's twin) and whether it can hold USDC yet. */
-router.get("/stellar", requireMember("OWNER"), limited(60), async (req, res) => {
+router.get("/stellar", requireMember(...VIEWERS), limited(60), async (req, res) => {
   const w = await walletOf(req.member!.businessId);
   const address = w?.solanaAddress ? stellarFromSolana(w.solanaAddress) : null;
   res.json({ stellar: address ? { address, open: await stellarOpenForUsdc(address).catch(() => false) } : null });
@@ -136,7 +140,7 @@ router.post("/stellar/submit", requireMember("OWNER"), careful, async (req, res)
  * Money into the wallet from anywhere, read from the chains - less what our own
  * settlements sent, which the activity already shows as settlements.
  */
-router.get("/deposits", requireMember("OWNER"), limited(30), async (req, res) => {
+router.get("/deposits", requireMember(...VIEWERS), limited(30), async (req, res) => {
   const w = await walletOf(req.member!.businessId);
   if (!w) {
     res.json({ deposits: [] });
@@ -318,7 +322,7 @@ const fromAddressOn = (w: BusinessWallet, chain: (typeof SEND_CHAINS)[number]) =
 /** Our treasury on a chain: where a bank payout's USDC goes before the naira is paid. */
 const treasuryOn = (chain: (typeof SEND_CHAINS)[number]) => (chain === "MOVEMENT" ? env.TREASURY_MOVEMENT_ADDRESS : chain === "SOLANA" ? env.TREASURY_SOLANA_ADDRESS : env.TREASURY_EVM_ADDRESS);
 
-router.get("/sends", requireMember("OWNER"), async (req, res) => {
+router.get("/sends", requireMember(...VIEWERS), async (req, res) => {
   const list = await prisma.walletSend.findMany({ where: { businessId: req.member!.businessId, status: { not: "EXPIRED" } }, orderBy: { createdAt: "desc" }, take: 50 });
   res.json({ sends: list.map(sendShape) });
 });

@@ -479,6 +479,8 @@ function OverviewTab({ data, go }: { data: BusinessDetail; go: Go }) {
       <aside className="space-y-5 min-w-0">
         <DetailsPanel data={data} />
         <FeePanel b={b} />
+        <LimitPanel b={b} />
+        <TwoStepResetPanel email={b.owner?.email ?? ''} />
         <VerificationPanel app={app} onOpen={() => go('verification')} />
         <NotesPanel b={b} />
       </aside>
@@ -640,6 +642,108 @@ function EditFee({ b, onClose }: { b: Biz; onClose: () => void }) {
       </div>
       {said && !said.ok && <Said {...said} />}
     </div>
+  )
+}
+
+/** Past this in a day, its live settlements wait for a person: its own limit, or the platform's for its age. */
+function LimitPanel({ b }: { b: Biz }) {
+  const r = b.risk
+  const [editing, setEditing] = useState(false)
+  const [limit, setLimit] = useState(r?.ownLimitNgn != null ? String(r.ownLimitNgn) : '')
+  const [password, setPassword] = useState('')
+  const { busy, said, run } = useAction()
+  if (!r) return null
+  const save = async (useDefault: boolean) => {
+    const dailyLimitNgn = useDefault || limit.trim() === '' ? null : Number(limit)
+    if (await run(() => biz(`/businesses/${b.id}`, { method: 'PATCH', body: { dailyLimitNgn, password } }), 'Saved.')) setEditing(false)
+  }
+  const pct = r.limitNgn > 0 ? Math.min(100, Math.round((r.takenTodayNgn / r.limitNgn) * 100)) : 0
+  return (
+    <Panel title="Daily limit" action={!editing && <TextButton onClick={() => setEditing(true)}>Change</TextButton>}>
+      {editing ? (
+        <div className="space-y-3">
+          <p className="text-[12.5px] leading-relaxed" style={{ color: C.muted }}>
+            Past this in a day, live settlements wait in To review. Leave it empty for the platform's default for a business its age.
+          </p>
+          <Field label="A day, ₦">
+            <Input value={limit} onChange={(e) => setLimit(e.target.value.replace(/[^0-9]/g, ''))} placeholder={String(r.limitNgn)} inputMode="numeric" />
+          </Field>
+          <PasswordInput full value={password} onChange={setPassword} />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button small onClick={() => setEditing(false)} disabled={busy}>
+              Cancel
+            </Button>
+            {r.ownLimitNgn != null && (
+              <Button small disabled={busy || !password} onClick={() => void save(true)}>
+                Use default
+              </Button>
+            )}
+            <Button small tone="primary" disabled={busy || !password} onClick={() => void save(false)}>
+              {busy ? 'Saving…' : 'Save limit'}
+            </Button>
+          </div>
+          {said && !said.ok && <Said {...said} />}
+        </div>
+      ) : (
+        <div>
+          <div className="text-[22px] font-semibold tracking-[-0.02em] tabular-nums" style={{ color: C.text }}>
+            {naira(r.limitNgn)}
+          </div>
+          <div className="mt-0.5 text-[13px]" style={{ color: C.muted }}>
+            a day. {naira(r.takenTodayNgn)} taken today.
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ background: C.raise }}>
+            <div className="h-full rounded-full" style={{ width: `${pct}%`, background: pct >= 100 ? C.red : pct >= 75 ? C.amber : C.lime }} />
+          </div>
+          <div className="mt-3">
+            <Tag tone={r.ownLimitNgn != null ? 'info' : undefined}>{r.ownLimitNgn != null ? 'Set for this business' : 'Platform default'}</Tag>
+          </div>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+/** Someone who lost their phone and their recovery codes: back to codes by email, once it's checked it's really them. */
+function TwoStepResetPanel({ email }: { email: string }) {
+  const [open, setOpen] = useState(false)
+  const [who, setWho] = useState(email)
+  const [password, setPassword] = useState('')
+  const { busy, said, run } = useAction()
+  return (
+    <Panel title="Locked out of their authenticator app" action={!open && <TextButton onClick={() => setOpen(true)}>Reset</TextButton>}>
+      {open ? (
+        <div className="space-y-3">
+          <p className="text-[12.5px] leading-relaxed" style={{ color: C.muted }}>
+            Only once you've checked it's really them. They go back to codes by email, every device is signed out, and they're emailed.
+          </p>
+          <Field label="Their email">
+            <Input value={who} onChange={(e) => setWho(e.target.value)} />
+          </Field>
+          <PasswordInput full value={password} onChange={setPassword} />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button small onClick={() => setOpen(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button
+              small
+              tone="primary"
+              disabled={busy || !password || !who.includes('@')}
+              onClick={async () => {
+                if (await run(() => biz('/users/reset-two-step', { method: 'POST', body: { email: who.trim(), password } }), 'Reset. They sign in with an email code now.')) setOpen(false)
+              }}
+            >
+              {busy ? 'Resetting…' : 'Reset their app'}
+            </Button>
+          </div>
+          {said && !said.ok && <Said {...said} />}
+        </div>
+      ) : (
+        <p className="text-[13px] leading-relaxed" style={{ color: C.muted }}>
+          {said?.ok ? said.text : 'For someone who lost their phone and their recovery codes.'}
+        </p>
+      )}
+    </Panel>
   )
 }
 

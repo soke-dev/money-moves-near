@@ -196,6 +196,7 @@ export function eventDetail(kind: string, d: Record<string, unknown> | null): st
   if (kind === 'note') return String(d.note ?? '')
   if (kind === 'created') return [d.status, d.destination].filter(Boolean).map((x) => String(x).toLowerCase().replace(/_/g, ' ')).join(' · ')
   if (kind === 'settled') return String(d.note ?? '')
+  if (kind === 'review' && d.reason === 'daily_limit') return `Past the business's daily limit of ₦${Number(d.dailyLimitNgn ?? 0).toLocaleString()} (₦${Number(d.takenTodayNgn ?? 0).toLocaleString()} taken today). A person checks it before it goes. The business sees it as on its way.`
   if (kind === 'review' && d.reason === 'deactivated') return 'The business is deactivated - a person decides whether this goes out. The business sees it as on its way.'
   if (kind === 'review') return `Over ₦${Number(d.limitNgn ?? 0).toLocaleString()} - a person checks payouts this big before they go. The business sees it as on its way.`
   if (kind === 'approved') return String(d.to ?? '')

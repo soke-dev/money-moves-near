@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Check, Plus } from '@/components/icons'
 import { Avatar } from '@/components/brand'
-import { Badge, Button, Card, Field, Input, Modal, PageHeader, Table, cx } from '@/components/ui'
+import { Badge, Button, Card, Field, Input, Modal, PageHeader, Table, Toggle, cx } from '@/components/ui'
 import { ApiError, LIVE, api } from '@/lib/api'
 import { reload, useApi } from '@/lib/useApi'
 import { date } from '@/lib/format'
@@ -15,7 +15,7 @@ import { useSession } from '@/state/session'
 import { INVITABLE, PERMISSIONS, ROLE_INFO, useCan, useRole, type RoleId } from '@/state/roles'
 import { TEAM } from '@/data/mock'
 
-type LiveMember = { id: string; role: RoleId; addedAt: string; name: string | null; email: string; you: boolean }
+type LiveMember = { id: string; role: RoleId; addedAt: string; name: string | null; email: string; you: boolean; twoStep?: 'EMAIL' | 'APP' }
 type LiveInvite = { id: string; email: string; role: RoleId; invitedAt: string; expiresAt: string; status: 'pending' | 'expired' }
 
 const problem = (e: unknown) => (e instanceof ApiError ? e.message : 'Something went wrong. Try again in a moment.')
@@ -23,7 +23,7 @@ const problem = (e: unknown) => (e instanceof ApiError ? e.message : 'Something 
 function useTeam() {
   const { business } = useSession()
   const path = LIVE && business ? `/businesses/${business.id}/team` : null
-  const r = useApi<{ members: LiveMember[]; invites: LiveInvite[] }>(path)
+  const r = useApi<{ members: LiveMember[]; invites: LiveInvite[]; requireAppTwoStep?: boolean }>(path)
   return { ...r, path, refresh: () => path && reload(path) }
 }
 
@@ -64,7 +64,7 @@ export function Team() {
     <>
       <PageHeader
         title="Team"
-        sub="Everyone who can sign in to this business. Only the owner can use the business wallet, add bank accounts or link Money Moves."
+        sub="Everyone who can sign in to this business. Only the owner can send from the business wallet, add bank accounts or link Money Moves; admins can see the wallet."
         actions={
           manage && (
             <Button variant="primary" icon={<Plus className="size-4" />} onClick={() => setInviting(true)}>
@@ -97,6 +97,7 @@ export function Team() {
             ),
           },
           { key: 'r', header: 'Role', render: (m) => <Badge tone={m.role === 'OWNER' ? 'good' : 'neutral'}>{ROLE_INFO[m.role]?.name ?? m.role}</Badge> },
+          { key: 's', header: 'Signs in with', mobile: 'hide', render: (m) => (m.twoStep ? <span className={m.twoStep === 'APP' ? 'text-fg' : 'text-muted'}>{m.twoStep === 'APP' ? 'Authenticator app' : 'Code by email'}</span> : null) },
           { key: 'd', header: 'Joined', mobile: 'hide', render: (m) => <span className="text-muted">{date(m.addedAt)}</span> },
           {
             key: 'a',
@@ -126,6 +127,27 @@ export function Team() {
           },
         ]}
       />
+
+      {LIVE && team.data && (
+        <section className="mt-8 flex flex-wrap items-center justify-between gap-4 rounded-[12px] border border-line bg-card px-4 py-4">
+          <div className="min-w-0 max-w-[60ch]">
+            <div className="text-[14px] font-semibold text-fg">Everyone signs in with an authenticator app</div>
+            <p className="mt-0.5 text-[12.5px] leading-relaxed text-muted">
+              {team.data.requireAppTwoStep
+                ? 'On. Anyone on the team still using email codes is asked to set up an app before they can open the business.'
+                : role === 'OWNER'
+                  ? 'Safer than codes by email: someone who gets into a teammate’s email still can’t sign in. Turn on your own app in your profile first.'
+                  : 'The owner can ask everyone on the team to use an authenticator app.'}
+            </p>
+          </div>
+          <Toggle
+            on={!!team.data.requireAppTwoStep}
+            disabled={role !== 'OWNER' || busy === 'security'}
+            label="Everyone signs in with an authenticator app"
+            onChange={(v) => void act('security', () => api('PATCH', `${base}/security`, { requireAppTwoStep: v }))}
+          />
+        </section>
+      )}
 
       {LIVE && invites.length > 0 && (
         <section className="mt-8">

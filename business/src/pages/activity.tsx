@@ -1,15 +1,14 @@
 /**
  * The team's activity: who did what, newest first, by day. Invites and roles,
  * refunds and dispute replies, payout places and settings, links and invoices,
- * keys and webhooks. For the owner and admins; the wallet's entries show to
- * the owner only.
+ * keys and webhooks, and the business wallet. For the owner and admins.
  */
 import { useEffect, useState } from 'react'
 import { Avatar } from '@/components/brand'
 import { Button, Empty, PageHeader, Segmented, Select } from '@/components/ui'
 import { ApiError, LIVE, api } from '@/lib/api'
 import { useSession } from '@/state/session'
-import { useCan, useRole } from '@/state/roles'
+import { useCan } from '@/state/roles'
 
 type Group = 'team' | 'money' | 'collect' | 'settings' | 'developers' | 'wallet' | 'verification'
 type Entry = { id: string; at: string; text: string; group: Group; who: { id: string; name: string | null; email: string } | null }
@@ -38,7 +37,6 @@ const time = (iso: string) => new Date(iso).toLocaleTimeString('en-GB', { hour: 
 export function Activity() {
   const { business } = useSession()
   const can = useCan()
-  const owner = useRole() === 'OWNER'
   const [group, setGroup] = useState<Group | 'all'>('all')
   const [who, setWho] = useState('')
   const [rows, setRows] = useState<Entry[] | null>(null)
@@ -97,9 +95,9 @@ export function Activity() {
 
   return (
     <>
-      <PageHeader title="Activity" sub={`Who on the team did what, and when.${owner ? '' : ' The business wallet’s activity shows to the owner only.'}`} />
+      <PageHeader title="Activity" sub="Who on the team did what, and when." />
       <div className="mb-5 flex flex-wrap items-center gap-3">
-        <Segmented value={group} onChange={(g: Group | 'all') => setGroup(g)} options={GROUPS.filter(([g]) => owner || g !== 'wallet').map(([id, label]) => ({ id, label }))} />
+        <Segmented value={group} onChange={(g: Group | 'all') => setGroup(g)} options={GROUPS.map(([id, label]) => ({ id, label }))} />
         {people.length > 1 && (
           <Select value={who} onChange={(e) => setWho(e.target.value)} className="h-9 w-auto min-w-[180px] text-[13px]">
             <option value="">Everyone</option>

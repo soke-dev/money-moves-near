@@ -66,6 +66,19 @@ export const platformSchema = z.object({
     nairaAboveNgn: z.number().min(0).max(100_000_000),
     cryptoAboveUsd: z.number().min(0).max(1_000_000),
   }),
+  /**
+   * Daily limits: past what a business takes in live in a day, its
+   * settlements wait for a person. New businesses (younger than newDays)
+   * start lower. A spike is a day spikeTimes its usual, and at least
+   * spikeMinNgn, shown on the admin console.
+   */
+  risk: z.object({
+    newDays: z.number().int().min(0).max(365),
+    newDailyNgn: z.number().min(0).max(1_000_000_000),
+    dailyNgn: z.number().min(0).max(10_000_000_000),
+    spikeTimes: z.number().min(1).max(100),
+    spikeMinNgn: z.number().min(0).max(1_000_000_000),
+  }),
 });
 
 export type Platform = z.infer<typeof platformSchema>;
@@ -83,6 +96,7 @@ export const PLATFORM_DEFAULTS: Platform = {
   fees: { nairaRateBps: 50, nairaCapNgn: 1_000, cryptoRateBps: 50, cryptoCapUsd: 1, appRateBps: 0, payoutNgn: 100 },
   limits: { businessMinNgn: 100, businessMaxNgn: 1_000_000, freelancerMinNgn: 100, freelancerMaxNgn: 500_000 },
   review: { nairaAboveNgn: 50_000, cryptoAboveUsd: 50 },
+  risk: { newDays: 30, newDailyNgn: 2_000_000, dailyNgn: 20_000_000, spikeTimes: 3, spikeMinNgn: 500_000 },
 };
 
 const KEY = "platform";

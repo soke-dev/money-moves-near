@@ -7,6 +7,7 @@ import { Agents } from './agents'
 import { ApiAccount, ApiBalance, ApiCheckouts, ApiEvents, ApiOverview, ApiPayments, ApiRates, ApiRefunds, ApiDisputes, ApiSettlements } from './api'
 import { Changelog } from './changelog'
 import { Sdk } from './sdk'
+import { PhpSdk, WooCommerce } from './plugins'
 import { WebhookEvents, WebhookRetries, WebhookSignatures, WebhooksOverview } from './webhooks'
 
 /** Every page, by its address. The map in nav.ts says where each sits. */
@@ -42,6 +43,8 @@ export const PAGES: Record<string, ComponentType> = {
   '/api/rates': ApiRates,
   '/api/events': ApiEvents,
   '/sdk': Sdk,
+  '/php': PhpSdk,
+  '/woocommerce': WooCommerce,
   '/webhooks': WebhooksOverview,
   '/webhooks/events': WebhookEvents,
   '/webhooks/signatures': WebhookSignatures,

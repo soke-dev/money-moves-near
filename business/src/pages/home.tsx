@@ -7,6 +7,7 @@ import { BALANCES, DESTINATIONS, METHODS, NGN_RATE, type Method } from '@/data/m
 import { banksOf, readiness, useTargets } from '@/state/targets'
 import { LIVE, applicationPath, type ApiApplication } from '@/lib/api'
 import { useApi } from '@/lib/useApi'
+import { useCan } from '@/state/roles'
 import { usePayments, useSettlements } from '@/state/live'
 import { Button, Card, PageHeader, Status, cx } from '@/components/ui'
 import { MethodIcon, PayIcon, PlaceMark } from '@/components/brand'
@@ -97,7 +98,11 @@ export function Home() {
   // Live, still on their way: placeholders, never zeros that aren't true.
   const waitPay = LIVE && paying
   const waitSettle = LIVE && settling
-  // The business wallet's balance, read from the chains, once it exists.
+  // The business wallet: the owner and admins see it, and only the owner creates it.
+  const can = useCan()
+  const seesWallet = can('wallet')
+  const makesWallet = can('wallet_send')
+  // Its balance, read from the chains, once it exists.
   const walletBalances = useApi<{ balances: { amount: number }[] }>(LIVE && targets?.businessWallet ? `/businesses/${business?.id}/wallet/balances` : null)
   const walletUsd = (walletBalances.data?.balances ?? []).reduce((t, b) => t + b.amount, 0)
 
@@ -247,7 +252,7 @@ export function Home() {
 
         <div className="flex flex-col gap-4">
           {LIVE ? (
-            targets?.businessWallet ? (
+            !seesWallet ? null : targets?.businessWallet ? (
               <section className={cx(card, 'p-5')}>
                 <div className="flex items-center justify-between gap-3">
                   <span className="flex items-center gap-1.5 text-[13.5px] text-muted">
@@ -263,9 +268,11 @@ export function Home() {
             ) : (
               <section className={cx(card, 'p-5')}>
                 <span className="text-[13.5px] text-muted">Business wallet</span>
-                <div className="mt-2 text-[17px] font-semibold text-fg">{business.verify === 'verified' ? 'Ready to create' : 'Opens once you’re approved'}</div>
-                <p className="mt-1.5 text-[13px] leading-relaxed text-muted">A self-custody wallet for keeping payments as USDC or USDT. Until it opens, payments settle to your bank account.</p>
-                {business.verify === 'verified' && (
+                <div className="mt-2 text-[17px] font-semibold text-fg">{business.verify !== 'verified' ? 'Opens once you’re approved' : makesWallet ? 'Ready to create' : 'Not created yet'}</div>
+                <p className="mt-1.5 text-[13px] leading-relaxed text-muted">
+                  A self-custody wallet for keeping payments as USDC or USDT. {makesWallet ? 'Until it opens' : 'The owner creates it. Until then'}, payments settle to your bank account.
+                </p>
+                {business.verify === 'verified' && makesWallet && (
                   <Link to="/balances" className="mt-3 inline-block text-[13px] font-medium text-fg underline underline-offset-2">
                     Create it
                   </Link>

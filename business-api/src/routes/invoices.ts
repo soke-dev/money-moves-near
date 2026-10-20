@@ -14,14 +14,13 @@ import { randomBytes } from "crypto";
 import { prisma } from "../lib/prisma";
 import { body, HttpError } from "../lib/http";
 import { audit } from "../lib/audit";
-import { sendEmail } from "../lib/email";
 import { env } from "../config/env";
-import { formatMinor, toMinor } from "../lib/money";
+import { toMinor } from "../lib/money";
 import { limitsFor, platform } from "../lib/platform";
 import { acceptSchema, acceptToSave } from "../lib/accept";
 import { minorFor, modeOf, placesFor } from "../lib/checkouts";
 import { requireMember } from "../middleware/auth";
-import { checkoutLink } from "../lib/pay-links";
+import { advance, emailInvoice as emailAny, nextInvoiceNumber } from "../services/recurring";
 
 const router = Router({ mergeParams: true });
 const MANAGE = ["OWNER", "ADMIN", "FINANCE", "DEVELOPER"] as const;
@@ -59,6 +58,10 @@ export const invoiceShape = (i: Invoice & { payments?: Payment[] }) => {
     destination: i.destination,
     bankAccountId: i.bankAccountId,
     createdAt: i.createdAt,
+    /** Sent again on a schedule: how often, until when, and when the next one goes. */
+    repeat: i.repeatEvery ? { every: i.repeatEvery, until: i.repeatUntil, next: i.nextIssueAt } : null,
+    /** Sent from a series: the first invoice's id. */
+    repeatOf: i.repeatOfId,
     payment: paid ? { ref: paid.ref, method: paid.method, paidAt: paid.paidAt, receivedNgn: paid.receivedKobo != null ? paid.receivedKobo / 100 : null, amountUsd: paid.amountCents / 100 } : null,
   };
 };
@@ -90,6 +93,13 @@ const createInput = z.object({
   feePayer: z.enum(["BUSINESS", "CUSTOMER"]).nullish(),
   /** Send it now; otherwise it's saved as a draft. */
   send: z.boolean().optional(),
+  /** Send a fresh one on a schedule, until a day (YYYY-MM-DD) or until it's stopped. */
+  repeat: z
+    .object({
+      every: z.enum(["WEEKLY", "MONTHLY", "QUARTERLY", "YEARLY"]),
+      until: z.string().regex(/^\d{4}-\d{2}-\d{2}/, "Pick the last day it repeats.").nullish(),
+    })
+    .nullish(),
 });
 
 /** Where the customer pays: the dashboard the business is using, if it's one of ours. */
@@ -98,26 +108,9 @@ function checkoutOrigin(req: Request) {
   return origin && env.ALLOWED_ORIGINS.includes(origin) ? origin : (env.ALLOWED_ORIGINS[0] ?? "http://localhost:5174");
 }
 
-/** Emails the invoice - live invoices only. Says whether it went. */
-async function emailInvoice(req: Request, inv: Invoice, businessName: string, reminder: boolean) {
-  if (inv.mode !== "LIVE") return false;
-  const total = formatMinor(inv.amountMinor, inv.currency);
-  const due = inv.dueAt.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "Africa/Lagos" });
-  const lines = ((inv.items as Item[]) ?? []).map((x) => `  ${x.qty} × ${x.name}: ${formatMinor(x.priceMinor * x.qty, inv.currency)}`).join("\n");
-  const url = checkoutLink(`i/${inv.token}`, checkoutOrigin(req));
-  return sendEmail(
-    inv.customerEmail,
-    reminder ? `Reminder: invoice ${inv.number} from ${businessName}` : `Invoice ${inv.number} from ${businessName}`,
-    `Hello ${inv.customerName},\n\n${reminder ? `A reminder that ${businessName} is waiting on` : `${businessName} has sent you`} invoice ${inv.number} for ${total}, due ${due}.\n\n${lines}\n\nTotal: ${total}\n${inv.note ? `\n${inv.note}\n` : ""}\nPay it here: ${url}\n\nMoney Moves Business`,
-  );
-}
-
-/** The next number for this business and mode: INV-0001 and up. */
-async function nextNumber(businessId: string, mode: "TEST" | "LIVE", attempt: number) {
-  const last = await prisma.invoice.findFirst({ where: { businessId, mode }, orderBy: { createdAt: "desc" }, select: { number: true } });
-  const n = (Number(last?.number.replace(/\D/g, "")) || 0) + 1 + attempt;
-  return `INV-${String(n).padStart(4, "0")}`;
-}
+/** Emails the invoice - live invoices only - with the pay link on the dashboard the business is using. */
+const emailInvoice = (req: Request, inv: Invoice, businessName: string, reminder: boolean) => emailAny(inv, businessName, reminder, checkoutOrigin(req));
+const nextNumber = nextInvoiceNumber;
 
 router.get("/", requireMember(), async (req, res) => {
   const businessId = req.member!.businessId;
@@ -147,6 +140,9 @@ router.post("/", requireMember(...MANAGE), async (req, res) => {
   const due = new Date(`${b.dueAt.slice(0, 10)}T23:59:59+01:00`);
   if (Number.isNaN(due.getTime())) throw new HttpError(400, "Pick a due date.", "bad_due");
   if (due.getTime() < Date.now()) throw new HttpError(400, "The due date can't be in the past.", "bad_due");
+
+  const until = b.repeat?.until ? new Date(`${b.repeat.until.slice(0, 10)}T23:59:59+01:00`) : null;
+  if (until && (Number.isNaN(until.getTime()) || until < due)) throw new HttpError(400, "The last day it repeats has to be after the first due date.", "bad_until");
 
   const items: Item[] = b.items.map((x) => ({ name: x.name, qty: x.qty, priceMinor: toMinor(x.price) }));
   const amountMinor = items.reduce((a, x) => a + x.priceMinor * x.qty, 0);
@@ -178,6 +174,10 @@ router.post("/", requireMember(...MANAGE), async (req, res) => {
           // Made and sent in the same moment, so its history never shows it sent before it existed.
           createdAt: now,
           sentAt: b.send ? now : null,
+          repeatEvery: b.repeat?.every ?? null,
+          repeatUntil: until,
+          // The schedule starts when it's sent: a draft waits.
+          nextIssueAt: b.repeat && b.send ? advance(now, b.repeat.every) : null,
           createdById: req.auth!.userId,
         },
       });
@@ -203,7 +203,8 @@ router.post("/:invoiceId/send", requireMember(...MANAGE), async (req, res) => {
   if (inv.status !== "DRAFT") throw new HttpError(409, "It's already been sent.", "already_sent");
   if (!(await platform()).channels.invoices) throw new HttpError(503, "Invoices are paused by Money Moves right now. Try again a little later.", "channel_paused");
   if (inv.mode === "LIVE" && inv.business.status !== "VERIFIED") throw new HttpError(403, "Activate your business to bill real customers.", "business_unverified");
-  const sent = await prisma.invoice.update({ where: { id: inv.id }, data: { status: "OPEN", sentAt: new Date() } });
+  const now = new Date();
+  const sent = await prisma.invoice.update({ where: { id: inv.id }, data: { status: "OPEN", sentAt: now, ...(inv.repeatEvery ? { nextIssueAt: advance(now, inv.repeatEvery) } : {}) } });
   const emailed = await emailInvoice(req, sent, inv.business.name, false);
   await audit(req, "invoice_sent", { businessId: inv.businessId, detail: { invoiceId: inv.id, number: inv.number, emailed } });
   res.json({ invoice: invoiceShape(sent), emailed });
@@ -221,11 +222,21 @@ router.post("/:invoiceId/remind", requireMember(...MANAGE), async (req, res) => 
   res.json({ invoice: invoiceShape(reminded), emailed });
 });
 
+/** No more from this series. The invoices already sent stay as they are. */
+router.post("/:invoiceId/stop-repeat", requireMember(...MANAGE), async (req, res) => {
+  const inv = await invoiceOf(req);
+  if (!inv.repeatEvery) throw new HttpError(400, "This invoice doesn't repeat.", "not_repeating");
+  const stopped = await prisma.invoice.update({ where: { id: inv.id }, data: { nextIssueAt: null, repeatUntil: new Date() } });
+  await audit(req, "invoice_repeat_stopped", { businessId: inv.businessId, detail: { invoiceId: inv.id, number: inv.number } });
+  res.json({ invoice: invoiceShape(stopped) });
+});
+
 /** Voided, never deleted: the business stops seeing it, the record stays. */
 router.delete("/:invoiceId", requireMember(...MANAGE), async (req, res) => {
   const inv = await invoiceOf(req);
   if (inv.status === "PAID") throw new HttpError(409, "A paid invoice stays. It's part of your records.", "paid");
-  await prisma.invoice.update({ where: { id: inv.id }, data: { status: "VOID", voidedAt: new Date() } });
+  // Voiding the first of a series stops it too.
+  await prisma.invoice.update({ where: { id: inv.id }, data: { status: "VOID", voidedAt: new Date(), nextIssueAt: null } });
   await audit(req, "invoice_voided", { businessId: inv.businessId, detail: { invoiceId: inv.id, number: inv.number } });
   res.json({ ok: true });
 });

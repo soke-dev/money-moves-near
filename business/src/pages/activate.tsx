@@ -51,7 +51,7 @@ import { AddBankModal } from '@/pages/settings'
 import { useSession } from '@/state/session'
 import { createStore } from '@/state/store'
 import { tasksAfterSubmit, tasksStore } from '@/state/compliance'
-import { DESTINATIONS, INDUSTRIES, NG_STATES, type Destination } from '@/data/mock'
+import { INDUSTRIES, NG_STATES, type Destination } from '@/data/mock'
 
 /* ─── What we ask, by business shape ───────────────────────────────── */
 
@@ -1508,7 +1508,7 @@ function PayoutStep({ d, set, me, live, onBack, onNext }: StepProps & { me: stri
               ? 'Where your money lands. Each payment link, invoice and store QR settles to the place you choose for it.'
               : 'Where your money lands: a bank account, a Money Moves account, or both.'
             : registered
-              ? "Where you can be paid to. You'll pick one of these for each store QR, payment link and invoice; API payments go to your business wallet by default."
+              ? "Where you can be paid to. You'll pick one of these for each store QR, payment link and invoice; API payments go to the first one that can take them, and you can pick one later."
               : 'Everything you take lands in your business wallet. Add your bank account so you can withdraw as naira whenever you like.'
         }
       />
@@ -1726,7 +1726,7 @@ function ReviewStep({
           : registered
             ? [['Money Moves account', d.wallet?.username ? d.wallet.username : 'Not added, optional'] as [string, ReactNode]]
             : []),
-        ...(live ? [] : [['API payments', `${DESTINATIONS.onchain.label} (you can change this later)`] as [string, ReactNode]]),
+        ...(live ? [] : [['API payments', 'Automatic (you can change this later)'] as [string, ReactNode]]),
       ],
     },
   ]

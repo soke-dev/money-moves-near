@@ -20,6 +20,7 @@ import { moveCryptoOut } from "../services/crypto-out";
 import { deliverDue, pruneDeveloperRecords, watchFailingEndpoints } from "../lib/webhooks";
 import { checkRefundFunding, completeTestRefunds } from "../services/refunds";
 import { sweepDisputes } from "../services/disputes";
+import { runRecurringInvoices } from "../services/recurring";
 
 const PAYMENTS_EVERY_MS = 5_000;
 const SETTLEMENTS_EVERY_MS = 3_000;
@@ -91,6 +92,10 @@ async function recheckLinks() {
 
 /** Refunds waiting for the business's transfer; test refunds that have the money reach the customer by themselves. */
 const REFUNDS_EVERY_MS = 5_000;
+async function moveInvoices() {
+  await runRecurringInvoices();
+}
+
 async function moveDisputes() {
   await sweepDisputes();
 }
@@ -122,7 +127,7 @@ function every(ms: number, name: string, fn: () => Promise<void>) {
 }
 
 export function startWorker() {
-  const timers = [every(PAYMENTS_EVERY_MS, "payments", checkOpenPayments), every(SETTLEMENTS_EVERY_MS, "settlements", moveSettlements), every(IDENTITY_EVERY_MS, "identity", recheckIdentities), every(LINKS_EVERY_MS, "money-moves", recheckLinks), every(REFUNDS_EVERY_MS, "refunds", moveRefunds), every(60_000, "disputes", moveDisputes), every(5_000, "wallet-sends", followWalletSends), every(5_000, "crypto", scanCrypto), every(15_000, "crypto-out", moveCryptoOut), every(120_000, "networks", refreshNetworks), every(5_000, "webhooks", deliverDue), every(6 * 3_600_000, "developer-records", pruneDeveloperRecords), every(3_600_000, "failing-endpoints", watchFailingEndpoints)];
+  const timers = [every(PAYMENTS_EVERY_MS, "payments", checkOpenPayments), every(SETTLEMENTS_EVERY_MS, "settlements", moveSettlements), every(IDENTITY_EVERY_MS, "identity", recheckIdentities), every(LINKS_EVERY_MS, "money-moves", recheckLinks), every(REFUNDS_EVERY_MS, "refunds", moveRefunds), every(60_000, "disputes", moveDisputes), every(5 * 60_000, "recurring-invoices", moveInvoices), every(5_000, "wallet-sends", followWalletSends), every(5_000, "crypto", scanCrypto), every(15_000, "crypto-out", moveCryptoOut), every(120_000, "networks", refreshNetworks), every(5_000, "webhooks", deliverDue), every(6 * 3_600_000, "developer-records", pruneDeveloperRecords), every(3_600_000, "failing-endpoints", watchFailingEndpoints)];
   // Stellar and TON are offered once they've been read, so read them now rather than in two minutes.
   void refreshNetworks();
   log.info("[worker] checking payments and settlements");

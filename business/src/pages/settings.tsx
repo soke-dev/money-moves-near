@@ -37,7 +37,7 @@ import { MoneyMovesLinker } from '@/components/MoneyMovesLinker'
 import { ALL_ACCEPT, useAccept, useMethods } from '@/state/accept'
 import { TokenPicker } from '@/components/TokenPicker'
 import { Loader2 } from '@/components/icons'
-import { ApiError, LIVE, api, applicationPath, type ApiApplication, type ApiBank, type ApiLiveMethods, type ApiPlatform, type SettleChain } from '@/lib/api'
+import { ApiError, LIVE, api, applicationPath, type ApiApplication, type ApiBank, type ApiLiveMethods, type ApiPaymentSettings, type ApiPlatform, type SettleChain } from '@/lib/api'
 import { reload, useApi } from '@/lib/useApi'
 import { feeOn, useFees, type Fees } from '@/state/fees'
 import { LogoControl } from '@/components/Pictures'
@@ -279,26 +279,77 @@ function DetailChangeForm({ businessId, now, onClose, onSent }: { businessId: st
   )
 }
 
-/** Live: what live checkouts can take today, as the API has it. */
+const METHOD_KEY = { naira: 'NAIRA', app: 'APP', crypto: 'CRYPTO' } as const
+
+/**
+ * Live: the business's own switches for each way to pay, on every payment
+ * link, invoice, outlet and API checkout. Each is on once there's somewhere
+ * for its money to go; until then it says what to link first.
+ */
 function MethodsLive() {
+  const { business, mode } = useSession()
+  const can = useCan()
   const config = useApi<{ live?: ApiLiveMethods }>('/config')
   const live = config.data?.live
   const networks = live?.cryptoNetworks ?? []
+  const path = business ? `/businesses/${business.id}/payment-settings?mode=${mode}` : null
+  const settings = useApi<ApiPaymentSettings>(path)
+  const [busy, setBusy] = useState<Method | null>(null)
+  const [problem, setProblem] = useState('')
   const note = (m: Method) => (m === 'crypto' && live?.crypto ? `${METHODS[m].sub} Live on ${networks.join(', ')}.` : METHODS[m].sub)
+  const flip = async (m: Method, on: boolean) => {
+    if (!business) return
+    setBusy(m)
+    setProblem('')
+    try {
+      await api('PATCH', `/businesses/${business.id}/methods?mode=${mode}`, { method: METHOD_KEY[m], on })
+      reload(path!)
+    } catch (e) {
+      setProblem(e instanceof ApiError ? e.message : "That didn't go through. Try again in a moment.")
+    } finally {
+      setBusy(null)
+    }
+  }
   return (
-    <Section title="Checkout methods" sub="How customers can pay you, on every payment link, invoice and outlet.">
+    <Section title="Checkout methods" sub="How customers can pay you, on every payment link, invoice, outlet and API checkout. Each one turns on once there’s somewhere for its money to go.">
       <div className="grid gap-3">
-        {(['naira', 'app', 'crypto'] as Method[]).map((m) => (
-          <div key={m} className="flex items-center gap-4 rounded-[10px] border border-line bg-card p-4">
-            <MethodIcon method={m} size={36} />
-            <div className="min-w-0 flex-1">
-              <div className="text-[14.5px] font-semibold text-fg">{METHODS[m].label}</div>
-              <div className="mt-0.5 text-[12.5px] leading-relaxed text-muted">{note(m)}</div>
+        {(['naira', 'app', 'crypto'] as Method[]).map((m) => {
+          const s = settings.data?.methods[METHOD_KEY[m]]
+          const paused = live && !live[m]
+          return (
+            <div key={m} className="flex items-center gap-4 rounded-[10px] border border-line bg-card p-4">
+              <MethodIcon method={m} size={36} />
+              <div className="min-w-0 flex-1">
+                <div className="text-[14.5px] font-semibold text-fg">{METHODS[m].label}</div>
+                <div className="mt-0.5 text-[12.5px] leading-relaxed text-muted">{note(m)}</div>
+                {s && !s.ready && s.why && (
+                  <div className="mt-1.5 text-[12.5px] text-fg">
+                    {s.why}.{' '}
+                    {can('payout_places') ? (
+                      <Link to={m === 'naira' && settings.data?.api.justMe ? '/balances' : '/settings/settlement'} className="font-semibold underline underline-offset-2">
+                        {m === 'naira' && settings.data?.api.justMe ? 'Open Business wallet' : 'Open Payout places'}
+                      </Link>
+                    ) : (
+                      <span className="text-muted">Ask the owner to do it.</span>
+                    )}
+                  </div>
+                )}
+                {paused && s?.ready && <div className="mt-1.5 text-[12.5px] text-muted">Paused on our side for a while. Customers can’t use it until it’s back, whatever the switch says.</div>}
+              </div>
+              {!s ? (
+                <Badge>…</Badge>
+              ) : busy === m ? (
+                <Loader2 className="size-4 animate-spin text-dim" />
+              ) : (
+                <Toggle on={s.on} disabled={!s.ready || !can('settlement')} label={`${METHODS[m].label} at checkout`} onChange={(v) => void flip(m, v)} />
+              )}
             </div>
-            {!live ? <Badge>…</Badge> : live[m] ? <Badge tone="good">On</Badge> : <Badge tone="warn">Paused</Badge>}
-          </div>
-        ))}
+          )
+        })}
       </div>
+      {settings.error && <p className="mt-3 text-[12.5px] text-red">{settings.error.message}</p>}
+      {problem && <p className="mt-3 text-[12.5px] text-red">{problem}</p>}
+      {!can('settlement') && <p className="mt-3 text-[12.5px] text-dim">The owner, admins and finance can turn these on and off.</p>}
     </Section>
   )
 }
@@ -958,7 +1009,7 @@ export function SettlementSettings() {
         sub={
           LIVE
             ? 'Where your money can land. Each payment link, invoice and outlet settles to one of these.'
-            : 'Where your money can land. Each payment link, invoice and outlet settles to one of these. API payments go to your business wallet unless you choose a Money Moves account on API keys.'
+            : 'Where your money can land. Each payment link, invoice and outlet settles to one of these. API payments go to a bank account first, then Money Moves, then the wallet, unless you choose one in the Developer portal.'
         }
       />
       {mode === 'test' && (
@@ -972,7 +1023,7 @@ export function SettlementSettings() {
 
       {!placesOwner && (
         <p className="mb-6 max-w-[820px] rounded-[10px] border border-line bg-[#FAFAF8] px-3.5 py-3 text-[13px] leading-relaxed text-muted">
-          Only the owner can add or change bank accounts and Money Moves accounts, and only they can see the business wallet.
+          Only the owner can add or change bank accounts and Money Moves accounts. The owner and admins can see the business wallet.
         </p>
       )}
 
@@ -1141,7 +1192,7 @@ export function SettlementSettings() {
         <div className="max-w-[820px] space-y-9">
           <section>
             <div className="text-[15px] font-semibold text-fg">Business wallet</div>
-            <p className="mb-3 mt-1 text-[13px] text-muted">Self-custodial and embedded. API payments land here by default, and links can settle here too.</p>
+            <p className="mb-3 mt-1 text-[13px] text-muted">Self-custodial and embedded. Payment links, invoices, outlets and API payments can all settle here.</p>
             <div className="overflow-hidden rounded-[12px] border border-line bg-card">
               <Place
                 icon={<PlaceMark src="/brand/wallet.png" />}

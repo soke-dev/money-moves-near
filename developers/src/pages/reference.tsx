@@ -151,6 +151,7 @@ export function Errors() {
           ['429', <C>rate_limited</C>, 'Too many requests. Slow down and retry.'],
           ['502', <C>account_failed</C>, "We couldn't open an account for a refund. Try again shortly."],
           ['503', <C>channel_paused</C>, 'The API is paused for maintenance. Try again shortly.'],
+          ['400', <C>method_off</C>, 'A method you asked for is switched off for this business, or has nowhere to settle yet. Turn it on in Settings, Payment methods.'],
           ['503', <C>methods_paused</C>, 'No way to pay is switched on right now.'],
           ['503', <C>rate_unavailable</C>, "Today's rate can't be read right now. Try again in a minute."],
           ['500', <C>server_error</C>, 'Our fault. Retry with the same Idempotency-Key.'],
