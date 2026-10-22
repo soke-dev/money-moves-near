@@ -49,6 +49,19 @@ import { checkVault } from "./lib/vault";
 
 const app = express();
 
+// A brotli-compressed request body is refused before anything unpacks it.
+// Nothing we serve sends one, and Node's brotli decoder had a remote code
+// execution bug (CVE-2026-111497, fixed in Node 22.23.4). Responses can still
+// be compressed; this is only about what comes in.
+app.use((req, res, next) => {
+  const encoding = String(req.headers["content-encoding"] ?? "").toLowerCase();
+  if (encoding.split(",").some((e) => e.trim() === "br")) {
+    res.status(415).json({ error: "Send the request body uncompressed.", code: "unsupported_encoding" });
+    return;
+  }
+  next();
+});
+
 // Behind Railway's edge. The visitor's address is worked out in lib/ip (proxy-aware); this only
 // lets Express see that the original request was HTTPS.
 app.set("trust proxy", 1);

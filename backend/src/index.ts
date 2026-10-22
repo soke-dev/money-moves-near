@@ -55,6 +55,19 @@ process.on("uncaughtException", (err) => {
 
 const app = express();
 
+// A brotli-compressed request body is refused before anything unpacks it.
+// Nothing we serve sends one, and Node's brotli decoder had a remote code
+// execution bug (CVE-2026-111497, fixed in Node 22.23.4). Responses can still
+// be compressed; this is only about what comes in.
+app.use((req, res, next) => {
+  const encoding = String(req.headers["content-encoding"] ?? "").toLowerCase();
+  if (encoding.split(",").some((e) => e.trim() === "br")) {
+    res.status(415).json({ error: "Send the request body uncompressed.", code: "unsupported_encoding" });
+    return;
+  }
+  next();
+});
+
 // ─── Serve uploaded files ───────────────────────────────────
 // UPLOADS_DIR lets Railway (or any host with ephemeral FS) point this at a
 // persistent volume so avatars don't vanish on deploy/restart.
