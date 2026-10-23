@@ -1,17 +1,15 @@
 /**
  * Money Moves — landing.
  *
- * The app's own ground - near black with a green bias - headlines in a
- * grotesk, and monospace for every caption and figure. That pairing is the
- * whole look: the type does the work and the neon acts alone, on the one
- * button that matters, the section labels and the figures inside the phones.
+ * A light ground, ink headlines in a grotesk, and monospace for every caption
+ * and figure. The app's neon is a fill only (buttons, the lit half of the
+ * switch, the marker stroke) because on white it cannot be read; text that
+ * carries the brand uses a deeper green. The footer and the closing bands are
+ * the one dark ground, so each side ends on the app's own colour.
  *
- * Sections are separated by space and a hairline rather than ornament. No
- * crosshairs, no hatching, no numbering - that apparatus belongs to the page
- * it came from.
- *
- * Motion is on arrival and once: sections lift eighteen pixels into place as
- * they come into view, and the hero runs a short sequence. Nothing loops.
+ * Cards are white, lifted by a soft shadow, and rise a little under the
+ * pointer. Sections lift into place as they arrive; the business hero and the
+ * fee calculator answer to clicks.
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -20,25 +18,29 @@ import { Link } from 'react-router-dom'
 /* ─── Tokens ───────────────────────────────────────────────────────── */
 
 const T = {
-  paper: '#0A0C08',
-  paperAlt: '#0F120B',
-  card: '#141811',
-  ink: '#ECEFE7',
-  body: '#8B9580',
-  faint: '#5C6650',
-  rule: '#1F241A',
-  // On this ground the accent can be the app's own green; there is no
-  // contrast problem to design around any more.
-  deep: '#81FB02',
-  deepSoft: 'rgba(129,251,2,0.12)',
+  paper: '#FFFFFF',
+  paperAlt: '#F6F7F2',
+  card: '#FFFFFF',
+  ink: '#0D1108',
+  body: '#3C4336',
+  faint: '#6B7364',
+  rule: '#E2E5DA',
+  // The neon is a fill, never text: on white it cannot be read. Text that
+  // carries the brand uses this deeper green instead.
+  deep: '#2E6A00',
+  deepSoft: 'rgba(129,251,2,0.2)',
   neon: '#81FB02',
-  dark: '#0A0C08',
+  dark: '#0D1108',
+  // The one dark ground: the footer and the closing bands.
+  night: '#0D1108',
+  nightBody: 'rgba(236,239,231,0.62)',
+  shadow: '0 1px 2px rgba(13,17,8,0.04), 0 14px 34px -16px rgba(13,17,8,0.16)',
 }
-
-const API = import.meta.env.VITE_API_URL || ''
 
 const DISPLAY = "'Instrument Sans', system-ui, sans-serif"
 const MONO = "'JetBrains Mono', 'SFMono-Regular', Menlo, monospace"
+// Reading text and controls: rounder and plainer than the display face, so long lines read easily.
+const TEXT = "'Figtree', system-ui, sans-serif"
 
 const PLAY_STORE = 'https://play.google.com/store/apps/details?id=xyz.usemoneymoves.app'
 const APP_STORE = 'https://apps.apple.com/ng/app/money-moves-own-spend-crypto/id6785696053'
@@ -77,7 +79,7 @@ function Reveal({
 function Eyebrow({ children }: { children: ReactNode }) {
   return (
     <span
-      className="text-[10.5px] font-medium uppercase tracking-[0.22em]"
+      className="text-[10.5px] font-semibold uppercase tracking-[0.22em]"
       style={{ fontFamily: MONO, color: T.deep }}
     >
       {children}
@@ -103,13 +105,13 @@ function SectionHead({
         <Reveal delay={0.05}>
           <h2
             className="text-[34px] leading-[1.06] tracking-[-0.035em] sm:text-[46px]"
-            style={{ fontFamily: DISPLAY, fontWeight: 600, color: T.ink }}
+            style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}
           >
             {title}
           </h2>
         </Reveal>
         <Reveal delay={0.1}>
-          <p className="max-w-[52ch] text-[13.5px] leading-[1.9]" style={{ fontFamily: MONO, color: T.body }}>
+          <p className="max-w-[52ch] text-[16px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
             {sub}
           </p>
         </Reveal>
@@ -119,16 +121,7 @@ function SectionHead({
 }
 
 /**
- * The store buttons.
- *
- * White, because the official badges we hold are the black-background variant
- * and black on a near-black page is a hole. White is the variant that belongs
- * on a dark ground, and it also makes the two buttons the loudest thing below
- * the headline, which is what they are for.
- *
- * Both are set to one width so they read as a pair rather than two sizes, the
- * glyphs are optically centred rather than boxed, and the lift on hover is the
- * only movement.
+ * The store buttons: black on the light page, white on the dark closing band.
  */
 /**
  * The two store badges.
@@ -140,10 +133,11 @@ function SectionHead({
  * shrink with the page instead of snapping at 640px, and they take the width of
  * their own text rather than whatever is going spare.
  */
-function StoreButtons({ className = '' }: { className?: string }) {
+function StoreButtons({ className = '', tone = 'dark' }: { className?: string; tone?: 'dark' | 'light' }) {
+  const dark = tone === 'dark'
   const stores = [
     { href: PLAY_STORE, icon: '/images/playstore singlr.png', top: 'Get it on', name: 'Google Play' },
-    { href: APP_STORE, icon: '/images/applesingleblack.png', top: 'Download on the', name: 'App Store' },
+    { href: APP_STORE, icon: dark ? '/images/applesingle.png' : '/images/applesingleblack.png', top: 'Download on the', name: 'App Store' },
   ]
 
   return (
@@ -156,8 +150,8 @@ function StoreButtons({ className = '' }: { className?: string }) {
           rel="noreferrer"
           className="group inline-flex shrink-0 items-center rounded-[11px] transition-transform duration-200 hover:-translate-y-0.5"
           style={{
-            background: '#FFFFFF',
-            boxShadow: '0 1px 0 rgba(255,255,255,0.6) inset',
+            background: dark ? T.night : '#FFFFFF',
+            boxShadow: dark ? '0 10px 22px -12px rgba(13,17,8,0.55)' : 'none',
             height: 'clamp(40px, 10.5vw, 50px)',
             paddingInline: 'clamp(10px, 2.8vw, 15px)',
             gap: 'clamp(7px, 1.9vw, 10px)',
@@ -173,7 +167,7 @@ function StoreButtons({ className = '' }: { className?: string }) {
             <span
               style={{
                 fontFamily: MONO,
-                color: 'rgba(10,12,8,0.55)',
+                color: dark ? 'rgba(255,255,255,0.6)' : 'rgba(13,17,8,0.55)',
                 fontSize: 'clamp(6.5px, 1.65vw, 8.5px)',
                 letterSpacing: '0.1em',
                 textTransform: 'uppercase',
@@ -187,7 +181,7 @@ function StoreButtons({ className = '' }: { className?: string }) {
               style={{
                 fontFamily: DISPLAY,
                 fontWeight: 600,
-                color: '#0A0C08',
+                color: dark ? '#FFFFFF' : T.night,
                 fontSize: 'clamp(11.5px, 3.1vw, 14.5px)',
                 letterSpacing: '-0.01em',
               }}
@@ -293,21 +287,41 @@ const VOICES = [
 /* ─── Page ─────────────────────────────────────────────────────────── */
 
 export default function Landing() {
-  const [audience, setAudience] = useState<'personal' | 'business'>('personal')
+  const [audience, setAudienceState] = useState<'personal' | 'business'>(() =>
+    typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('for') === 'business' ? 'business' : 'personal',
+  )
   const [menu, setMenu] = useState(false)
+  const setAudience = (a: 'personal' | 'business') => {
+    setAudienceState(a)
+    setMenu(false)
+    try {
+      const url = new URL(window.location.href)
+      if (a === 'business') url.searchParams.set('for', 'business')
+      else url.searchParams.delete('for')
+      url.hash = ''
+      window.history.replaceState(null, '', url.toString())
+      window.scrollTo({ top: 0 })
+    } catch {
+      /* the address just doesn't follow */
+    }
+  }
 
+  // Clip, not hidden: hidden makes this a scroll box and the sticky bar stops following the page.
   return (
-    <div style={{ background: T.paper, color: T.ink }} className="min-h-screen overflow-x-hidden">
+    <div style={{ background: T.paper, color: T.ink, overflowX: 'clip' }} className="min-h-screen">
       <style>{`
-        details > summary { list-style: none; cursor: pointer }
-        details > summary::-webkit-details-marker { display: none }
+        .mm-link { color: rgba(236,239,231,0.74) }
+        .mm-link:hover { color: #FFFFFF }
+        .mm-lift { transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s }
+        .mm-lift:hover { transform: translateY(-4px); box-shadow: 0 2px 4px rgba(13,17,8,0.04), 0 26px 46px -20px rgba(13,17,8,0.24) }
+        input[type=range].mm-range { accent-color: ${T.deep}; cursor: pointer }
       `}</style>
 
       <Nav audience={audience} setAudience={setAudience} menu={menu} setMenu={setMenu} />
 
       {audience === 'business' ? <Business /> : <Personal />}
 
-      <Footer />
+      <Footer audience={audience} />
     </div>
   )
 }
@@ -325,34 +339,44 @@ function Nav({
   menu: boolean
   setMenu: (m: boolean) => void
 }) {
-  const links = [
-    ['Why', '#why'],
-    ['Features', '#features'],
-    ['Security', '#security'],
-    ['FAQ', '#faq'],
-  ]
+  const links =
+    audience === 'business'
+      ? [
+          ['Who it\'s for', '#who'],
+          ['Agents', '#agents'],
+          ['Developers', '#developers'],
+          ['Pricing', '#pricing'],
+        ]
+      : [
+          ['Why', '#why'],
+          ['Features', '#features'],
+          ['Security', '#security'],
+          ['FAQ', '#faq'],
+        ]
 
   return (
-    <header
-      className="sticky top-0 z-50 border-b backdrop-blur"
-      style={{ borderColor: T.rule, background: 'rgba(10,12,8,0.9)' }}
-    >
-      <div className="relative mx-auto flex h-[68px] max-w-[1200px] items-center justify-between gap-4 px-5">
-        {/* The lockup needs room to read; on a phone the mark says it alone -
-            cut from the lockup itself, so it is the green glyph on nothing
-            rather than the badge, whose black tile would sit as a square hole
-            in a black bar. */}
-        <img src="/images/logo-mark.png" alt="Money Moves" className="h-[26px] w-auto sm:hidden" />
-        <img src="/images/logo-lockup.png" alt="Money Moves" className="hidden h-[22px] w-auto sm:block" />
+    <header className="sticky top-0 z-50 px-3 pt-3 sm:px-5">
+      {/* A floating bar of dark glass: the closing band's green-black, translucent and blurred, with a sheen along the top edge. */}
+      <div
+        className="relative mx-auto max-w-[1200px] rounded-2xl"
+        style={{
+          background: 'linear-gradient(120deg, rgba(11,15,7,0.95) 0%, rgba(14,21,9,0.92) 55%, rgba(24,42,8,0.9) 100%)',
+          backdropFilter: 'blur(18px) saturate(170%)',
+          WebkitBackdropFilter: 'blur(18px) saturate(170%)',
+          border: '1px solid rgba(255,255,255,0.1)',
+          boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -1px 0 rgba(0,0,0,0.3), 0 18px 40px -18px rgba(13,17,8,0.55)',
+        }}
+      >
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-2xl">
+        <div className="absolute -right-10 -top-24 h-56 w-80 rounded-full blur-3xl" style={{ background: `radial-gradient(circle, ${T.neon}, transparent 65%)`, opacity: 0.2 }} />
+        <div className="absolute inset-x-0 top-0 h-1/2" style={{ background: 'linear-gradient(180deg, rgba(255,255,255,0.09), transparent)' }} />
+      </div>
+      <div className="relative flex h-[60px] items-center justify-between gap-4 px-4 sm:px-5">
+        <Logo />
 
-        <nav className="hidden items-center gap-8 lg:flex" style={{ fontFamily: MONO }}>
+        <nav className="hidden items-center gap-7 lg:flex" style={{ fontFamily: TEXT }}>
           {links.map(([label, href]) => (
-            <a
-              key={label}
-              href={href}
-              className="text-[12px] transition-colors hover:opacity-100"
-              style={{ color: T.body }}
-            >
+            <a key={label} href={href} className="mm-link text-[14.5px] font-medium transition-colors">
               {label}
             </a>
           ))}
@@ -368,13 +392,11 @@ function Nav({
           <div className="hidden lg:block">
             <Switch audience={audience} onChange={setAudience} />
           </div>
-          <div className="hidden sm:block">
-            <GetTheApp />
-          </div>
+          <div className="hidden sm:block">{audience === 'business' ? <OpenAccount /> : <GetTheApp />}</div>
           <button
             onClick={() => setMenu(!menu)}
-            className="lg:hidden text-[11px] uppercase tracking-[0.14em]"
-            style={{ fontFamily: MONO, color: T.ink }}
+            className="lg:hidden text-[14px] font-semibold"
+            style={{ fontFamily: TEXT, color: '#FFFFFF' }}
           >
             {menu ? 'Close' : 'Menu'}
           </button>
@@ -382,19 +404,30 @@ function Nav({
       </div>
 
       {menu && (
-        <div className="border-t px-5 py-4 lg:hidden" style={{ borderColor: T.rule }}>
-          <div className="flex flex-col gap-3" style={{ fontFamily: MONO }}>
+        <div className="relative border-t px-5 py-4 lg:hidden" style={{ borderColor: 'rgba(255,255,255,0.1)' }}>
+          <div className="flex flex-col gap-3" style={{ fontFamily: TEXT }}>
             {links.map(([label, href]) => (
-              <a key={label} href={href} onClick={() => setMenu(false)} className="text-[13px]" style={{ color: T.body }}>
+              <a key={label} href={href} onClick={() => setMenu(false)} className="text-[15px] font-medium" style={{ color: 'rgba(236,239,231,0.74)' }}>
                 {label}
               </a>
             ))}
-            <a href={`mailto:${SUPPORT}`} className="text-[13px]" style={{ color: T.body }}>
+            {audience === 'business' && (
+              <>
+                <a href={`${BIZ_APP}/signup`} target="_blank" rel="noreferrer" className="text-[15px] font-semibold" style={{ color: T.neon }}>
+                  Open an account
+                </a>
+                <a href={`${BIZ_APP}/login`} target="_blank" rel="noreferrer" className="text-[15px] font-medium" style={{ color: 'rgba(236,239,231,0.74)' }}>
+                  Sign in
+                </a>
+              </>
+            )}
+            <a href={`mailto:${SUPPORT}`} className="text-[15px] font-medium" style={{ color: 'rgba(236,239,231,0.74)' }}>
               Support
             </a>
           </div>
         </div>
       )}
+      </div>
     </header>
   )
 }
@@ -419,8 +452,8 @@ function GetTheApp() {
     <div className="relative" onClick={(e) => e.stopPropagation()}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[11.5px] font-semibold uppercase tracking-[0.12em] transition-opacity hover:opacity-90"
-        style={{ fontFamily: MONO, background: T.deep, color: T.dark }}
+        className="inline-flex h-9 items-center gap-2 rounded-xl px-4 text-[14px] font-semibold transition-opacity hover:opacity-90"
+        style={{ fontFamily: TEXT, background: T.neon, color: T.dark }}
       >
         Get the app
         <span className="text-[8px] transition-transform" style={{ transform: open ? 'rotate(180deg)' : undefined }}>
@@ -431,7 +464,7 @@ function GetTheApp() {
       {open && (
         <div
           className="absolute right-0 z-50 mt-2 w-[216px] overflow-hidden rounded-2xl"
-          style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: '0 20px 40px -12px rgba(0,0,0,0.7)' }}
+          style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}
         >
           {[
             { href: PLAY_STORE, icon: '/images/playstore singlr.png', top: 'Get it on', name: 'Google Play', ruled: false },
@@ -442,20 +475,19 @@ function GetTheApp() {
               href={s.href}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-white/[0.04]"
+              className="flex items-center gap-3 px-4 py-3.5 transition-colors hover:bg-black/[0.03]"
               style={{ borderTop: s.ruled ? `1px solid ${T.rule}` : undefined }}
             >
               <img
                 src={s.icon}
                 alt=""
                 className="h-5 w-5 shrink-0 object-contain"
-                style={s.ruled ? { filter: 'invert(1)' } : undefined}
               />
               <span className="flex flex-col leading-none">
                 <span className="mb-1 text-[8px] uppercase tracking-[0.1em]" style={{ fontFamily: MONO, color: T.faint }}>
                   {s.top}
                 </span>
-                <span className="text-[13px]" style={{ fontFamily: DISPLAY, fontWeight: 600, color: T.ink }}>
+                <span className="text-[13px]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
                   {s.name}
                 </span>
               </span>
@@ -464,6 +496,31 @@ function GetTheApp() {
         </div>
       )}
     </div>
+  )
+}
+
+/** The lockup with light lettering for the dark bar; on a phone the mark says it alone. */
+function Logo() {
+  return (
+    <a href="/" aria-label="Money Moves" className="flex shrink-0 items-center">
+      <img src="/images/logo-mark.png" alt="" className="h-[26px] w-auto sm:hidden" />
+      <img src="/images/logo-lockup.png" alt="" className="hidden h-[22px] w-auto sm:block" />
+    </a>
+  )
+}
+
+/** The business bar's one button: straight into the dashboard's sign-up. */
+function OpenAccount() {
+  return (
+    <a
+      href={`${BIZ_APP}/signup`}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex h-9 items-center rounded-xl px-4 text-[14px] font-semibold transition-opacity hover:opacity-90"
+      style={{ fontFamily: TEXT, background: T.neon, color: T.dark }}
+    >
+      Open account
+    </a>
   )
 }
 
@@ -478,13 +535,13 @@ function Switch({
   return (
     <div
       className="relative grid grid-cols-2 rounded-full p-1"
-      style={{ background: T.card, border: `1px solid ${T.rule}` }}
+      style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.12)' }}
       role="tablist"
     >
       <motion.span
         aria-hidden
         className="absolute bottom-1 left-1 top-1 rounded-full"
-        style={{ width: 'calc(50% - 0.25rem)', background: T.deep }}
+        style={{ width: 'calc(50% - 0.25rem)', background: T.neon }}
         animate={{ x: audience === 'business' ? '100%' : '0%' }}
         transition={{ type: 'spring', stiffness: 320, damping: 32 }}
       />
@@ -494,8 +551,8 @@ function Switch({
           role="tab"
           aria-selected={audience === m}
           onClick={() => onChange(m)}
-          className="relative z-10 h-8 whitespace-nowrap px-4 text-[10.5px] font-semibold uppercase tracking-[0.12em] transition-colors"
-          style={{ fontFamily: MONO, color: audience === m ? T.dark : T.body }}
+          className="relative z-10 h-8 whitespace-nowrap px-4 text-[13px] font-semibold capitalize transition-colors"
+          style={{ fontFamily: TEXT, color: audience === m ? T.dark : 'rgba(236,239,231,0.74)' }}
         >
           {m}
         </button>
@@ -511,7 +568,7 @@ function Personal() {
     <>
       {/* ── Hero: set left, with the ledger of what just happened beside it,
              rather than a centred column over a row of phones. ── */}
-      <section className="mx-auto max-w-[1200px] px-5 pb-16 pt-20 sm:pt-28">
+      <section className="mx-auto max-w-[1200px] px-5 pb-20 pt-16 sm:pt-24">
         <div className="grid gap-14 lg:grid-cols-[1.25fr_1fr] lg:items-center lg:gap-20">
           <div>
             <motion.h1
@@ -519,7 +576,7 @@ function Personal() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.08, ease: EASE }}
               className="text-[46px] leading-[1.0] tracking-[-0.04em] sm:text-[64px]"
-              style={{ fontFamily: DISPLAY, fontWeight: 600 }}
+              style={{ fontFamily: DISPLAY, fontWeight: 700 }}
             >
               Own Your Wallet,
               <br />
@@ -532,8 +589,8 @@ function Personal() {
               initial={{ opacity: 0, y: 16 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.18, ease: EASE }}
-              className="mt-7 max-w-[52ch] text-[13.5px] leading-[1.9]"
-              style={{ fontFamily: MONO, color: T.body }}
+              className="mt-7 max-w-[46ch] text-[17px] leading-[1.6]"
+              style={{ fontFamily: TEXT, color: T.body }}
             >
               Money Moves is a self-custodial finance app that lets you spend crypto like cash. Keep your money
               in stablecoins and spend it on bills, bank transfers and airtime, from one balance only you control.
@@ -549,51 +606,12 @@ function Personal() {
             </motion.div>
           </div>
 
-          {/* Four things the app did this morning. */}
-          <motion.div
-            initial={{ opacity: 0, y: 24 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, delay: 0.22, ease: EASE }}
-            className="rounded-3xl p-2"
-            style={{ background: T.card, border: `1px solid ${T.rule}` }}
-          >
-            <div
-              className="flex items-center justify-between px-4 py-3 text-[10px] uppercase tracking-[0.18em]"
-              style={{ fontFamily: MONO, color: T.faint }}
-            >
-              <span>Today</span>
-              <span style={{ color: T.deep }}>live</span>
+          {/* What the app does, a tab at a time, on a wash of the brand colours. */}
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.22, ease: EASE }} className="relative">
+            <Wash />
+            <div className="relative">
+              <FlowCard ways={APP_WAYS} id="app" head="Today" state="done" />
             </div>
-
-            {[
-              { icon: '/images/bank.png', t: '₦12,450 to GTBank', s: 'sold 8.12 USDC · 41s' },
-              // usdc-black is the mark drawn inside a filled disc, and a mask only sees
-              // alpha - so the whole disc came through as one green blob. usdc-mark
-              // is the same mark as a silhouette, like every other icon here.
-              { icon: '/images/usdc-mark.png', t: '+8.50 USDC', s: 'from @tobi · no gas' },
-              { icon: '/images/flash.png', t: '₦5,000 Ikeja Electric', s: 'token 0192 8374 5601' },
-            ].map((r, i) => (
-              <div
-                key={r.t}
-                className="flex items-center gap-3.5 px-4 py-4"
-                style={{ borderTop: i === 0 ? 'none' : `1px solid ${T.rule}` }}
-              >
-                <span
-                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl"
-                  style={{ background: T.deepSoft }}
-                >
-                  <span className="h-4 w-4" style={maskStyle(r.icon, T.deep)} />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[14px] font-semibold" style={{ color: T.ink }}>
-                    {r.t}
-                  </span>
-                  <span className="block truncate text-[11px]" style={{ fontFamily: MONO, color: T.faint }}>
-                    {r.s}
-                  </span>
-                </span>
-              </div>
-            ))}
           </motion.div>
         </div>
       </section>
@@ -606,17 +624,17 @@ function Personal() {
           sub="Hold your own keys, cash out to your bank, and handle everyday payments without ever leaving the app."
         />
 
-        <div className="mx-auto grid max-w-[1200px] gap-px px-5 sm:grid-cols-2 lg:grid-cols-3" style={{ background: T.rule }}>
+        <div className="mx-auto grid max-w-[1200px] gap-4 px-5 sm:grid-cols-2 lg:grid-cols-3">
           {[
             {
-              t: 'Hold dollars',
-              b: 'Keep a balance in USDC and USDT that does not move with the naira, and spend it straight from the app.',
+              t: 'Hold stablecoins',
+              b: 'Keep a balance in USDC and USDT, and spend it straight from the app.',
               art: <BalanceArt />,
             },
             {
-              t: 'Send to a name',
-              b: 'Pay anyone on Money Moves by their @username. No 42-character address, and no gas to cover.',
-              art: <SendArt />,
+              t: 'Pay businesses',
+              b: 'Scan a shop’s code or open a payment link, and pay from your balance. No fee, and no account number to type.',
+              art: <BizPayArt />,
             },
             {
               t: 'Cash out at home',
@@ -625,14 +643,14 @@ function Personal() {
             },
           ].map((c, i) => (
             <Reveal key={c.t} delay={i * 0.08}>
-              <div className="h-full p-7" style={{ background: T.paper }}>
-                <div className="rounded-2xl p-4" style={{ background: T.card, border: `1px solid ${T.rule}` }}>
+              <div className="mm-lift h-full rounded-3xl p-7" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+                <div className="rounded-2xl p-4" style={{ background: T.paperAlt, border: `1px solid ${T.rule}` }}>
                   {c.art}
                 </div>
-                <h3 className="mt-6 text-[19px] tracking-[-0.02em]" style={{ fontFamily: DISPLAY, fontWeight: 600 }}>
+                <h3 className="mt-6 text-[19px] tracking-[-0.02em]" style={{ fontFamily: DISPLAY, fontWeight: 700 }}>
                   {c.t}
                 </h3>
-                <p className="mt-2.5 text-[12.5px] leading-[1.8]" style={{ fontFamily: MONO, color: T.body }}>
+                <p className="mt-2.5 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
                   {c.b}
                 </p>
               </div>
@@ -648,7 +666,7 @@ function Personal() {
             <Eyebrow>How it moves</Eyebrow>
             <h2
               className="mt-5 max-w-[20ch] text-[34px] leading-[1.06] tracking-[-0.035em] sm:text-[44px]"
-              style={{ fontFamily: DISPLAY, fontWeight: 600 }}
+              style={{ fontFamily: DISPLAY, fontWeight: 700 }}
             >
               Send it, spend it, cash it out
             </h2>
@@ -661,7 +679,7 @@ function Personal() {
             ].map((col, ci) => (
               <div key={col.head}>
                 <Reveal delay={ci * 0.06}>
-                  <h3 className="text-[20px] tracking-[-0.02em]" style={{ fontFamily: DISPLAY, fontWeight: 600 }}>
+                  <h3 className="text-[20px] tracking-[-0.02em]" style={{ fontFamily: DISPLAY, fontWeight: 700 }}>
                     {col.head}
                   </h3>
                 </Reveal>
@@ -678,10 +696,10 @@ function Personal() {
                         <div className="min-w-0">
                           {/* Name on its own line, detail under it. A dash mid
                               sentence broke badly once the column narrowed. */}
-                          <div className="text-[14px] tracking-[-0.01em]" style={{ fontFamily: DISPLAY, fontWeight: 600, color: T.ink }}>
+                          <div className="text-[14px] tracking-[-0.01em]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
                             {t}
                           </div>
-                          <p className="mt-1 text-[12.5px] leading-[1.7]" style={{ fontFamily: MONO, color: T.body }}>
+                          <p className="mt-1 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
                             {b}
                           </p>
                         </div>
@@ -703,7 +721,7 @@ function Personal() {
               <Eyebrow>The numbers</Eyebrow>
               <h2
                 className="mt-5 text-[30px] leading-[1.08] tracking-[-0.035em] sm:text-[38px]"
-                style={{ fontFamily: DISPLAY, fontWeight: 600 }}
+                style={{ fontFamily: DISPLAY, fontWeight: 700 }}
               >
                 Fast. Free.
                 <br />
@@ -724,7 +742,7 @@ function Personal() {
                     >
                       {s.label}
                     </div>
-                    <p className="mt-2.5 max-w-[34ch] text-[12.5px] leading-[1.75]" style={{ fontFamily: MONO, color: T.body }}>
+                    <p className="mt-2.5 max-w-[34ch] text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
                       {s.body}
                     </p>
                   </div>
@@ -744,20 +762,20 @@ function Personal() {
         />
 
         <div className="mx-auto max-w-[1200px] px-5 pb-20">
-          <div className="grid gap-px sm:grid-cols-2 lg:grid-cols-4" style={{ background: T.rule }}>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {SECURITY.map((s, i) => (
               <Reveal key={s.t} delay={i * 0.07}>
-                <div className="h-full px-6 py-9" style={{ background: T.paperAlt }}>
+                <div className="mm-lift h-full rounded-3xl px-6 py-9" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
                   <div
                     className="flex h-9 w-9 items-center justify-center rounded-xl"
                     style={{ background: T.deepSoft }}
                   >
                     <div className="h-[15px] w-[15px]" style={maskStyle(s.icon, T.deep)} />
                   </div>
-                  <h3 className="mt-5 text-[17px] tracking-[-0.02em]" style={{ fontFamily: DISPLAY, fontWeight: 600 }}>
+                  <h3 className="mt-5 text-[17px] tracking-[-0.02em]" style={{ fontFamily: DISPLAY, fontWeight: 700 }}>
                     {s.t}
                   </h3>
-                  <p className="mt-2.5 text-[12.5px] leading-[1.8]" style={{ fontFamily: MONO, color: T.body }}>
+                  <p className="mt-2.5 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
                     {s.b}
                   </p>
                 </div>
@@ -774,7 +792,7 @@ function Personal() {
             <Eyebrow>Reviews</Eyebrow>
             <h2
               className="mt-5 max-w-[22ch] text-[30px] leading-[1.08] tracking-[-0.035em] sm:text-[38px]"
-              style={{ fontFamily: DISPLAY, fontWeight: 600 }}
+              style={{ fontFamily: DISPLAY, fontWeight: 700 }}
             >
               Trusted by Money Movers across Africa
             </h2>
@@ -786,7 +804,7 @@ function Personal() {
                   <div className="text-[11px] tracking-[0.3em]" style={{ color: T.deep }}>
                     ★★★★★
                   </div>
-                  <blockquote className="mt-4 text-[13px] leading-[1.85]" style={{ fontFamily: MONO, color: T.body }}>
+                  <blockquote className="mt-4 text-[15.5px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
                     {v}
                   </blockquote>
                 </figure>
@@ -804,13 +822,13 @@ function Personal() {
               <Eyebrow>Questions</Eyebrow>
               <h2
                 className="mt-5 text-[34px] leading-[1.06] tracking-[-0.035em] sm:text-[42px]"
-                style={{ fontFamily: DISPLAY, fontWeight: 600 }}
+                style={{ fontFamily: DISPLAY, fontWeight: 700 }}
               >
                 Frequently
                 <br />
                 Asked Questions
               </h2>
-              <p className="mt-5 text-[12.5px] leading-[1.8]" style={{ fontFamily: MONO, color: T.body }}>
+              <p className="mt-5 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
                 Not answered here? Email{' '}
                 <a href={`mailto:${SUPPORT}`} className="underline underline-offset-4" style={{ color: T.deep }}>
                   support
@@ -821,55 +839,31 @@ function Personal() {
           </div>
 
           <div>
-            {FAQ.map((f, i) => (
-              <Reveal key={f.q} delay={i * 0.04}>
-                <details className="group border-t" style={{ borderColor: T.rule }}>
-                  <summary className="flex items-start gap-5 py-5">
-                    <span className="flex-1 text-[16px] tracking-[-0.01em]" style={{ fontFamily: DISPLAY, fontWeight: 500 }}>
-                      {f.q}
-                    </span>
-                    <span
-                      className="shrink-0 text-[20px] leading-none transition-transform group-open:rotate-45"
-                      style={{ color: T.deep }}
-                    >
-                      +
-                    </span>
-                  </summary>
-                  <p className="pb-6 pr-10 text-[12.5px] leading-[1.9]" style={{ fontFamily: MONO, color: T.body }}>
-                    {f.a}
-                  </p>
-                </details>
-              </Reveal>
-            ))}
-            <div className="border-t" style={{ borderColor: T.rule }} />
+            <FaqList items={FAQ} />
           </div>
         </div>
       </section>
 
-      {/* ── Close ── */}
-      <section>
-        <div className="mx-auto max-w-[900px] px-5 py-24 text-center">
-          <Reveal>
-            <h2
-              className="text-[38px] leading-[1.04] tracking-[-0.04em] sm:text-[52px]"
-              style={{ fontFamily: DISPLAY, fontWeight: 600 }}
-            >
-              The smarter way
-              <br />
-              to move money.
-            </h2>
-          </Reveal>
-          <Reveal delay={0.08}>
-            <p className="mx-auto mt-6 max-w-[48ch] text-[13px] leading-[1.9]" style={{ fontFamily: MONO, color: T.body }}>
-              Download it free, verify once, and start moving money the way you always wanted to.
-            </p>
-          </Reveal>
-          <Reveal delay={0.16}>
-            <div className="mt-10 flex justify-center">
-              <StoreButtons className="justify-center" />
+      {/* ── Close: the one dark band, the app's own ground. ── */}
+      <section className="px-5 py-20">
+        <Reveal>
+          <div className="relative mx-auto max-w-[1160px] overflow-hidden rounded-[28px] px-6 py-20 text-center" style={{ background: T.night }}>
+            <Glow />
+            <div className="relative mx-auto max-w-[900px]">
+              <h2 className="text-[38px] leading-[1.04] tracking-[-0.04em] sm:text-[52px]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: '#FFFFFF' }}>
+                The smarter way
+                <br />
+                to move money.
+              </h2>
+              <p className="mx-auto mt-6 max-w-[48ch] text-[15.5px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.nightBody }}>
+                Download it free, verify once, and start moving money the way you always wanted to.
+              </p>
+              <div className="mt-10 flex justify-center">
+                <StoreButtons className="justify-center" tone="light" />
+              </div>
             </div>
-          </Reveal>
-        </div>
+          </div>
+        </Reveal>
       </section>
     </>
   )
@@ -888,7 +882,7 @@ function BalanceArt() {
       <div className="text-[9px] uppercase tracking-[0.18em]" style={{ fontFamily: MONO, color: T.faint }}>
         Total balance
       </div>
-      <div className="mt-1 text-[26px] leading-none tracking-[-0.03em]" style={{ fontFamily: DISPLAY, fontWeight: 600 }}>
+      <div className="mt-1 text-[26px] leading-none tracking-[-0.03em]" style={{ fontFamily: DISPLAY, fontWeight: 700 }}>
         ₦106,014<span style={{ color: T.faint }}>.75</span>
       </div>
       <div className="mt-4 space-y-2">
@@ -908,42 +902,36 @@ function BalanceArt() {
   )
 }
 
-function SendArt() {
+/** Paying a Money Moves business from the app: the shop, the item, one tap. Illustrative. */
+function BizPayArt() {
   return (
     <div>
-      <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: T.deepSoft }}>
-        <span
-          className="flex h-8 w-8 items-center justify-center rounded-full text-[12px] font-semibold"
-          style={{ background: T.deep, color: T.dark }}
-        >
-          T
+      <div className="flex items-center gap-3 rounded-xl p-3" style={{ background: T.card, border: `1px solid ${T.rule}` }}>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[12px] font-semibold" style={{ background: T.ink, color: '#FFFFFF' }}>
+          A
         </span>
-        <div className="flex-1">
-          <div className="text-[12px] font-semibold" style={{ color: T.ink }}>
-            @tobi
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[12px] font-semibold" style={{ color: T.ink }}>
+            Ada Fashion House
           </div>
           <div className="text-[9px]" style={{ fontFamily: MONO, color: T.body }}>
-            USDC · 12 sends
+            Ankara gown · payment link
           </div>
         </div>
         <div className="text-[13px] font-semibold" style={{ fontFamily: MONO, color: T.ink }}>
-          8.50
+          ₦45,000
         </div>
       </div>
       <div className="mt-3 text-[9.5px]" style={{ fontFamily: MONO, color: T.body }}>
-        ✓ No gas fee, sponsored by Money Moves
+        ✓ No fee for you or the shop
       </div>
-      {/* The app confirms with a PIN, not a slider. */}
-      <div
-        className="mt-3 flex h-9 items-center justify-center rounded-xl"
-        style={{ background: T.deep }}
-      >
-        <span className="text-[11px] font-semibold" style={{ fontFamily: DISPLAY, color: T.dark }}>
-          Send 8.50 USDC
+      <div className="mt-3 flex h-9 items-center justify-center rounded-xl" style={{ background: T.neon }}>
+        <span className="text-[11px] font-semibold" style={{ fontFamily: TEXT, color: T.dark }}>
+          Pay ₦45,000
         </span>
       </div>
       <div className="mt-2 text-center text-[9px]" style={{ fontFamily: MONO, color: T.faint }}>
-        Confirmed with your PIN or Face ID
+        Approved with your PIN or Face ID
       </div>
     </div>
   )
@@ -985,245 +973,1044 @@ function CashoutArt() {
 
 /* ─── Business ─────────────────────────────────────────────────────── */
 
+const BIZ_APP = 'https://business.usemoneymoves.xyz'
+const BIZ_DOCS = 'https://docs.usemoneymoves.xyz'
+
+/**
+ * What a business pays, as Services has it today. Shown here rather than read
+ * live because the marketing site and the business API sit on different
+ * origins; change both together. Stablecoins lead everywhere on this page and
+ * bank transfer comes last.
+ */
+const BIZ_FEES = [
+  { what: 'Stablecoins', how: 'USDC or USDT on any supported network', fee: '0.25%', note: 'capped at $1 a payment' },
+  { what: 'Money Moves app', how: 'Approved in the app, or scanned', fee: 'Free', note: 'no fee on either side' },
+  { what: 'Bank transfer', how: 'Local fiat to a one-time account', fee: '0.25%', note: 'capped at ₦1,000 a payment' },
+  { what: 'Bank payout', how: 'From your business wallet to your bank', fee: '₦100', note: 'flat, per transfer' },
+]
+
+const BIZ_NETWORKS = ['Movement', 'Solana', 'Base', 'BNB Chain', 'Arbitrum', 'Optimism', 'Monad', 'Arc', 'Stellar', 'TON']
+const SETTLE_CHAINS = ['Solana', 'Stellar', 'Movement', 'Arc', 'Monad']
+
+const BIZ_WHO: { t: string; b: string; uses: string[] }[] = [
+  { t: 'Online stores', b: 'Take stablecoins at checkout from customers anywhere, and get paid out in local fiat the moment an order is paid.', uses: ['WooCommerce', 'Payment links', 'API'] },
+  { t: 'SaaS and apps', b: 'Charge in dollars without card rails. Create checkouts from your backend and hear back by signed webhook.', uses: ['API and SDKs', 'Webhooks', 'Invoices'] },
+  { t: 'Freelancers and creators', b: 'Send a link or an invoice, or take payments on your own site through the API, and get paid in USDC by clients at home or abroad. Open an account as yourself.', uses: ['Payment links', 'Invoices', 'API'] },
+  { t: 'Agencies and B2B', b: 'Bill clients with itemised invoices that repeat on their own, with a team that has the right access.', uses: ['Invoices', 'Team roles', 'Statements'] },
+  { t: 'Shops and restaurants', b: 'A code on every till. Customers pay from their wallet or the Money Moves app, and the counter sees it land.', uses: ['Store QR', 'Money Moves app'] },
+  { t: 'Paid from abroad', b: 'Clients overseas pay in USDC on the network they already use. You keep dollars, or settle to your bank.', uses: ['Stablecoins', 'Self custody wallet'] },
+]
+
+const BIZ_CHANNELS: [string, string][] = [
+  ['Payment links', 'One link for a product or an amount. Share it anywhere, and every payment lands against it.'],
+  ['Invoices', 'Itemised, emailed, and paid from the invoice itself. Weekly, monthly or yearly ones send themselves.'],
+  ['Store QR', 'A code per till or branch. Customers scan, pay their way, and the counter sees it arrive.'],
+  ['API and SDKs', 'Create checkouts from your own site or app, with signed webhooks and SDKs for Node.js and PHP.'],
+  ['WooCommerce', 'A plugin for your store’s checkout. Orders mark themselves paid when the money lands.'],
+  ['AI agents', 'Let ChatGPT, Claude or your own agent pay a Money Moves business, or run your checkout.'],
+]
+
+const BIZ_RUN: [string, string][] = [
+  ['Team and roles', 'Invite admins, finance, developers and support. Sending money and adding payout places stay with the owner.'],
+  ['Authenticator sign in', 'A code from an authenticator app on every sign in, and the owner can require it for the whole team.'],
+  ['Refunds and disputes', 'Refund from the payment. Customers raise a dispute from their receipt, and you answer with proof.'],
+  ['Reports and statements', 'Exports for any dates and a statement for every month, ready for your accountant.'],
+  ['Test mode', 'Every way to pay, simulated end to end, before you verify. Only the key changes when you go live.'],
+  ['Activity log', 'Who on the team did what, and when: invites, refunds, settings, keys and webhooks.'],
+]
+
+const BIZ_FAQ = [
+  {
+    q: 'Which coins and networks can customers pay with?',
+    a: `USDC and USDT, on ${BIZ_NETWORKS.slice(0, -1).join(', ')} and ${BIZ_NETWORKS[BIZ_NETWORKS.length - 1]}. Whatever they pay with, you receive USDC on the chain you pick, or local fiat in your bank.`,
+  },
+  {
+    q: 'What does self custody mean for my business wallet?',
+    a: 'The wallet is yours. Its keys belong to the owner’s sign in, and only the owner can approve money leaving it, with a transfer PIN. We cannot move what is in it, we cannot freeze it, and the owner can export its keys at any time.',
+  },
+  {
+    q: 'How fast does money reach me?',
+    a: 'The moment the payment lands. Crypto settles as USDC to your business wallet or Money Moves account, or is paid out in local fiat to your bank. There is no batch at the end of the day and no waiting period.',
+  },
+  {
+    q: 'Can an AI agent pay my business?',
+    a: 'Yes. Through PayBox, ChatGPT, Claude or any agent that speaks MCP can look up your link, invoice or store QR and pay it in USDC. A person approves every payment in PayBox, outside the chat; the agent never holds a key.',
+  },
+  {
+    q: 'What happens if a customer pays too little, too much or too late?',
+    a: 'The payment tracks what arrived. Part payments add up, and anything over, short or late goes back to the customer, automatically where it can, with a link for them to claim it where it cannot.',
+  },
+  {
+    q: 'Who can open a business account?',
+    a: 'Registered businesses and freelancers. Registered businesses verify with their company documents and a director’s identity check; freelancers verify with their own identity. Test mode works from the first minute, before any of that.',
+  },
+  {
+    q: 'What does it cost?',
+    a: 'Stablecoin payments are 0.25%, capped at $1 a payment. Payments from the Money Moves app are free. Bank transfers are 0.25%, capped at ₦1,000. Sending from your business wallet to a bank is ₦100. Every fee is shown on the payment and on your statement.',
+  },
+]
+
+function BizButton({ href, children, primary }: { href: string; children: ReactNode; primary?: boolean }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex h-11 items-center gap-2 rounded-xl px-5 text-[14px] font-semibold transition-opacity hover:opacity-90"
+      style={primary ? { fontFamily: TEXT, background: T.neon, color: T.dark } : { fontFamily: TEXT, color: T.ink, border: `1px solid ${T.rule}`, background: T.card }}
+    >
+      {children}
+    </a>
+  )
+}
+
+/** A section headline in the page's voice, for the split spotlight rows. */
+function SpotTitle({ children }: { children: ReactNode }) {
+  return (
+    <h2 className="mt-5 text-balance text-[34px] leading-[1.06] tracking-[-0.035em] sm:text-[44px]" style={{ fontFamily: DISPLAY, fontWeight: 700 }}>
+      {children}
+    </h2>
+  )
+}
+const spotText = 'mt-6 max-w-[46ch] text-[16px] leading-[1.6]'
+
+function Ticks({ items }: { items: string[] }) {
+  return (
+    <ul className="mt-8 space-y-3 text-[15px]" style={{ fontFamily: TEXT, color: T.body }}>
+      {items.map((x) => (
+        <li key={x} className="flex gap-3">
+          <span style={{ color: T.deep }}>+</span>
+          {x}
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 function Business() {
   return (
-    <section className="mx-auto max-w-[1200px] px-5 pb-24 pt-20 sm:pt-28">
-      <motion.div
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.6, ease: EASE }}
-        className="relative overflow-hidden rounded-[28px] px-8 py-24 sm:px-16 sm:py-32"
-        style={{ background: T.dark }}
-      >
-        <div
-          className="pointer-events-none absolute -right-24 -top-24 h-[420px] w-[420px] rounded-full blur-3xl"
-          style={{ background: `radial-gradient(circle, ${T.neon}, transparent 65%)`, opacity: 0.22 }}
-        />
-        {/* Two columns where there is room, stacked where there is not.
-            The headline holds the left and the one thing you can do holds
-            the right, which is also where the glow already draws the eye.
-            Below the breakpoint it falls under the copy, because side by
-            side at phone width would leave the field about eight characters
-            wide. Ends aligned rather than tops: the form should sit on the
-            same line as the sentence it answers, not float beside a 84px
-            headline. */}
-        <div className="relative grid items-end gap-12 md:grid-cols-[1fr_auto] md:gap-16">
+    <>
+      {/* ── Hero: stablecoins in, settled the moment they land. ── */}
+      <section className="mx-auto max-w-[1200px] px-5 pb-20 pt-16 sm:pt-24">
+        <div className="grid gap-14 lg:grid-cols-[1.2fr_1fr] lg:items-center lg:gap-20">
           <div>
-            <h1
-              className="text-[52px] leading-[0.95] tracking-[-0.04em] text-white sm:text-[84px]"
-              style={{ fontFamily: DISPLAY, fontWeight: 600 }}
+            <motion.h1
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.7, delay: 0.08, ease: EASE }}
+              className="text-balance text-[42px] leading-[1.02] tracking-[-0.04em] sm:text-[58px]"
+              style={{ fontFamily: DISPLAY, fontWeight: 700 }}
             >
-              Coming
-              <br />
-              soon<span style={{ color: T.neon }}>.</span>
-            </h1>
-            <p className="mt-8 max-w-[40ch] text-[13px] leading-[1.9] text-white/50" style={{ fontFamily: MONO }}>
-              Same rails. Built for businesses, payroll, suppliers and settlement.
-            </p>
+              Take money{' '}
+              <span className="relative inline-block whitespace-nowrap">
+                {/* A marker stroke under the words, drawn on as the page opens. */}
+                <motion.span
+                  aria-hidden
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: 0.6, delay: 0.55, ease: EASE }}
+                  className="absolute -left-[3%] bottom-[6%] h-[36%] w-[106%] origin-left -rotate-[1.5deg]"
+                  style={{ background: T.neon, borderRadius: '40% 12% 46% 10% / 60% 30% 70% 40%' }}
+                />
+                <span className="relative">any way</span>
+              </span>{' '}
+              it comes.
+            </motion.h1>
+            <motion.p
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.18, ease: EASE }}
+              className="mt-7 max-w-[48ch] text-[17px] leading-[1.6]"
+              style={{ fontFamily: TEXT, color: T.body }}
+            >
+              USDC and USDT on ten networks, the Money Moves app and bank transfers, all in one checkout. Keep what you earn in
+              a business wallet only you control, or have every payment paid straight to your bank.
+            </motion.p>
+            <motion.div
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.26, ease: EASE }}
+              className="mt-10 flex flex-wrap items-center gap-3"
+            >
+              <BizButton href={`${BIZ_APP}/signup`} primary>
+                Open an account
+              </BizButton>
+              <BizButton href={BIZ_DOCS}>Read the docs</BizButton>
+            </motion.div>
           </div>
-          <BusinessWaitlist />
+
+          <motion.div initial={{ opacity: 0, y: 24 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.8, delay: 0.22, ease: EASE }} className="relative">
+            <Wash />
+            <div className="relative">
+              <FlowCard ways={HERO_WAYS} id="biz" head="Payment" state="settled" />
+            </div>
+          </motion.div>
         </div>
-      </motion.div>
-    </section>
+      </section>
+
+      {/* ── Who it's for ── */}
+      <section id="who" style={{ background: T.paperAlt }}>
+        <SectionHead
+          eyebrow="Who it's for"
+          title="Built for the way you sell"
+          sub="From one freelancer with a link to a team running stores, apps and invoices. Registered businesses and freelancers both open in minutes."
+        />
+        <div className="mx-auto max-w-[1200px] px-5 pb-20">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {BIZ_WHO.map((w, i) => (
+              <Reveal key={w.t} delay={(i % 3) * 0.06}>
+                <div className="mm-lift flex h-full flex-col rounded-3xl p-7" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+                  <h3 className="text-[19px] tracking-[-0.02em]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
+                    {w.t}
+                  </h3>
+                  <p className="mt-3 flex-1 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
+                    {w.b}
+                  </p>
+                  <div className="mt-6 flex flex-wrap gap-1.5">
+                    {w.uses.map((u) => (
+                      <span key={u} className="rounded-full px-2.5 py-1 text-[12px] font-medium" style={{ fontFamily: TEXT, color: T.body, background: T.paperAlt, border: `1px solid ${T.rule}` }}>
+                        {u}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Agentic payments ── */}
+      <section id="agents">
+        <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-20 lg:grid-cols-[1fr_1fr] lg:items-center">
+          <Reveal>
+            <Eyebrow>Agentic payments</Eyebrow>
+            <SpotTitle>Let AI agents pay you, and run your checkout</SpotTitle>
+            <p className={spotText} style={{ fontFamily: TEXT, color: T.body }}>
+              With PayBox, ChatGPT, Claude or any agent that speaks MCP can pay a Money Moves business in USDC: a
+              payment link, an invoice or a store QR. Your own assistant can make checkouts for customers and tell you when they
+              are paid.
+            </p>
+            <Ticks
+              items={[
+                'The agent looks up who is being paid and the price first',
+                'A person approves every payment in PayBox, outside the chat',
+                'The agent never holds a key and cannot approve for you',
+                'Checkouts, payment status and balance for your own assistant',
+              ]}
+            />
+            <div className="mt-9">
+              <BizButton href={`${BIZ_DOCS}/agents`}>How agents pay</BizButton>
+            </div>
+          </Reveal>
+          <Reveal delay={0.08}>
+            <AgentCard />
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── Where the money goes ── */}
+      <section id="settlement" style={{ background: T.paperAlt }}>
+        <div className="mx-auto max-w-[1200px] px-5 py-20">
+          <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-start">
+            <Reveal>
+              <Eyebrow>Settlement</Eyebrow>
+              <SpotTitle>
+                No batches.
+                <br />
+                No waiting days.
+              </SpotTitle>
+              <p className={spotText} style={{ fontFamily: TEXT, color: T.body }}>
+                Every payment settles on its own, the moment it is paid. Choose where each link, invoice or till sends its money,
+                and change it whenever you like.
+              </p>
+            </Reveal>
+            <div>
+              {[
+                ['Your business wallet', 'USDC, in a wallet only the owner controls. On the chain you choose.'],
+                ['Your Money Moves account', 'Lands in the app as USDC, ready to spend, send or cash out from your phone.'],
+                ['Your bank account', 'Paid out in local fiat, to a checked account in your business’s name. Up to five accounts.'],
+              ].map(([t, b], i) => (
+                <Reveal key={t} delay={i * 0.06}>
+                  <div className="grid gap-2 border-t py-6 sm:grid-cols-[220px_1fr] sm:gap-8" style={{ borderColor: T.rule }}>
+                    <div className="text-[16px] tracking-[-0.01em]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
+                      {t}
+                    </div>
+                    <p className="text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
+                      {b}
+                    </p>
+                  </div>
+                </Reveal>
+              ))}
+              <div className="border-t" style={{ borderColor: T.rule }} />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ── Ways to get paid ── */}
+      <section id="channels">
+        <SectionHead
+          eyebrow="Get paid"
+          title="Wherever your customers are"
+          sub="Sell in person, by message, by invoice, on your own site or to an agent. Every channel feeds the same payments, refunds and reports."
+        />
+        <div className="mx-auto max-w-[1200px] px-5 pb-20">
+          <div className="grid gap-x-16 lg:grid-cols-2">
+            {BIZ_CHANNELS.map(([t, b], i) => (
+              <Reveal key={t} delay={(i % 2) * 0.05}>
+                <div className="flex gap-5 border-t py-6" style={{ borderColor: T.rule }}>
+                  <span className="w-6 shrink-0 pt-[3px] text-[11px]" style={{ fontFamily: MONO, color: T.faint }}>
+                    {String(i + 1).padStart(2, '0')}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="text-[16px] tracking-[-0.01em]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
+                      {t}
+                    </div>
+                    <p className="mt-1.5 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
+                      {b}
+                    </p>
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Stablecoins, first and in full. ── */}
+      <section id="stablecoins" style={{ background: T.paperAlt }}>
+        <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-20 lg:grid-cols-[1fr_1fr] lg:items-center">
+          <Reveal>
+            <Eyebrow>Stablecoins</Eyebrow>
+            <SpotTitle>Dollars from any wallet, on the network they already use</SpotTitle>
+            <p className={spotText} style={{ fontFamily: TEXT, color: T.body }}>
+              Customers pay USDC or USDT from any wallet or exchange, and every transfer finds its payment without anyone
+              matching amounts by hand.
+            </p>
+            <Ticks
+              items={[
+                'Part payments add up on their own',
+                'Too much, too little or too late goes back automatically',
+                'Whatever they pay with, you receive USDC or local fiat',
+              ]}
+            />
+          </Reveal>
+          <Reveal delay={0.08}>
+            <div className="overflow-hidden rounded-2xl" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+              <div className="flex items-center justify-between border-b px-5 py-3.5 text-[10px] uppercase tracking-[0.18em]" style={{ borderColor: T.rule, fontFamily: MONO, color: T.faint }}>
+                <span>Customers pay on</span>
+                <span style={{ color: T.deep }}>USDC · USDT</span>
+              </div>
+              <div className="grid grid-cols-2 gap-px" style={{ background: T.rule }}>
+                {BIZ_NETWORKS.map((n) => (
+                  <div key={n} className="px-5 py-3.5" style={{ background: T.card }}>
+                    <span className="text-[14px]" style={{ fontFamily: TEXT, fontWeight: 500, color: T.ink }}>
+                      {n}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── The other two ways, after stablecoins. ── */}
+      <section id="payments">
+        <SectionHead
+          eyebrow="One checkout"
+          title="Stablecoins. The app and bank transfer too."
+          sub="Your customer picks how they pay. You see one payment, one receipt and one settlement, whichever they chose."
+        />
+        <div className="mx-auto max-w-[1200px] px-5">
+          <div className="grid gap-4 lg:grid-cols-3">
+            {[
+              {
+                t: 'Stablecoins',
+                b: 'USDC or USDT from any wallet or exchange, on the network the customer already uses.',
+                foot: `${BIZ_NETWORKS.length} networks`,
+              },
+              {
+                t: 'Money Moves app',
+                b: 'The customer approves the request in the app, or scans the code with another phone. No account number, no address.',
+                foot: 'Free for both sides',
+              },
+              {
+                t: 'Bank transfer',
+                b: 'A one-time account for each payment, from any bank app. Matched by the account itself, so nobody types a reference.',
+                foot: 'Local fiat',
+              },
+            ].map((c, i) => (
+              <Reveal key={c.t} delay={i * 0.07}>
+                <div className="mm-lift flex h-full flex-col rounded-3xl p-7" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+                  <h3 className="text-[20px] tracking-[-0.02em]" style={{ fontFamily: DISPLAY, fontWeight: 700 }}>
+                    {c.t}
+                  </h3>
+                  <p className="mt-3 flex-1 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
+                    {c.b}
+                  </p>
+                  <div className="mt-6 border-t pt-4 text-[10.5px] uppercase tracking-[0.16em]" style={{ borderColor: T.rule, fontFamily: MONO, color: T.deep }}>
+                    {c.foot}
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Self custody ── */}
+      <section id="custody" className="mt-24" style={{ background: T.paperAlt }}>
+        <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-20 lg:grid-cols-[1fr_1fr] lg:items-center">
+          <Reveal className="lg:order-2">
+            <Eyebrow>Self custody</Eyebrow>
+            <SpotTitle>Your business wallet. Your keys.</SpotTitle>
+            <p className={spotText} style={{ fontFamily: TEXT, color: T.body }}>
+              Settle to a wallet that belongs to the business owner, not to us. We cannot move what is in it and we cannot freeze
+              it. You decide when money leaves, and where it goes.
+            </p>
+            <Ticks
+              items={[
+                'Only the owner can send, with a transfer PIN on every send',
+                'Keys export whenever you like, to any wallet',
+                'Admins can see the balance; nobody else can move it',
+                `USDC on ${SETTLE_CHAINS.slice(0, -1).join(', ')} or ${SETTLE_CHAINS[SETTLE_CHAINS.length - 1]}, your pick`,
+                'Send to your bank in local fiat for a flat ₦100',
+              ]}
+            />
+          </Reveal>
+          <Reveal delay={0.08} className="lg:order-1">
+            <WalletCard />
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── Developers ── */}
+      <section id="developers">
+        <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-20 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
+          <Reveal>
+            <Eyebrow>Developers</Eyebrow>
+            <SpotTitle>A checkout in one request</SpotTitle>
+            <p className={spotText} style={{ fontFamily: TEXT, color: T.body }}>
+              Create a checkout on your server, send the customer to it, and hear back by webhook when it is paid. Build against
+              test keys, and only the key changes when you go live.
+            </p>
+            <Ticks items={['Signed webhooks for payments, refunds and disputes', 'Safe retries with an idempotency key', 'SDKs for Node.js and PHP, and a WooCommerce plugin', 'Test mode that simulates every outcome']} />
+            <div className="mt-9">
+              <BizButton href={BIZ_DOCS}>Developer docs</BizButton>
+            </div>
+          </Reveal>
+          <Reveal delay={0.08} className="min-w-0">
+            <div className="overflow-hidden rounded-2xl" style={{ background: T.night, boxShadow: T.shadow }}>
+              <div className="flex items-center justify-between border-b px-5 py-3 text-[10.5px]" style={{ borderColor: 'rgba(236,239,231,0.1)', fontFamily: MONO, color: 'rgba(236,239,231,0.45)' }}>
+                <span>Node.js</span>
+                <span>npm install @moneymoves/sdk</span>
+              </div>
+              <pre className="overflow-x-auto p-5 text-[12px] leading-[1.85]" style={{ fontFamily: MONO, color: 'rgba(236,239,231,0.72)' }}>
+                <code>
+                  <span style={{ color: 'rgba(236,239,231,0.42)' }}>{'// Charge an order in dollars; customers pay in stablecoins or their way\n'}</span>
+                  <span style={{ color: '#ECEFE7' }}>const</span>
+                  {' checkout = '}
+                  <span style={{ color: '#ECEFE7' }}>await</span>
+                  {' mm.checkouts.'}
+                  <span style={{ color: T.neon }}>create</span>
+                  {'({\n  amount: '}
+                  <span style={{ color: '#ECEFE7' }}>120</span>
+                  {',\n  currency: '}
+                  <span style={{ color: '#ECEFE7' }}>"USD"</span>
+                  {',\n  reference: '}
+                  <span style={{ color: '#ECEFE7' }}>"order_1042"</span>
+                  {',\n  redirect_url: '}
+                  <span style={{ color: '#ECEFE7' }}>"https://yourshop.com/thanks"</span>
+                  {',\n})\n\n'}
+                  <span style={{ color: 'rgba(236,239,231,0.42)' }}>{'// Send the customer to checkout.url\n// payment.successful arrives at your webhook'}</span>
+                </code>
+              </pre>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ── Running it ── */}
+      <section id="operations" style={{ background: T.paperAlt }}>
+        <SectionHead
+          eyebrow="Operations"
+          title="Built to run a business on"
+          sub="The parts you need once real money is moving: a team with the right access, a clear record, and a way to put things right."
+        />
+        <div className="mx-auto max-w-[1200px] px-5 pb-20">
+          <div className="grid gap-x-12 sm:grid-cols-2 lg:grid-cols-3">
+            {BIZ_RUN.map(([t, b], i) => (
+              <Reveal key={t} delay={(i % 3) * 0.05}>
+                <div className="border-t py-6" style={{ borderColor: T.rule }}>
+                  <div className="text-[16px] tracking-[-0.01em]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
+                    {t}
+                  </div>
+                  <p className="mt-2 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
+                    {b}
+                  </p>
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ── Pricing ── */}
+      <section id="pricing">
+        <div className="mx-auto max-w-[1200px] px-5 py-20">
+          <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-start">
+            <Reveal>
+              <Eyebrow>Pricing</Eyebrow>
+              <SpotTitle>
+                Per payment.
+                <br />
+                Nothing monthly.
+              </SpotTitle>
+              <p className="mt-6 max-w-[42ch] text-[15.5px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
+                No setup fee and no subscription. You pay a small share of what comes in, with a ceiling, and nothing on payments
+                made from the Money Moves app.
+              </p>
+              <div className="mt-8">
+                <FeeCalc />
+              </div>
+            </Reveal>
+            <Reveal delay={0.08}>
+              <div>
+                {BIZ_FEES.map((f) => (
+                  <div key={f.what} className="grid grid-cols-[1fr_auto] items-baseline gap-x-6 gap-y-1 border-t py-5" style={{ borderColor: T.rule }}>
+                    <div className="min-w-0">
+                      <div className="text-[16px] tracking-[-0.01em]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
+                        {f.what}
+                      </div>
+                      <div className="mt-1 text-[14px]" style={{ fontFamily: TEXT, color: T.faint }}>
+                        {f.how}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-[26px] leading-none tracking-[-0.03em]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
+                        {f.fee}
+                      </div>
+                      <div className="mt-1.5 text-[13px]" style={{ fontFamily: TEXT, color: T.body }}>
+                        {f.note}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+                <div className="border-t" style={{ borderColor: T.rule }} />
+                <p className="mt-5 text-[14px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.faint }}>
+                  Choose who pays the fee, you or your customer, for the whole business or one link at a time.
+                </p>
+              </div>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FAQ ── */}
+      <section id="faq" style={{ background: T.paperAlt }}>
+        <div className="mx-auto grid max-w-[1200px] gap-12 px-5 py-20 lg:grid-cols-[0.8fr_1.2fr]">
+          <div>
+            <Reveal>
+              <Eyebrow>Questions</Eyebrow>
+              <SpotTitle>
+                Before you
+                <br />
+                open an account
+              </SpotTitle>
+              <p className="mt-5 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
+                Something else? Email{' '}
+                <a href={`mailto:${SUPPORT}`} className="underline underline-offset-4" style={{ color: T.deep }}>
+                  support
+                </a>{' '}
+                and a person replies.
+              </p>
+            </Reveal>
+          </div>
+          <div>
+            <FaqList items={BIZ_FAQ} />
+          </div>
+        </div>
+      </section>
+
+      {/* ── Close: one band, the way in, and what it costs to start. ── */}
+      <section>
+        <div className="mx-auto max-w-[1200px] px-5 py-20">
+          <Reveal>
+            <div className="relative overflow-hidden rounded-[28px] px-7 py-14 sm:px-14 sm:py-20" style={{ background: T.night }}>
+              <Glow />
+              <div className="relative grid gap-10 lg:grid-cols-[1.2fr_auto] lg:items-end">
+                <div>
+                  <h2 className="text-balance text-[36px] leading-[1.04] tracking-[-0.04em] sm:text-[50px]" style={{ fontFamily: DISPLAY, fontWeight: 700, color: '#FFFFFF' }}>
+                    Start accepting stablecoins today.
+                  </h2>
+                  <p className="mt-5 max-w-[52ch] text-[15.5px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.nightBody }}>
+                    Open an account and build in test mode straight away. Verify your business when you are ready to take real money.
+                  </p>
+                  <div className="mt-6 flex flex-wrap gap-x-5 gap-y-1 text-[11.5px]" style={{ fontFamily: MONO, color: 'rgba(236,239,231,0.45)' }}>
+                    <span>No setup fee</span>
+                    <span>Nothing monthly</span>
+                    <span>Self custody wallet</span>
+                    <span>Test mode included</span>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-3">
+                  <BizButton href={`${BIZ_APP}/signup`} primary>
+                    Open an account
+                  </BizButton>
+                  <BizButton href={`${BIZ_APP}/login`}>Sign in</BizButton>
+                </div>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+    </>
   )
 }
 
 /**
- * The business waitlist.
- *
- * One field and one button, on a page where everything else is read rather
- * than used - so it has to look like the one thing you can do without
- * shouting about it. The field is a rule rather than a box: a bordered input
- * on this ground reads as a form, and a form on a "coming soon" panel reads
- * as work.
- *
- * Three states, and the third is the point. Somebody who signs up twice is
- * told so plainly instead of being thanked again, which is both honest and
- * the only visible difference between a list that remembers and one that
- * does not. No mail is sent either way: they asked to be told when there is
- * something, not to be written to today.
+ * The three ways a customer pays, as the hero shows them. Illustrative, like
+ * the phone screens on the personal side: the shape of a payment, not anyone's
+ * real one.
  */
-function BusinessWaitlist() {
-  const [email, setEmail] = useState('')
-  const [state, setState] = useState<'idle' | 'sending' | 'added' | 'already' | 'error'>('idle')
-  const [message, setMessage] = useState('')
+type Way = { k: string; amount: string; cents: string; unit: string; label: string; steps: string[][]; foot: string; took: string }
 
-  const settled = state === 'added' || state === 'already'
-  const valid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())
+const HERO_WAYS: Way[] = [
+  {
+    k: 'Stablecoins',
+    amount: '120',
+    cents: '.00',
+    unit: 'USDC',
+    label: 'Annual plan · checkout from your app',
+    steps: [
+      ['Customer pays 120 USDC', 'From any wallet or exchange', '14:02:11'],
+      ['Confirmed on chain', 'Matched to the payment automatically', '14:02:13'],
+      ['Settled to your bank', 'Paid out in local fiat, GTBank ••4421', '14:02:15'],
+    ],
+    foot: 'Or keep it as USDC in your own wallet',
+    took: 'Under 5 seconds',
+  },
+  {
+    k: 'The app',
+    amount: '₦45,000',
+    cents: '',
+    unit: '',
+    label: 'Ankara gown · payment link',
+    steps: [
+      ['Request opens in the app', 'Or the customer scans the code', '09:41:02'],
+      ['Approved with their PIN', 'No account number, no address', '09:41:07'],
+      ['Settled to your wallet', 'As USDC, in a wallet only you control', '09:41:09'],
+    ],
+    foot: 'Or settle to your bank in local fiat',
+    took: 'Under 5 seconds',
+  },
+  {
+    k: 'Bank',
+    amount: '₦45,000',
+    cents: '',
+    unit: '',
+    label: 'Invoice INV-0042 · bank transfer',
+    steps: [
+      ['One-time account shown', 'Open for this payment only', '16:20:30'],
+      ['Transfer received', 'Matched by the account, no reference to type', '16:21:04'],
+      ['Settled to your bank', 'Paid out in local fiat, GTBank ••4421', '16:21:08'],
+    ],
+    foot: 'Or settle as USDC to your own wallet',
+    took: 'Under 5 seconds',
+  },
+]
 
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!valid || state === 'sending') return
-    setState('sending')
-    try {
-      const res = await fetch(`${API}/api/waitlist`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        setState('error')
-        setMessage(data?.error || 'That did not go through. Try again.')
-        return
-      }
-      setState(data?.status === 'already' ? 'already' : 'added')
-    } catch {
-      setState('error')
-      setMessage('That did not go through. Try again.')
-    }
-  }
+/** What the app does, as the personal hero shows it. Illustrative, like the business card. */
+const APP_WAYS: Way[] = [
+  {
+    k: 'Cash out',
+    amount: '₦12,450',
+    cents: '',
+    unit: '',
+    label: '8.12 USDC sold · to GTBank ••4421',
+    steps: [
+      ['Sold 8.12 USDC', 'At the rate you saw before confirming', '08:14:02'],
+      ['Sent to GTBank', 'In your name, with a reference', '08:14:05'],
+      ['Landed in your account', 'Typically under a minute', '08:14:43'],
+    ],
+    foot: 'Every fee shown before you confirm',
+    took: '41 seconds',
+  },
+  {
+    k: 'Send',
+    amount: '8',
+    cents: '.50',
+    unit: 'USDC',
+    label: 'To @tobi · by username',
+    steps: [
+      ['Typed @tobi', 'A name, not a 42 character address', '12:30:10'],
+      ['Confirmed with your PIN', 'Or your face, if you turned it on', '12:30:12'],
+      ['Arrived in their wallet', 'No gas fee, sponsored by Money Moves', '12:30:13'],
+    ],
+    foot: 'No address to copy, no gas to cover',
+    took: 'Under 5 seconds',
+  },
+  {
+    k: 'Bills',
+    amount: '₦9,500',
+    cents: '',
+    unit: '',
+    label: 'Airtime, data and electricity · this week',
+    steps: [
+      ['MTN airtime, ₦1,000', 'Your own line or anyone else’s', '08:10:12'],
+      ['Airtel data, ₦3,500', 'A data bundle, active straight away', '13:42:30'],
+      ['Ikeja Electric, ₦5,000', 'Token 0192 8374 5601, in the app and your inbox', '18:02:52'],
+    ],
+    foot: 'Straight from USDC, no swapping first',
+    took: 'Under 5 seconds each',
+  },
+  {
+    k: 'Scan',
+    amount: '₦3,500',
+    cents: '',
+    unit: '',
+    label: 'Lunch · paid by QR code',
+    steps: [
+      ['Scanned the code', 'A shop or a friend', '13:05:20'],
+      ['Confirmed with your PIN', 'Paid from your balance', '13:05:22'],
+      ['Paid', 'They see it land at once', '13:05:23'],
+    ],
+    foot: 'No card and no account number',
+    took: 'Under 5 seconds',
+  },
+]
+
+/** A hero card: one flow per tab, turning on its own until someone picks a tab. */
+function FlowCard({ ways, id, head, state }: { ways: Way[]; id: string; head: string; state: string }) {
+  const [i, setI] = useState(0)
+  const [held, setHeld] = useState(false)
+  useEffect(() => {
+    if (held) return
+    const t = setInterval(() => setI((x) => (x + 1) % ways.length), 5200)
+    return () => clearInterval(t)
+  }, [held])
+  const w = ways[i]
 
   return (
-    <div className="w-full max-w-[380px] md:mt-0 md:w-[380px]">
-      <AnimatePresence mode="wait" initial={false}>
-        {settled ? (
-          <motion.div
-            key="done"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            className="flex items-start gap-3 rounded-xl px-4 py-4"
-            style={{
-              background: state === 'added' ? T.deepSoft : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${state === 'added' ? 'rgba(129,251,2,0.28)' : T.rule}`,
+    <div className="rounded-3xl p-2" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+      <div role="tablist" className="grid gap-1 rounded-2xl p-1" style={{ background: T.paperAlt, gridTemplateColumns: `repeat(${ways.length}, minmax(0, 1fr))` }}>
+        {ways.map((x, j) => (
+          <button
+            key={x.k}
+            type="button"
+            role="tab"
+            aria-selected={i === j}
+            onClick={() => {
+              setI(j)
+              setHeld(true)
             }}
+            className="relative h-9 rounded-xl px-2 text-[13px] font-semibold transition-colors"
+            style={{ fontFamily: TEXT, color: i === j ? T.ink : T.faint }}
           >
-            {/* Drawn rather than a glyph, so it can arrive the way a tick is
-                actually made: one stroke, left to right. */}
-            <motion.svg
-              width="18" height="18" viewBox="0 0 18 18" fill="none"
-              className="mt-[1px] shrink-0"
-              initial={{ scale: 0.6, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ delay: 0.06, type: 'spring', stiffness: 380, damping: 18 }}
-            >
-              <circle cx="9" cy="9" r="9" fill={state === 'added' ? T.neon : T.faint} />
-              {state === 'added' ? (
-                <motion.path
-                  d="M5 9.2l2.6 2.6L13 6.4"
-                  stroke={T.dark} strokeWidth="2"
-                  strokeLinecap="round" strokeLinejoin="round"
-                  initial={{ pathLength: 0 }}
-                  animate={{ pathLength: 1 }}
-                  transition={{ delay: 0.16, duration: 0.3, ease: 'easeOut' }}
-                />
-              ) : (
-                <path d="M9 4.6v5.2M9 12.6v.9" stroke={T.dark} strokeWidth="2" strokeLinecap="round" />
+            {i === j && (
+              <motion.span
+                layoutId={`${id}-tab`}
+                className="absolute inset-0 rounded-xl"
+                style={{ background: T.card, boxShadow: T.shadow }}
+                transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+              />
+            )}
+            <span className="relative">{x.k}</span>
+          </button>
+        ))}
+      </div>
+
+      <AnimatePresence mode="wait">
+        <motion.div key={w.k} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.28, ease: EASE }}>
+          <div className="flex items-center justify-between px-4 pb-1 pt-4 text-[10px] uppercase tracking-[0.18em]" style={{ fontFamily: MONO, color: T.faint }}>
+            <span>{head}</span>
+            <span style={{ color: T.deep }}>{state}</span>
+          </div>
+          <div className="px-4 pb-5 pt-1">
+            <div className="text-[34px] leading-none tracking-[-0.03em]" style={{ fontFamily: DISPLAY, fontWeight: 700 }}>
+              {w.amount}
+              {w.cents && <span style={{ color: T.faint }}>{w.cents}</span>}
+              {w.unit && (
+                <span className="text-[18px]" style={{ color: T.body }}>
+                  {' '}
+                  {w.unit}
+                </span>
               )}
-            </motion.svg>
-            <div>
-              <p className="text-[13.5px] leading-[1.5] text-white" style={{ fontFamily: DISPLAY, fontWeight: 600 }}>
-                {state === 'added' ? "You're on the list." : "You're already on the list."}
-              </p>
-              <p className="mt-1 text-[12px] leading-[1.7]" style={{ fontFamily: MONO, color: T.body }}>
-                {state === 'added'
-                  ? 'We will write once, when it opens. Nothing before that.'
-                  : 'That address was added earlier. Nothing more to do.'}
-              </p>
             </div>
-          </motion.div>
-        ) : (
-          <motion.form
-            key="form"
-            onSubmit={submit}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.24 }}
-          >
-            {/* Inside the form rather than above it, so it leaves with the
-                form. A heading reading "Join the waitlist" sitting over a
-                card that says you already have would be talking past the
-                person who just did. */}
-            <h3
-              className="text-[19px] leading-[1.25] tracking-[-0.02em] text-white"
-              style={{ fontFamily: DISPLAY, fontWeight: 600 }}
-            >
-              {/* The noun carries the colour, not a full stop. The headline
-                  a few inches away already ends in a neon dot, and using the
-                  same device twice within one panel reads as a tic rather
-                  than a system. */}
-              Join the <span style={{ color: T.neon }}>waitlist</span>
-            </h3>
-            <p className="mt-2 mb-7 text-[12px] leading-[1.7]" style={{ fontFamily: MONO, color: T.body }}>
-              Be the first to know when it goes live.
-            </p>
-
-            <div className="flex items-center gap-3">
-              <div className="relative flex-1">
-                <input
-                  id="waitlist-email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value)
-                    if (state === 'error') setState('idle')
-                  }}
-                  placeholder="you@company.com"
-                  autoComplete="email"
-                  spellCheck={false}
-                  className="w-full bg-transparent pb-3 text-[14px] outline-none placeholder:text-white/22"
-                  style={{ fontFamily: MONO, color: T.ink }}
-                />
-                {/* A rule that lights along its length on focus, rather than
-                    a box that changes colour. */}
-                <div className="absolute inset-x-0 bottom-0 h-px" style={{ background: T.rule }} />
-                <motion.div
-                  className="absolute inset-x-0 bottom-0 h-px origin-left"
-                  style={{ background: T.neon }}
-                  initial={false}
-                  animate={{ scaleX: valid ? 1 : 0 }}
-                  transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={!valid || state === 'sending'}
-                className="shrink-0 rounded-full px-5 py-[11px] text-[11px] uppercase tracking-[0.14em] transition-opacity disabled:cursor-not-allowed"
-                style={{
-                  fontFamily: MONO,
-                  fontWeight: 700,
-                  background: valid ? T.neon : 'rgba(255,255,255,0.07)',
-                  color: valid ? T.dark : T.faint,
-                  opacity: state === 'sending' ? 0.65 : 1,
-                }}
+            <div className="mt-2 text-[11px]" style={{ fontFamily: MONO, color: T.faint }}>
+              {w.label}
+            </div>
+          </div>
+          <div className="rounded-2xl px-4 py-1" style={{ background: T.paperAlt, border: `1px solid ${T.rule}` }}>
+            {w.steps.map(([t, sub, at], n) => (
+              <motion.div
+                key={t}
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.35, delay: 0.1 + n * 0.14, ease: EASE }}
+                className="flex items-start gap-3.5 py-3.5"
+                style={{ borderTop: n === 0 ? 'none' : `1px solid ${T.rule}` }}
               >
-                {state === 'sending' ? 'Joining' : 'Join'}
-              </button>
-            </div>
-
-            {/* Nothing sits here until something goes wrong. The reassurance
-                that used to live on this line was answering a question
-                nobody had yet asked; it is on the card that follows instead,
-                where it is the answer to one. */}
-            <AnimatePresence initial={false}>
-              {state === 'error' && (
-                <motion.p
-                  initial={{ opacity: 0, height: 0 }}
-                  animate={{ opacity: 1, height: 'auto' }}
-                  exit={{ opacity: 0, height: 0 }}
-                  className="mt-3 text-[11.5px]"
-                  style={{ fontFamily: MONO, color: '#E0685F' }}
-                >
-                  {message}
-                </motion.p>
-              )}
-            </AnimatePresence>
-          </motion.form>
-        )}
+                <span className="mt-[5px] h-2 w-2 shrink-0 rounded-full" style={{ background: n === w.steps.length - 1 ? T.deep : T.faint }} />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[13.5px] font-semibold" style={{ color: T.ink }}>
+                    {t}
+                  </span>
+                  <span className="block text-[11px]" style={{ fontFamily: MONO, color: T.faint }}>
+                    {sub}
+                  </span>
+                </span>
+                <span className="shrink-0 text-[10.5px] tabular-nums" style={{ fontFamily: MONO, color: T.body }}>
+                  {at}
+                </span>
+              </motion.div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between gap-4 px-4 py-3.5 text-[11px]" style={{ fontFamily: MONO }}>
+            <span style={{ color: T.faint }}>{w.foot}</span>
+            <span className="shrink-0" style={{ color: T.ink }}>
+              {w.took}
+            </span>
+          </div>
+        </motion.div>
       </AnimatePresence>
+    </div>
+  )
+}
+
+/** A soft wash of the brand colours behind a hero card, the way a product shot sits on a gradient panel. */
+function Wash() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute -inset-3 rounded-[36px] sm:-inset-8"
+      style={{
+        background:
+          'radial-gradient(70% 60% at 12% 8%, rgba(129,251,2,0.34), transparent 70%), radial-gradient(60% 60% at 96% 96%, rgba(255,214,10,0.24), transparent 70%), #F3F5EC',
+      }}
+    />
+  )
+}
+
+/** The green glow in a corner of a dark band. */
+function Glow() {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none absolute -right-24 -top-32 h-[420px] w-[420px] rounded-full blur-3xl"
+      style={{ background: `radial-gradient(circle, ${T.neon}, transparent 65%)`, opacity: 0.22 }}
+    />
+  )
+}
+
+/** Questions in one bordered box: one open at a time, opening with a height animation rather than a jump. */
+function FaqList({ items }: { items: { q: string; a: string }[] }) {
+  const [open, setOpen] = useState<number | null>(0)
+  return (
+    <Reveal>
+      <div className="overflow-hidden rounded-2xl" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+        {items.map((f, i) => {
+          const on = open === i
+          return (
+            <div key={f.q} style={{ borderTop: i === 0 ? 'none' : `1px solid ${T.rule}` }}>
+              <button type="button" onClick={() => setOpen(on ? null : i)} aria-expanded={on} className="flex w-full items-start gap-5 px-6 py-5 text-left">
+                <span className="flex-1 text-[16.5px]" style={{ fontFamily: TEXT, fontWeight: 600, color: T.ink }}>
+                  {f.q}
+                </span>
+                <motion.span
+                  animate={{ rotate: on ? 45 : 0 }}
+                  transition={{ duration: 0.25, ease: EASE }}
+                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[16px] leading-none"
+                  style={{ background: on ? T.neon : T.paperAlt, color: T.ink }}
+                >
+                  +
+                </motion.span>
+              </button>
+              <AnimatePresence initial={false}>
+                {on && (
+                  <motion.div
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: 'auto', opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ duration: 0.3, ease: EASE }}
+                    className="overflow-hidden"
+                  >
+                    <p className="px-6 pb-6 pr-14 text-[15px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.body }}>
+                      {f.a}
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+          )
+        })}
+      </div>
+    </Reveal>
+  )
+}
+
+/** What a payment costs and what lands, worked out with the same fees as the list beside it. */
+function FeeCalc() {
+  const [kind, setKind] = useState<'coin' | 'bank'>('coin')
+  const [coin, setCoin] = useState(250)
+  const [bank, setBank] = useState(150000)
+  const isCoin = kind === 'coin'
+  const amount = isCoin ? coin : bank
+  const cap = isCoin ? 1 : 1000
+  const fee = Math.min(amount * 0.0025, cap)
+  const fmt = (n: number) =>
+    isCoin
+      ? `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : `₦${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`
+
+  return (
+    <div className="rounded-3xl p-5" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+      <div className="grid grid-cols-2 gap-1 rounded-xl p-1" style={{ background: T.paperAlt }}>
+        {(
+          [
+            ['coin', 'Stablecoins'],
+            ['bank', 'Bank transfer'],
+          ] as const
+        ).map(([k, l]) => (
+          <button
+            key={k}
+            type="button"
+            onClick={() => setKind(k)}
+            className="h-9 rounded-lg text-[13px] font-semibold transition-colors"
+            style={{ fontFamily: TEXT, background: kind === k ? T.card : 'transparent', color: kind === k ? T.ink : T.faint, boxShadow: kind === k ? T.shadow : 'none' }}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+      <div className="mt-6 text-[10.5px] uppercase tracking-[0.18em]" style={{ fontFamily: MONO, color: T.faint }}>
+        Customer pays
+      </div>
+      <div className="mt-1.5 text-[38px] leading-none tracking-[-0.04em] tabular-nums" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
+        {fmt(amount)}
+      </div>
+      <input
+        aria-label="Payment amount"
+        type="range"
+        className="mm-range mt-5 w-full"
+        min={isCoin ? 1 : 100}
+        max={isCoin ? 2000 : 1000000}
+        step={isCoin ? 1 : 100}
+        value={amount}
+        onChange={(e) => (isCoin ? setCoin : setBank)(Number(e.target.value))}
+      />
+      <div className="mt-5 grid grid-cols-2 gap-4 border-t pt-4" style={{ borderColor: T.rule }}>
+        <div>
+          <div className="text-[11px]" style={{ fontFamily: MONO, color: T.faint }}>
+            Fee
+          </div>
+          <div className="mt-1 text-[18px] tabular-nums" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.ink }}>
+            {fmt(fee)}
+          </div>
+        </div>
+        <div>
+          <div className="text-[11px]" style={{ fontFamily: MONO, color: T.faint }}>
+            You receive
+          </div>
+          <div className="mt-1 text-[18px] tabular-nums" style={{ fontFamily: DISPLAY, fontWeight: 700, color: T.deep }}>
+            {fmt(amount - fee)}
+          </div>
+        </div>
+      </div>
+      <p className="mt-4 text-[13px] leading-[1.6]" style={{ fontFamily: TEXT, color: T.faint }}>
+        {fee >= cap ? 'The fee has reached its cap, so it stays here however large the payment.' : 'If your customer pays the fee instead, you receive the full amount.'}
+      </p>
+    </div>
+  )
+}
+
+/** The business wallet, as the owner sees it: theirs, and only theirs to send from. Illustrative. */
+function WalletCard() {
+  return (
+    <div className="rounded-3xl p-2" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+      <div className="flex items-center justify-between px-4 py-3 text-[10px] uppercase tracking-[0.18em]" style={{ fontFamily: MONO, color: T.faint }}>
+        <span>Business wallet</span>
+        <span style={{ color: T.deep }}>self custody</span>
+      </div>
+      <div className="px-4 pb-5 pt-1">
+        <div className="text-[34px] leading-none tracking-[-0.03em]" style={{ fontFamily: DISPLAY, fontWeight: 700 }}>
+          $4,812<span style={{ color: T.faint }}>.40</span>
+        </div>
+        <div className="mt-2 text-[11px]" style={{ fontFamily: MONO, color: T.faint }}>
+          USDC · keys held by the owner, not us
+        </div>
+      </div>
+      <div className="rounded-2xl px-4 py-1" style={{ background: T.paperAlt, border: `1px solid ${T.rule}` }}>
+        {[
+          ['Who can send', 'The owner, with a transfer PIN'],
+          ['Who can see it', 'The owner and admins'],
+          ['Freeze or move it', 'Not us. Not anyone else.'],
+          ['Keys', 'Export them any time'],
+        ].map(([k, v], i) => (
+          <div key={k} className="flex items-center justify-between gap-4 py-3.5" style={{ borderTop: i === 0 ? 'none' : `1px solid ${T.rule}` }}>
+            <span className="text-[12px]" style={{ fontFamily: MONO, color: T.faint }}>
+              {k}
+            </span>
+            <span className="text-right text-[12.5px] font-semibold" style={{ color: T.ink }}>
+              {v}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-2 p-2">
+        <div className="flex h-10 items-center justify-center rounded-xl text-[13px] font-semibold" style={{ fontFamily: TEXT, background: T.neon, color: T.dark }}>
+          Send
+        </div>
+        <div className="flex h-10 items-center justify-center rounded-xl text-[13px] font-semibold" style={{ fontFamily: TEXT, color: T.ink, border: `1px solid ${T.rule}` }}>
+          To my bank
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** An agent paying a business, with the approval outside the chat. Illustrative. */
+function AgentCard() {
+  return (
+    <div className="overflow-hidden rounded-3xl" style={{ background: T.card, border: `1px solid ${T.rule}`, boxShadow: T.shadow }}>
+      <div className="flex items-center justify-between border-b px-5 py-3.5 text-[10px] uppercase tracking-[0.18em]" style={{ borderColor: T.rule, fontFamily: MONO, color: T.faint }}>
+        <span>Assistant</span>
+        <span>via PayBox</span>
+      </div>
+      <div className="space-y-3 p-5">
+        <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md px-4 py-3 text-[12.5px] leading-[1.7]" style={{ background: T.ink, color: '#FFFFFF' }}>
+          Pay this invoice for me: business.usemoneymoves.xyz/i/K7Q2
+        </div>
+        <div className="max-w-[90%] rounded-2xl rounded-bl-md px-4 py-3 text-[12.5px] leading-[1.75]" style={{ background: T.paperAlt, border: `1px solid ${T.rule}`, color: T.body }}>
+          <span style={{ color: T.ink }}>Ada Fashion House</span>, invoice INV-0042, for 3 Ankara gowns. That is{' '}
+          <span style={{ color: T.ink }}>₦45,000</span>, about <span style={{ color: T.ink }}>29.20 USDC</span>. I have
+          sent it to PayBox for you to approve.
+        </div>
+        <div className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3" style={{ border: `1px solid ${T.rule}` }}>
+          <span className="min-w-0">
+            <span className="block text-[12.5px] font-semibold" style={{ color: T.ink }}>
+              Approved in PayBox
+            </span>
+          </span>
+          <span className="shrink-0 rounded-full px-2.5 py-1 text-[10px] uppercase tracking-[0.12em]" style={{ fontFamily: MONO, background: T.deepSoft, color: T.deep }}>
+            paid
+          </span>
+        </div>
+        <div className="text-[11px]" style={{ fontFamily: MONO, color: T.faint }}>
+          Receipt emailed. Ada Fashion House sees the payment settle at once.
+        </div>
+      </div>
     </div>
   )
 }
 
 /* ─── Footer ───────────────────────────────────────────────────────── */
 
-function Footer() {
+function Footer({ audience }: { audience: 'personal' | 'business' }) {
   return (
-    <footer style={{ background: T.paperAlt, borderTop: `1px solid ${T.rule}` }} className="pt-20 pb-10">
+    <footer style={{ background: T.night }} className="pt-20 pb-10">
       <div className="mx-auto max-w-[1200px] px-5">
         <img src="/images/logo-lockup.png" alt="Money Moves" className="mb-16 h-7 w-auto" />
 
@@ -1231,25 +2018,42 @@ function Footer() {
           {[
             {
               head: 'Company:',
-              items: [
-                ['FAQ', '#faq'],
-                ['Legal', '/terms'],
-                ['Privacy Policy', '/terms#privacy-policy'],
-              ],
+              items:
+                audience === 'business'
+                  ? [
+                      ['FAQ', '#faq'],
+                      ['Terms of service', `${BIZ_APP}/legal/terms`],
+                      ['Privacy policy', `${BIZ_APP}/legal/privacy`],
+                      ['Prohibited businesses', `${BIZ_APP}/legal/prohibited`],
+                    ]
+                  : [
+                      ['FAQ', '#faq'],
+                      ['Legal', '/terms'],
+                      ['Privacy Policy', '/terms#privacy-policy'],
+                    ],
             },
-            {
-              head: 'Get the app:',
-              items: [
-                ['Google Play', PLAY_STORE],
-                ['App Store', APP_STORE],
-              ],
-            },
+            audience === 'business'
+              ? {
+                  head: 'Business:',
+                  items: [
+                    ['Open an account', `${BIZ_APP}/signup`],
+                    ['Sign in', `${BIZ_APP}/login`],
+                    ['Developer docs', BIZ_DOCS],
+                  ],
+                }
+              : {
+                  head: 'Get the app:',
+                  items: [
+                    ['Google Play', PLAY_STORE],
+                    ['App Store', APP_STORE],
+                  ],
+                },
           ].map((col) => (
             <div key={col.head}>
               <h4 className="mb-5 text-[16px] font-semibold text-white" style={{ fontFamily: DISPLAY }}>
                 {col.head}
               </h4>
-              <ul className="space-y-3.5" style={{ fontFamily: MONO }}>
+              <ul className="space-y-3.5" style={{ fontFamily: TEXT }}>
                 {col.items.map(([label, href]) => (
                   <li key={label}>
                     {href.startsWith('http') || href.startsWith('#') ? (
@@ -1257,12 +2061,12 @@ function Footer() {
                         href={href}
                         target={href.startsWith('http') ? '_blank' : undefined}
                         rel="noreferrer"
-                        className="text-[12.5px] text-white/60 transition-colors hover:text-white"
+                        className="text-[14.5px] text-white/60 transition-colors hover:text-white"
                       >
                         {label}
                       </a>
                     ) : (
-                      <Link to={href} className="text-[12.5px] text-white/60 transition-colors hover:text-white">
+                      <Link to={href} className="text-[14.5px] text-white/60 transition-colors hover:text-white">
                         {label}
                       </Link>
                     )}
@@ -1296,8 +2100,8 @@ function Footer() {
             </h4>
             <a
               href={`mailto:${SUPPORT}`}
-              className="break-all text-[12.5px] text-white/60 transition-colors hover:text-white"
-              style={{ fontFamily: MONO }}
+              className="break-all text-[14.5px] text-white/60 transition-colors hover:text-white"
+              style={{ fontFamily: TEXT }}
             >
               {SUPPORT}
             </a>
@@ -1308,30 +2112,58 @@ function Footer() {
           <h4 className="mb-4 text-[16px] font-semibold text-white" style={{ fontFamily: DISPLAY }}>
             Legal:
           </h4>
-          <Link
-            to="/terms"
-            className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80 underline underline-offset-4 transition-colors hover:text-white"
-            style={{ fontFamily: MONO }}
-          >
-            Terms of Service
-          </Link>
+          {audience === 'business' ? (
+            <a
+              href={`${BIZ_APP}/legal/terms`}
+              target="_blank"
+              rel="noreferrer"
+              className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80 underline underline-offset-4 transition-colors hover:text-white"
+              style={{ fontFamily: MONO }}
+            >
+              Merchant terms
+            </a>
+          ) : (
+            <Link
+              to="/terms"
+              className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/80 underline underline-offset-4 transition-colors hover:text-white"
+              style={{ fontFamily: MONO }}
+            >
+              Terms of Service
+            </Link>
+          )}
         </div>
 
         <div
-          className="mt-14 space-y-4 border-t pt-10 text-[12px] leading-[1.85] text-white/35"
-          style={{ borderColor: 'rgba(255,255,255,0.1)', fontFamily: MONO }}
+          className="mt-14 space-y-4 border-t pt-10 text-[13.5px] leading-[1.7] text-white/40"
+          style={{ borderColor: 'rgba(255,255,255,0.1)', fontFamily: TEXT }}
         >
-          <p>
-            Money Moves is a self-custodial finance app. Keys are generated against your account and split so that no
-            single party, us included, ever holds a whole one. We do not hold your crypto and we cannot move it.
-          </p>
-          <p>
-            Naira payments and payouts are processed by our licensed payment partners. Identity verification is carried
-            out by our verification partner, who holds the documents you submit.
-          </p>
+          {audience === 'business' ? (
+            <>
+              <p>
+                Money Moves Business settles to a self custody wallet held by the business owner. Its keys are split so that
+                no single party, us included, ever holds a whole one. We do not hold the business’s crypto and we cannot
+                move or freeze it.
+              </p>
+              <p>
+                Local fiat payments and payouts are processed by our licensed payment partners. Business and identity
+                verification is carried out by our verification partner, who holds the documents you submit.
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                Money Moves is a self-custodial finance app. Keys are generated against your account and split so that no
+                single party, us included, ever holds a whole one. We do not hold your crypto and we cannot move it.
+              </p>
+              <p>
+                Naira payments and payouts are processed by our licensed payment partners. Identity verification is carried
+                out by our verification partner, who holds the documents you submit.
+              </p>
+            </>
+          )}
         </div>
 
-        <div className="mt-12 text-center text-[12px] text-white/35" style={{ fontFamily: MONO }}>
+        <div className="mt-12 text-center text-[13px] text-white/40" style={{ fontFamily: TEXT }}>
           © {new Date().getFullYear()} Money Moves. All rights reserved.
         </div>
       </div>
