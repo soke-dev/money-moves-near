@@ -42,6 +42,8 @@ type State = {
   gas: { network: string; coin: string; balance: number | null }[]
   waiting: { network: string; count: number; amount: number }[]
   ownAddresses: boolean
+  /** Earlier deposit seeds kept, so payments made before a seed change still open. */
+  oldSeeds?: number
   stellar: { address: string | null; open: boolean; xlm: number; why: string | null }
   floats: { chain: string; address: string | null; usdc: number | null; feeCoin: string | null; fee: number | null }[]
   receive: { stellar: string | null; ton: string | null }
@@ -118,6 +120,11 @@ function SweepState({ s }: { s: State | null }) {
       {!s.ownAddresses && (
         <Notice tone="warn" title="Payments don't have addresses of their own yet">
           Set DEPOSIT_SEED on the API (32 random bytes, hex) and back it up. Until then every crypto payment is told apart by its exact amount on the treasury.
+        </Notice>
+      )}
+      {s.ownAddresses && (s.oldSeeds ?? 0) > 0 && (
+        <Notice tone="info" title={`${s.oldSeeds === 1 ? 'An earlier deposit seed is' : `${s.oldSeeds} earlier deposit seeds are`} kept`}>
+          New payments use the current seed. Payments made before it changed still sweep and send money back from their own addresses. Keep the old seed in DEPOSIT_SEEDS_OLD while any of those addresses can hold money.
         </Notice>
       )}
       <div className="grid gap-3 md:grid-cols-2">

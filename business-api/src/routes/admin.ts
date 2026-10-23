@@ -32,7 +32,7 @@ import { floatAddress, floatBalances, floatTxStatus, type FloatChain } from "../
 import { tonReceiveAddress } from "../lib/ton";
 import { sendsFrom, sweepState, validReturnAddress, whyWords } from "../services/crypto-out";
 import { weigh } from "../services/crypto-in";
-import { depositKeysReady } from "../lib/deposit-keys";
+import { depositKeysReady, oldDepositSeeds } from "../lib/deposit-keys";
 import { stellarReceiveAddress, stellarState } from "../lib/stellar";
 import { LockedDocument, checkEveryDocument, open as openDocument, vaultState } from "../lib/vault";
 import { diditReady, getDecision } from "../lib/didit";
@@ -1392,6 +1392,7 @@ router.get("/crypto/state", async (_req, res) => {
   res.json({
     ...(await sweepState()),
     ownAddresses: depositKeysReady(),
+    oldSeeds: oldDepositSeeds(),
     stellar: stellarState(),
     floats,
     receive: { stellar: stellarReceiveAddress(), ton: tonReceiveAddress() },

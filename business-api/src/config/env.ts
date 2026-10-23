@@ -126,10 +126,13 @@ const schema = z.object({
   /**
    * The seed every payment's own deposit address is made from: 32 random bytes, hex or base64. The
    * addresses are worked out from it and the payment's id, never stored as keys - so this one value
-   * must be kept safe and backed up, and never changed while any address still holds money.
+   * must be kept safe and backed up. To replace it, move the current value into DEPOSIT_SEEDS_OLD
+   * first: earlier payments' addresses keep opening from it, and new payments use the new seed.
    * Without it, payments are told apart by exact amount on our treasury, as before.
    */
   DEPOSIT_SEED: emptyAsUnset(z.string().optional()),
+  /** Earlier deposit seeds, comma-separated, newest first. Never drop one while its addresses can still hold money. */
+  DEPOSIT_SEEDS_OLD: emptyAsUnset(z.string().optional()),
 
   /** The USDC float businesses are paid from, on each settle chain (Arc and Monad share the EVM key). */
   FLOAT_MOVEMENT_PRIVATE_KEY: emptyAsUnset(z.string().optional()),

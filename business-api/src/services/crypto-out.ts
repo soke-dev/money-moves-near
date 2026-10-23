@@ -209,7 +209,7 @@ async function sendEvmOwn(c: EvmChain, p: Payment, coin: Coin, token: string | n
   if (!c.url()) throw new NotSent(`${c.network} can't be reached: no RPC set.`);
   if (!ethers.isAddress(to)) throw new NotSent(`That isn't an address on ${c.network}.`);
   const provider = evmProvider(c);
-  const wallet = evmDepositWallet(p.id).connect(provider);
+  const wallet = evmDepositWallet(p.id, p.depositAddress).connect(provider);
   const fees = await provider.getFeeData();
   const maxFeePerGas = fees.maxFeePerGas ?? fees.gasPrice;
   if (!maxFeePerGas) throw new NotSent(`${c.network} didn't say what gas costs.`, true);
@@ -270,7 +270,7 @@ async function solStatus(conn: Connection, sig: string): Promise<"settled" | "fa
 async function sendSolanaOwn(p: Payment, coin: Coin, token: string | null, to: string, micros: bigint): Promise<Sent & { sentMicros: bigint }> {
   if (!env.SOLANA_RPC_URL) throw new NotSent("Solana can't be reached: no RPC set.");
   const conn = new Connection(env.SOLANA_RPC_URL, { commitment: "confirmed" });
-  const owner = solanaDepositKeypair(p.id);
+  const owner = solanaDepositKeypair(p.id, p.depositAddress);
   const payer = solFeePayer();
   const mintId = tokenFor("Solana", coin, token);
   if (!mintId) throw new NotSent(`${coin} isn't on Solana.`);
@@ -320,7 +320,7 @@ async function sendMovementOwn(p: Payment, coin: Coin, token: string | null, to:
   if (!env.MOVEMENT_RPC_URL) throw new NotSent("Movement can't be reached: no RPC set.");
   if (!/^0x[0-9a-fA-F]{1,64}$/.test(to)) throw new NotSent("That isn't a Movement address.");
   const client = aptos();
-  const sender = movementDepositAccount(p.id);
+  const sender = movementDepositAccount(p.id, p.depositAddress);
   const float = moveFloat();
   const asset = tokenFor("Movement", coin, token);
   if (!asset) throw new NotSent(`${coin} isn't on Movement.`);
@@ -573,7 +573,7 @@ export async function openSolanaAccount(owner: string, coin: Coin): Promise<void
 export async function closeEmptySolana(p: Payment): Promise<void> {
   if (!env.SOLANA_RPC_URL || !p.coin || !SOL_MINTS[p.coin as Coin]) return;
   const conn = new Connection(env.SOLANA_RPC_URL, { commitment: "confirmed" });
-  const owner = solanaDepositKeypair(p.id);
+  const owner = solanaDepositKeypair(p.id, p.depositAddress);
   const mint = new PublicKey(SOL_MINTS[p.coin as Coin]!);
   const ata = getAssociatedTokenAddressSync(mint, owner.publicKey);
   const bal = await conn.getTokenAccountBalance(ata).catch(() => null);
