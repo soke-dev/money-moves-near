@@ -53,6 +53,7 @@ import {
   Ed25519PrivateKey,
 } from "@aptos-labs/ts-sdk";
 import { appVersionStats } from "../middleware/app-version";
+import { ourWallets } from "../lib/admin-wallets";
 
 const router = Router();
 const JWT_SECRET = env.JWT_ACCESS_SECRET;
@@ -177,6 +178,19 @@ router.post(
     }
   }
 );
+
+// ─── GET /admin/crypto/wallets — our own wallets, read from the chains ──
+//
+// Each treasury, gas payer, voucher wallet and sell address: what it is for,
+// its address and what it holds, live. Addresses only, never keys. ?fresh=1
+// skips the 30-second cache.
+router.get("/crypto/wallets", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await ourWallets(req.query.fresh === "1"));
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ─── GET /admin/app-versions — who is calling, and on what ───
 //

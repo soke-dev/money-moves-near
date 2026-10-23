@@ -18,6 +18,11 @@
 		-Server
 	}
 
+	# The staging address sends everyone to the live dashboard. Staging itself
+	# still answers on its Railway address; production never sees this host.
+	@staging host business-staging.usemoneymoves.xyz
+	redir @staging https://business.usemoneymoves.xyz{uri} permanent
+
 	# The help chat's live stream: passed straight through, never compressed or held back.
 	handle /api/support/stream {
 		reverse_proxy {$API_UPSTREAM} {

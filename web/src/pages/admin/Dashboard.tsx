@@ -15,8 +15,9 @@ import QRCode from 'qrcode'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowLeftRight, BadgeCheck, Banknote, Users, MessageSquare,
-  Megaphone, PiggyBank, ToggleLeft, Repeat, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight,
+  Megaphone, PiggyBank, ToggleLeft, Repeat, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins,
 } from 'lucide-react'
+import { PersonalCrypto } from './PersonalCrypto'
 import {
   C, MONO, H1, Label, Mono, Card, Row, MetaBit, Status, Empty, Loading,
   Btn, Chips, Search, Field, Input, Textarea, Modal, Detail, Pager,
@@ -68,6 +69,7 @@ const SECTIONS = [
   { id: 'transactions', label: 'Transactions', Icon: ArrowLeftRight },
   { id: 'kyc', label: 'Verification', Icon: BadgeCheck },
   { id: 'deposits', label: 'Deposits', Icon: Banknote },
+  { id: 'crypto', label: 'Crypto', Icon: Coins },
   { id: 'users', label: 'People', Icon: Users },
   { id: 'support', label: 'Support', Icon: MessageSquare },
   { id: 'broadcast', label: 'Broadcast', Icon: Megaphone },
@@ -378,6 +380,7 @@ export default function Dashboard() {
             {section === 'transactions' && <Transactions key={nonce} initial={filter} />}
             {section === 'kyc' && <Kyc key={nonce} initial={filter} />}
             {section === 'deposits' && <Deposits key={nonce} />}
+            {section === 'crypto' && <PersonalCrypto key={nonce} />}
             {section === 'users' && <People key={nonce} initial={filter} />}
             {section === 'support' && <Support key={nonce} initial={filter} />}
             {section === 'broadcast' && <BroadcastSection key={nonce} />}
