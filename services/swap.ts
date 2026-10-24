@@ -32,6 +32,8 @@ export interface SwapAsset {
 export interface SwapConfig {
   enabled: boolean;
   feeBps: number;
+  /** Extra flat fee, in dollars, on swaps paid from Solana. */
+  solanaFlatUsd?: number;
   minUsd: number;
   slippageBps: number;
   assets: SwapAsset[];
@@ -45,6 +47,8 @@ export interface SwapQuote {
   amount: number;
   fee: number;
   feeBps: number;
+  /** The flat part of `fee`, in the coin sent. Zero off Solana. */
+  feeFlat?: number;
   net: number;
   amountOut: number;
   minAmountOut: number;
@@ -105,8 +109,17 @@ export const SWAP_CHAIN_NAME: Record<SwapChain, string> = {
   TON: "TON",
 };
 
+/**
+ * The last config seen, held in memory. Home fetches it to decide whether to
+ * show the Swap tag, so by the time somebody taps it the screen can open on
+ * this at once and refresh behind it, instead of opening on a spinner.
+ */
+let lastConfig: SwapConfig | null = null;
+export const cachedSwapConfig = () => lastConfig;
+
 export async function getSwapConfig(): Promise<SwapConfig> {
   const { data } = await api.get("/swap/config");
+  lastConfig = data;
   return data;
 }
 

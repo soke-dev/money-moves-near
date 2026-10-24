@@ -50,7 +50,7 @@ import {
   registerForPushNotifications,
   attachNotificationRouting,
 } from "@/services/notifications";
-import { FONT_SCALE } from "@/constants/transfer";
+import { FONT_SCALE, spendableBalance } from "@/constants/transfer";
 import { useServiceStatus } from "@/hooks/useServiceStatus";
 import { PausedCard, type PausedDetail } from "@/components/PausedSheet";
 import { getSweepQuote, type SweepQuote } from "@/services/sweep";
@@ -790,6 +790,14 @@ export default function HomeScreen() {
    * Declared out here because both the grouping and the rows ask it.
    */
   const holdsAt = (amount: number, decimals: number) => Number(amount.toFixed(decimals)) > 0;
+  /**
+   * Whether a chain is worth listing under its coin: only what could actually be sent.
+   * TON holds back 0.02 USDT for the relay and Arc keeps USDC for gas, so a balance
+   * at or under that reserve is dust the person cannot move, and listing it invites
+   * a send that fails. The coin's total still counts it - it is still theirs.
+   */
+  const listsAt = (c: { tag: string; balance: number }, decimals: number) =>
+    holdsAt(spendableBalance(c.tag, c.balance), decimals);
 
   type ChainBalance = { name: string; tag: string; logo: any; balance: number };
   type WalletToken = { symbol: string; total: number; decimals: number; chains: ChainBalance[]; chainLogos: any[] };
@@ -1380,9 +1388,9 @@ export default function HomeScreen() {
                         style={[styles.assetChainNames, { color: colors.mutedForeground }]}
                         numberOfLines={1}
                       >
-                        {tok.chains.some((c) => holdsAt(c.balance, tok.decimals))
+                        {tok.chains.some((c) => listsAt(c, tok.decimals))
                           ? tok.chains
-                              .filter((c) => holdsAt(c.balance, tok.decimals))
+                              .filter((c) => listsAt(c, tok.decimals))
                               .map((c) => c.name)
                               .join(" \u00B7 ")
                           : "No asset"}
@@ -1441,12 +1449,12 @@ export default function HomeScreen() {
                       in words rather than showing an empty box. */}
                   {isExpanded && (
                     <View style={styles.chainBreakdown}>
-                      {!tok.chains.some((c) => holdsAt(c.balance, tok.decimals)) && (
+                      {!tok.chains.some((c) => listsAt(c, tok.decimals)) && (
                         <Text style={[styles.chainBalEmpty, { color: colors.mutedForeground }]}>
                           No asset
                         </Text>
                       )}
-                      {tok.chains.filter((c) => holdsAt(c.balance, tok.decimals)).map((chain) => (
+                      {tok.chains.filter((c) => listsAt(c, tok.decimals)).map((chain) => (
                         <View key={chain.tag} style={styles.chainBalRowNew}>
                           <Image
                             source={chain.logo}

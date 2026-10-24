@@ -86,9 +86,11 @@ export type SwapPlan = {
   to: LiveAsset;
   /** What leaves the wallet in total. */
   amount: number;
-  /** Our fee, out of `amount`. */
+  /** Our fee, out of `amount`: the percentage, plus the flat part on Solana. */
   fee: number;
   feeBps: number;
+  /** The flat part of `fee`, in the coin sent. Zero off Solana. */
+  feeFlat: number;
   /** What is swapped: amount less the fee. */
   net: number;
   usd: number;
@@ -115,7 +117,10 @@ export async function planSwap(userId: string, fromId: string, toId: string, amo
     throw new SwapError(`The smallest swap is $${settings.minUsd}.`);
   }
 
-  const fee = round6((amount * settings.feeBps) / 10_000);
+  // A swap paid from Solana also carries a flat fee: it sends to a new deposit
+  // address whose USDC account we pay to open. In the coin sent, at its price.
+  const flat = from.chain === "SOL" && settings.solanaFlatUsd > 0 ? round6(settings.solanaFlatUsd / from.price) : 0;
+  const fee = round6((amount * settings.feeBps) / 10_000 + flat);
   const net = round6(amount - fee);
   if (net <= 0) throw new SwapError("That amount is too small to swap.");
 
@@ -126,7 +131,7 @@ export async function planSwap(userId: string, fromId: string, toId: string, amo
   if (!originAddress) throw new SwapError(`No wallet found on ${from.chain}.`);
   if (!recipientAddress) throw new SwapError(`No wallet found on ${to.chain}.`);
 
-  return { from, to, amount, fee, feeBps: settings.feeBps, net, usd, originAddress, recipientAddress };
+  return { from, to, amount, fee, feeBps: settings.feeBps, feeFlat: flat, net, usd, originAddress, recipientAddress };
 }
 
 /**
@@ -168,6 +173,7 @@ export type QuoteView = {
   amount: number;
   fee: number;
   feeBps: number;
+  feeFlat: number;
   net: number;
   amountOut: number;
   minAmountOut: number;
@@ -185,6 +191,7 @@ function viewOf(plan: SwapPlan, quote: { amountOut: string; minAmountOut: string
     amount: plan.amount,
     fee: plan.fee,
     feeBps: plan.feeBps,
+    feeFlat: plan.feeFlat,
     net: plan.net,
     amountOut,
     minAmountOut: fromBaseUnits(quote.minAmountOut, plan.to.decimals),
@@ -281,6 +288,7 @@ export async function prepareSwap(userId: string, fromId: string, toId: string, 
           amount: plan.fee,
           symbol: plan.from.symbol,
           bps: plan.feeBps,
+          flat: plan.feeFlat,
           // Solana's is collected with the deposit or not at all; EVM's is its own transfer.
           via: plan.from.chain === "SOL" ? "same_tx" : "second_tx",
           collected: false,

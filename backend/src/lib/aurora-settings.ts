@@ -24,6 +24,12 @@ export type AuroraSettings = {
     enabled: boolean;
     /** Our platform fee, in basis points of what is sent. 100 = 1%. */
     feeBps: number;
+    /**
+     * An extra flat fee, in dollars, on swaps paid from Solana. Each one sends
+     * to a brand-new deposit address that needs a USDC account opened, about
+     * 0.002 SOL at our expense, and this covers it.
+     */
+    solanaFlatUsd: number;
     /** The smallest swap, in US dollars of what is sent. */
     minUsd: number;
     /** How far the price may move before the swap refunds instead. */
@@ -41,12 +47,13 @@ export const AURORA_DEFAULTS: AuroraSettings = {
     btc: { state: "visible", minUsd: 2 },
     tron: { state: "visible", minUsd: 2 },
   },
-  swap: { enabled: true, feeBps: 100, minUsd: 5, slippageBps: 100, perDay: 20 },
+  swap: { enabled: true, feeBps: 100, solanaFlatUsd: 0.25, minUsd: 5, slippageBps: 100, perDay: 20 },
 };
 
 /** Hard limits, so a typo in the console cannot set a 90% fee or a free-for-all. */
 export const LIMITS = {
   feeBps: { min: 0, max: 500 },
+  solanaFlatUsd: { min: 0, max: 5 },
   minUsd: { min: 1, max: 10_000 },
   slippageBps: { min: 10, max: 500 },
   perDay: { min: 1, max: 200 },
@@ -58,6 +65,7 @@ const KEYS = {
   depositMin: (k: AuroraDepositKind) => `au:dep:${k}:minUsd`,
   swapEnabled: "au:swap:enabled",
   swapFee: "au:swap:feeBps",
+  swapSolFlat: "au:swap:solanaFlatUsd",
   swapMin: "au:swap:minUsd",
   swapSlippage: "au:swap:slippageBps",
   swapPerDay: "au:swap:perDay",
@@ -98,6 +106,7 @@ export async function auroraSettings(): Promise<AuroraSettings> {
     swap: {
       enabled: enabledRaw === "true" ? true : enabledRaw === "false" ? false : d.swap.enabled,
       feeBps: num(v.get(KEYS.swapFee), d.swap.feeBps, LIMITS.feeBps),
+      solanaFlatUsd: num(v.get(KEYS.swapSolFlat), d.swap.solanaFlatUsd, LIMITS.solanaFlatUsd),
       minUsd: num(v.get(KEYS.swapMin), d.swap.minUsd, LIMITS.minUsd),
       slippageBps: num(v.get(KEYS.swapSlippage), d.swap.slippageBps, LIMITS.slippageBps),
       perDay: num(v.get(KEYS.swapPerDay), d.swap.perDay, LIMITS.perDay),
@@ -154,6 +163,7 @@ export async function updateAuroraSettings(
       writes.push([KEYS.swapEnabled, String(s.enabled)]);
     }
     if (s.feeBps !== undefined) writes.push([KEYS.swapFee, String(Math.round(inRange("Fee", s.feeBps, LIMITS.feeBps)))]);
+    if (s.solanaFlatUsd !== undefined) writes.push([KEYS.swapSolFlat, String(inRange("Solana fee", s.solanaFlatUsd, LIMITS.solanaFlatUsd))]);
     if (s.minUsd !== undefined) writes.push([KEYS.swapMin, String(inRange("Minimum swap", s.minUsd, LIMITS.minUsd))]);
     if (s.slippageBps !== undefined) writes.push([KEYS.swapSlippage, String(Math.round(inRange("Slippage", s.slippageBps, LIMITS.slippageBps)))]);
     if (s.perDay !== undefined) writes.push([KEYS.swapPerDay, String(Math.round(inRange("Swaps per day", s.perDay, LIMITS.perDay)))]);

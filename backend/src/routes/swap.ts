@@ -50,6 +50,7 @@ router.get("/config", requireAuth, requireActiveSession, async (_req: Request, r
     res.json({
       enabled: configured && settings.enabled && assets.length > 0,
       feeBps: settings.feeBps,
+      solanaFlatUsd: settings.solanaFlatUsd,
       minUsd: settings.minUsd,
       slippageBps: settings.slippageBps,
       assets: assets.map((a) => ({

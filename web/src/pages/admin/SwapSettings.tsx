@@ -15,7 +15,7 @@ const API = import.meta.env.VITE_API_URL || ''
 type DepositState = 'visible' | 'unavailable' | 'hidden'
 type Settings = {
   deposits: Record<'btc' | 'tron', { state: DepositState; minUsd: number }>
-  swap: { enabled: boolean; feeBps: number; minUsd: number; slippageBps: number; perDay: number }
+  swap: { enabled: boolean; feeBps: number; solanaFlatUsd: number; minUsd: number; slippageBps: number; perDay: number }
 }
 type RecentSwap = {
   id: string
@@ -48,7 +48,7 @@ function authed(init?: RequestInit): RequestInit {
 export function SwapSettings() {
   const [configured, setConfigured] = useState(true)
   const [settings, setSettings] = useState<Settings | null>(null)
-  const [draft, setDraft] = useState({ fee: '', min: '', slippage: '', perDay: '', btcMin: '', tronMin: '' })
+  const [draft, setDraft] = useState({ fee: '', solFlat: '', min: '', slippage: '', perDay: '', btcMin: '', tronMin: '' })
   const [recent, setRecent] = useState<RecentSwap[] | null>(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
@@ -58,6 +58,7 @@ export function SwapSettings() {
     setSettings(s)
     setDraft({
       fee: String(s.swap.feeBps / 100),
+      solFlat: String(s.swap.solanaFlatUsd),
       min: String(s.swap.minUsd),
       slippage: String(s.swap.slippageBps / 100),
       perDay: String(s.swap.perDay),
@@ -108,6 +109,7 @@ export function SwapSettings() {
       {
         swap: {
           feeBps: Math.round(Number(draft.fee) * 100),
+          solanaFlatUsd: Number(draft.solFlat),
           minUsd: Number(draft.min),
           slippageBps: Math.round(Number(draft.slippage) * 100),
           perDay: Math.round(Number(draft.perDay)),
@@ -142,9 +144,12 @@ export function SwapSettings() {
               />
             }
           >
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
               <Field label="Platform fee (%)" hint="Of what is sent. 1 means 1%.">
                 <Input inputMode="decimal" value={draft.fee} onChange={(e) => setDraft({ ...draft, fee: e.target.value })} />
+              </Field>
+              <Field label="Extra fee from Solana ($)" hint="Added to swaps paid from Solana, on top of the percentage.">
+                <Input inputMode="decimal" value={draft.solFlat} onChange={(e) => setDraft({ ...draft, solFlat: e.target.value })} />
               </Field>
               <Field label="Smallest swap ($)">
                 <Input inputMode="decimal" value={draft.min} onChange={(e) => setDraft({ ...draft, min: e.target.value })} />

@@ -26,6 +26,7 @@ import { CHAIN_MARKS } from "@/constants/transfer";
 import { signSolanaTransaction, signEvmTransaction } from "@/services/wallet-core";
 import {
   getSwapConfig,
+  cachedSwapConfig,
   getSwapQuote,
   prepareSwap,
   submitSwap,
@@ -43,27 +44,40 @@ import {
 /**
  * Swap — any coin you hold, to any chain, into your own wallet.
  *
- * One screen, four states, in the order they happen: choosing, reviewing,
- * watching, done. Kept in one route rather than four because the person is
- * making one decision and following it through; a stack of pages would let
- * the back button walk them into a review of a swap that has already gone.
+ * One screen, four states in the order they happen: choosing, reviewing,
+ * watching, done. One route rather than four, so the back button can never
+ * walk somebody into a review of a swap that has already gone.
  *
- * The fee is taken from what is sent, never added on top, so "You pay" is
- * always the whole of what leaves the wallet. The server sets the fee and the
- * minimum and checks both again at every step; this screen only previews them.
+ * Words are kept to what a decision needs. Labels name the two amounts; the
+ * rate and fee sit on one quiet line; the review lists five facts. The fee is
+ * taken from what is sent, so "You pay" is always the whole of what leaves the
+ * wallet. The server sets the fee and minimum and re-checks both at every step.
+ *
+ * It opens on the config Home already fetched, so there is no loading screen
+ * between tapping Swap and being able to type.
  */
 
 type Step = "edit" | "review" | "sending" | "watch" | "done";
 
-/** Their guidance: no faster than every ten seconds for an automatic refresh. */
+/** No faster than every ten seconds for an automatic refresh, per their guidance. */
 const QUOTE_REFRESH_MS = 15_000;
 const QUOTE_DEBOUNCE_MS = 600;
 /** And five to ten seconds for status. */
 const STATUS_POLL_MS = 6_000;
-/** How long a reviewed price is shown before it is fetched again. */
+/** How long a reviewed price stands before it is fetched again. */
 const REVIEW_HOLD_S = 30;
 
 const short = (a?: string | null) => (a && a.length > 14 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a || "");
+
+/** Where to start: what the person holds most of, going to USDC on Monad, or whatever else is first. */
+function defaultsFor(c: SwapConfig, held: (a: SwapAsset) => number, wanted?: string) {
+  const froms = c.assets.filter((a) => a.from);
+  const tos = c.assets.filter((a) => a.to);
+  const first = froms.find((a) => a.id === wanted) ?? [...froms].sort((a, b) => held(b) * b.price - held(a) * a.price)[0];
+  if (!first) return { from: null, to: null };
+  const to = tos.find((a) => a.id === "MONAD:USDC" && a.id !== first.id) ?? tos.find((a) => a.id !== first.id);
+  return { from: first.id, to: to?.id ?? null };
+}
 
 export default function SwapScreen() {
   const colors = useColors();
@@ -74,10 +88,17 @@ export default function SwapScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const [config, setConfig] = useState<SwapConfig | null>(null);
+  const balanceOf = useCallback(
+    (a: SwapAsset | null) => (a ? walletBalances.find((b) => b.asset === a.asset && b.chain === a.chain)?.balance ?? 0 : 0),
+    [walletBalances],
+  );
+
+  const initial = cachedSwapConfig();
+  const initialPick = initial ? defaultsFor(initial, balanceOf, params.from) : { from: null, to: null };
+  const [config, setConfig] = useState<SwapConfig | null>(initial);
   const [configError, setConfigError] = useState("");
-  const [fromId, setFromId] = useState<string | null>(null);
-  const [toId, setToId] = useState<string | null>(null);
+  const [fromId, setFromId] = useState<string | null>(initialPick.from);
+  const [toId, setToId] = useState<string | null>(initialPick.to);
   const [amountText, setAmountText] = useState("");
   const [quote, setQuote] = useState<SwapQuote | null>(null);
   const [quoting, setQuoting] = useState(false);
@@ -88,31 +109,26 @@ export default function SwapScreen() {
   const [swap, setSwap] = useState<SwapState | null>(null);
   const [hold, setHold] = useState(REVIEW_HOLD_S);
 
-  // PIN
   const [showPin, setShowPin] = useState(false);
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState(false);
   const pendingAction = useRef<() => void>(() => {});
 
-  /* ── Config ── */
+  /* ── Config: shown from memory at once, refreshed behind ── */
   useEffect(() => {
     getSwapConfig()
       .then((c) => {
         setConfig(c);
-        const froms = c.assets.filter((a) => a.from);
-        const tos = c.assets.filter((a) => a.to);
-        // Start from what the person holds most of, unless they came from a token.
-        const held = (a: SwapAsset) => walletBalances.find((b) => b.asset === a.asset && b.chain === a.chain)?.balance ?? 0;
-        const wanted = froms.find((a) => a.id === params.from);
-        const first = wanted ?? [...froms].sort((a, b) => held(b) * b.price - held(a) * a.price)[0];
-        if (first) {
-          setFromId(first.id);
-          const dest = tos.find((a) => a.id === "MONAD:USDC" && a.id !== first.id) ?? tos.find((a) => a.id !== first.id);
-          if (dest) setToId(dest.id);
+        if (!fromId) {
+          const d = defaultsFor(c, balanceOf, params.from);
+          setFromId(d.from);
+          setToId(d.to);
         }
       })
-      .catch((e) => setConfigError(e?.response?.data?.error || "Swaps couldn't load. Check your connection."));
-    // walletBalances is read once for the default only.
+      .catch((e) => {
+        if (!cachedSwapConfig()) setConfigError(e?.response?.data?.error || "Swap couldn't load. Check your connection.");
+      });
+    // Once, on open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -120,15 +136,10 @@ export default function SwapScreen() {
   const from = assets.find((a) => a.id === fromId) ?? null;
   const to = assets.find((a) => a.id === toId) ?? null;
   const amount = Number(amountText.replace(/,/g, ""));
-  const balanceOf = useCallback(
-    (a: SwapAsset | null) => (a ? walletBalances.find((b) => b.asset === a.asset && b.chain === a.chain)?.balance ?? 0 : 0),
-    [walletBalances],
-  );
   const fromBalance = balanceOf(from);
   const usd = from && amount > 0 ? amount * from.price : 0;
   const belowMin = !!config && amount > 0 && usd < config.minUsd;
   const overBalance = amount > 0 && amount > fromBalance + 1e-9;
-  const feePct = config ? config.feeBps / 100 : 0;
 
   /* ── Quote: debounced while typing, refreshed while it sits ── */
   const quoteSeq = useRef(0);
@@ -154,8 +165,7 @@ export default function SwapScreen() {
     }
   }, [from, to, amount, belowMin]);
 
-  // The review screen keeps its own clock ("Price held for"), so the
-  // background refresh only runs while choosing.
+  // The review keeps its own clock, so the background refresh only runs while choosing.
   const stepRef = useRef<Step>(step);
   stepRef.current = step;
 
@@ -172,9 +182,8 @@ export default function SwapScreen() {
     };
     // Re-run when what is being priced changes, not on every quote.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fromId, toId, amountText, step === "edit" || step === "review"]);
+  }, [fromId, toId, amountText, config?.feeBps, step === "edit" || step === "review"]);
 
-  /* ── Review: the price is held for a while, then fetched again ── */
   useEffect(() => {
     if (step !== "review") return;
     setHold(REVIEW_HOLD_S);
@@ -190,7 +199,7 @@ export default function SwapScreen() {
     return () => clearInterval(t);
   }, [step, fetchQuote]);
 
-  /* ── Watching: poll until it lands or comes back ── */
+  /* ── Watching ── */
   useEffect(() => {
     if (step !== "watch" || !swap) return;
     let stopped = false;
@@ -298,8 +307,8 @@ export default function SwapScreen() {
       const sig = await signFor(prepared.chain, prepared.signingMessage, prepared.txRequest);
       const sent = await submitSwap({ swapId: prepared.swapId, ...sig });
 
-      // The EVM fee: its own small transfer, signed straight after. Best
-      // effort - the swap is already on its way whatever happens here.
+      // The EVM fee is its own small transfer, signed straight after. Best
+      // effort: the swap is already on its way whatever happens here.
       if (sent.feeLeg) {
         try {
           const feeSig = await signFor(prepared.chain, sent.feeLeg.signingMessage, sent.feeLeg.txRequest);
@@ -337,24 +346,22 @@ export default function SwapScreen() {
   };
 
   /* ── Render ── */
-  const header = (title: string, sub?: string, back = true) => (
+  const header = (title: string, back = true) => (
     <View style={s.header}>
       {back ? (
         <TouchableOpacity
           onPress={() => (step === "review" ? setStep("edit") : router.back())}
-          style={s.back}
-          hitSlop={12}
+          style={[s.iconBtn, { backgroundColor: colors.card }]}
+          hitSlop={8}
           accessibilityLabel="Back"
         >
-          <Feather name="arrow-left" size={24} color={colors.foreground} />
+          <Feather name="arrow-left" size={20} color={colors.foreground} />
         </TouchableOpacity>
       ) : (
-        <View style={s.back} />
+        <View style={s.iconBtn} />
       )}
-      <View style={s.headerText}>
-        <Text style={[s.title, { color: colors.foreground }]}>{title}</Text>
-        {!!sub && <Text style={[s.titleSub, { color: colors.mutedForeground }]}>{sub}</Text>}
-      </View>
+      <Text style={[s.title, { color: colors.foreground }]}>{title}</Text>
+      <View style={s.iconBtn} />
     </View>
   );
 
@@ -363,21 +370,8 @@ export default function SwapScreen() {
       <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
         {header("Swap")}
         <View style={s.center}>
-          <Feather name="pause-circle" size={40} color={colors.mutedForeground} />
-          <Text style={[s.centerText, { color: colors.foreground }]}>
-            {configError || "Swaps are paused right now. Please try again later."}
-          </Text>
-        </View>
-      </View>
-    );
-  }
-
-  if (!config) {
-    return (
-      <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
-        {header("Swap")}
-        <View style={s.center}>
-          <ActivityIndicator color={colors.mutedForeground} />
+          <Feather name="pause-circle" size={36} color={colors.mutedForeground} />
+          <Text style={[s.centerText, { color: colors.foreground }]}>{configError || "Swap is paused right now."}</Text>
         </View>
       </View>
     );
@@ -387,69 +381,50 @@ export default function SwapScreen() {
   if ((step === "watch" || step === "done") && swap) {
     const done = swap.status === "COMPLETED";
     const refunded = swap.status === "REFUNDED";
-    const failed = swap.status === "FAILED" || swap.status === "CANCELLED";
     const toName = SWAP_CHAIN_NAME[swap.to.chain];
     const fromName = SWAP_CHAIN_NAME[swap.from.chain];
-    const delivered = done ? swap.amountOut : swap.to.expected ?? swap.amountOut;
     const tookS = swap.completedAt ? Math.max(1, Math.round((Date.parse(swap.completedAt) - Date.parse(swap.createdAt)) / 1000)) : null;
     const swapping = swap.swapStatus === "PROCESSING" || swap.swapStatus === "KNOWN_DEPOSIT_TX";
+    const link = (done ? swap.destinationExplorerUrl : null) || swap.originExplorerUrl;
 
     if (step === "done") {
       return (
         <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
           <ScrollView contentContainerStyle={[s.doneBody, { paddingBottom: bottomPad + 24 }]}>
-            <View style={[s.doneHalo, { backgroundColor: (done ? colors.primary : colors.warning) + "1F" }]}>
-              <View style={[s.doneDisc, { backgroundColor: done ? colors.primary : colors.warning }]}>
-                <Feather name={done ? "check" : "rotate-ccw"} size={26} color={colors.background} />
-              </View>
+            <View style={[s.doneDisc, { backgroundColor: done ? colors.primary : colors.warning }]}>
+              <Feather name={done ? "check" : "rotate-ccw"} size={28} color={colors.background} />
             </View>
-            <Text style={[s.doneEyebrow, { color: colors.mutedForeground }]}>
-              {done ? "Swap complete" : refunded ? "Swap returned" : "Swap not completed"}
-            </Text>
             <Text style={[s.doneFigure, { color: colors.foreground }]}>
               {done
                 ? `${fmtCoin(swap.amountOut, swap.to.symbol)} ${swap.to.symbol}`
                 : refunded
                   ? `${fmtCoin(swap.refundedAmount ?? swap.from.net ?? 0, swap.from.symbol)} ${swap.from.symbol}`
-                  : "Nothing swapped"}
+                  : "Not completed"}
             </Text>
             <Text style={[s.doneSub, { color: colors.mutedForeground }]}>
-              {done
-                ? `is in your ${toName} wallet`
-                : refunded
-                  ? `went back to your ${fromName} wallet`
-                  : "If anything left your wallet, it is being returned to it."}
+              {done ? `In your ${toName} wallet` : refunded ? `Returned to your ${fromName} wallet` : "Anything sent is on its way back"}
             </Text>
 
-            <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 28, alignSelf: "stretch" }]}>
-              <Row label="You paid" value={`${fmtCoin(swap.from.amount ?? 0, swap.from.symbol)} ${swap.from.symbol}, ${fromName}`} colors={colors} />
-              {done && <Row label="You got" value={`${fmtCoin(swap.amountOut, swap.to.symbol)} ${swap.to.symbol}, ${toName}`} colors={colors} />}
+            <View style={[s.card, { backgroundColor: colors.card, marginTop: 32, alignSelf: "stretch" }]}>
+              <Row label="Paid" value={`${fmtCoin(swap.from.amount ?? 0, swap.from.symbol)} ${swap.from.symbol} · ${fromName}`} colors={colors} />
               {!!swap.fee && <Row label="Fee" value={`${fmtCoin(swap.fee.amount, swap.fee.symbol)} ${swap.fee.symbol}`} colors={colors} />}
-              {done && tookS !== null && <Row label="Took" value={tookS < 90 ? `${tookS} seconds` : `${Math.round(tookS / 60)} minutes`} colors={colors} />}
-              {!!(swap.destinationExplorerUrl || swap.originExplorerUrl) && (
-                <Row
-                  label={done ? `${toName} transaction` : `${fromName} transaction`}
-                  value="View"
-                  link={(done ? swap.destinationExplorerUrl : null) || swap.originExplorerUrl || undefined}
-                  colors={colors}
-                  last
-                />
-              )}
+              {done && tookS !== null && <Row label="Time" value={tookS < 90 ? `${tookS}s` : `${Math.round(tookS / 60)} min`} colors={colors} />}
+              {!!link && <Row label="Transaction" value="View" link={link} colors={colors} last />}
             </View>
           </ScrollView>
-          <View style={[s.footer, { paddingBottom: bottomPad + 16 }]}>
+          <View style={[s.footerRow, { paddingBottom: bottomPad + 16 }]}>
             <TouchableOpacity
-              style={[s.secondaryBtn, { backgroundColor: colors.secondary, borderColor: colors.border }]}
+              style={[s.ghostBtn, { backgroundColor: colors.card }]}
               onPress={() => {
                 setSwap(null);
                 setAmountText("");
                 setStep("edit");
               }}
             >
-              <Text style={[s.secondaryBtnText, { color: colors.foreground }]}>Swap again</Text>
+              <Text style={[s.ghostBtnText, { color: colors.foreground }]}>New swap</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[s.primaryBtn, s.flex1, { backgroundColor: colors.primary }]} onPress={() => router.back()}>
-              <Text style={[s.primaryBtnText, { color: colors.primaryForeground }]}>Done</Text>
+            <TouchableOpacity style={[s.cta, s.flex1, { backgroundColor: colors.primary }]} onPress={() => router.back()}>
+              <Text style={[s.ctaText, { color: colors.primaryForeground }]}>Done</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -458,44 +433,30 @@ export default function SwapScreen() {
 
     return (
       <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
-        {header("Swapping", undefined, false)}
+        {header("Swapping", false)}
         <ScrollView contentContainerStyle={[s.body, { paddingBottom: bottomPad + 24 }]}>
           <View style={s.pairHero}>
-            <CoinMark asset={swap.from.asset} chain={swap.from.chain} size={52} colors={colors} />
-            <View style={s.dots}>
-              {[1, 0.6, 0.3].map((o) => (
-                <View key={o} style={[s.dot, { backgroundColor: colors.primary, opacity: o }]} />
-              ))}
-            </View>
-            <CoinMark asset={swap.to.asset} chain={swap.to.chain} size={52} colors={colors} />
+            <CoinMark asset={swap.from.asset} chain={swap.from.chain} size={56} colors={colors} />
+            <Feather name="arrow-right" size={18} color={colors.mutedForeground} />
+            <CoinMark asset={swap.to.asset} chain={swap.to.chain} size={56} colors={colors} />
           </View>
           <Text style={[s.watchTitle, { color: colors.foreground }]}>
-            {fmtCoin(swap.from.amount ?? 0, swap.from.symbol)} {swap.from.symbol} to {swap.to.symbol}
+            {fmtCoin(swap.from.amount ?? 0, swap.from.symbol)} {swap.from.symbol}
           </Text>
           <Text style={[s.watchSub, { color: colors.mutedForeground }]}>
-            {fromName} to {toName}
+            to about {fmtCoin(swap.to.expected ?? swap.amountOut, swap.to.symbol)} {swap.to.symbol} on {toName}
           </Text>
 
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, paddingVertical: 18 }]}>
-            <TrackStep state="done" title="Sent from your wallet" sub={`${fmtCoin(swap.from.amount ?? 0, swap.from.symbol)} ${swap.from.symbol} on ${fromName}`} colors={colors} />
-            <TrackStep
-              state="active"
-              title="Swapping"
-              sub={swap.swapStatus === "INCOMPLETE_DEPOSIT" ? "Waiting for the rest of the deposit" : swapping ? "Finding the best price" : "Waiting for the network to confirm"}
-              colors={colors}
-            />
-            <TrackStep state="todo" title={`In your ${toName} wallet`} sub={`About ${fmtCoin(delivered, swap.to.symbol)} ${swap.to.symbol}`} colors={colors} last />
+          <View style={[s.card, { backgroundColor: colors.card, paddingVertical: 18 }]}>
+            <TrackStep state="done" title="Sent" colors={colors} />
+            <TrackStep state="active" title={swap.swapStatus === "INCOMPLETE_DEPOSIT" ? "Waiting for the rest" : swapping ? "Swapping" : "Confirming"} colors={colors} />
+            <TrackStep state="todo" title={`In your ${toName} wallet`} colors={colors} last />
           </View>
         </ScrollView>
         <View style={[s.footerCol, { paddingBottom: bottomPad + 16 }]}>
-          <Text style={[s.leaveNote, { color: colors.mutedForeground }]}>
-            You can leave this screen. The swap carries on and shows in your transactions.
-          </Text>
-          <TouchableOpacity
-            style={[s.secondaryBtn, s.stretch, { backgroundColor: colors.secondary, borderColor: colors.border }]}
-            onPress={() => router.back()}
-          >
-            <Text style={[s.secondaryBtnText, { color: colors.foreground }]}>Back to home</Text>
+          <Text style={[s.quiet, { color: colors.mutedForeground, marginBottom: 12 }]}>You can close this. It keeps going.</Text>
+          <TouchableOpacity style={[s.ghostBtn, s.stretch, { backgroundColor: colors.card }]} onPress={() => router.back()}>
+            <Text style={[s.ghostBtnText, { color: colors.foreground }]}>Close</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -508,73 +469,60 @@ export default function SwapScreen() {
     const toAddr = walletAddresses[to.chain] || "";
     return (
       <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
-        {header("Review swap")}
+        {header("Review")}
         <ScrollView contentContainerStyle={[s.body, { paddingBottom: 24 }]}>
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, paddingVertical: 18, gap: 14 }]}>
+          <View style={[s.card, { backgroundColor: colors.card, paddingVertical: 20, gap: 16 }]}>
             <View style={s.reviewLine}>
-              <CoinMark asset={from.asset} chain={from.chain} size={38} colors={colors} />
+              <CoinMark asset={from.asset} chain={from.chain} size={40} colors={colors} />
               <View style={s.flex1}>
-                <Text style={[s.capLabel, { color: colors.mutedForeground }]}>You pay</Text>
                 <Text style={[s.reviewFig, { color: colors.foreground }]}>
                   {fmtCoin(amount, from.symbol)} {from.symbol}
                 </Text>
+                <Text style={[s.quiet, { color: colors.mutedForeground }]}>{SWAP_CHAIN_NAME[from.chain]}</Text>
               </View>
-              <Text style={[s.reviewChain, { color: colors.mutedForeground }]}>{SWAP_CHAIN_NAME[from.chain]}</Text>
             </View>
-            <View style={s.reviewArrow}>
-              <Feather name="arrow-down" size={14} color={colors.primary} />
-              <View style={[s.hair, { backgroundColor: colors.border }]} />
+            <View style={[s.reviewDivider, { backgroundColor: colors.border }]}>
+              <View style={[s.reviewArrow, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                <Feather name="arrow-down" size={14} color={colors.primary} />
+              </View>
             </View>
             <View style={s.reviewLine}>
-              <CoinMark asset={to.asset} chain={to.chain} size={38} colors={colors} />
+              <CoinMark asset={to.asset} chain={to.chain} size={40} colors={colors} />
               <View style={s.flex1}>
-                <Text style={[s.capLabel, { color: colors.mutedForeground }]}>You get about</Text>
                 <Text style={[s.reviewFig, { color: colors.foreground }]}>
                   {quote ? `${fmtCoin(quote.amountOut, to.symbol)} ${to.symbol}` : "…"}
                 </Text>
+                <Text style={[s.quiet, { color: colors.mutedForeground }]}>{SWAP_CHAIN_NAME[to.chain]}</Text>
               </View>
-              <Text style={[s.reviewChain, { color: colors.mutedForeground }]}>{SWAP_CHAIN_NAME[to.chain]}</Text>
             </View>
           </View>
 
-          <View style={[s.card, { backgroundColor: colors.card, borderColor: colors.border, marginTop: 14 }]}>
-            <Row label="At least" value={quote ? `${fmtCoin(quote.minAmountOut, to.symbol)} ${to.symbol}` : "…"} colors={colors} strong />
+          <View style={[s.card, { backgroundColor: colors.card, marginTop: 12 }]}>
+            <Row label="Minimum received" value={quote ? `${fmtCoin(quote.minAmountOut, to.symbol)} ${to.symbol}` : "…"} colors={colors} />
             <Row label="Rate" value={quote ? `1 ${from.symbol} = ${quote.rate.toFixed(4)} ${to.symbol}` : "…"} colors={colors} />
-            <Row label={`Fee (${feePct}%)`} value={quote ? `${fmtCoin(quote.fee, from.symbol)} ${from.symbol}` : "…"} colors={colors} />
-            <Row label="Network fee" value="On us" colors={colors} accent />
-            <Row label="Lands in" value={`Your ${SWAP_CHAIN_NAME[to.chain]} wallet${toAddr ? `, ${short(toAddr)}` : ""}`} colors={colors} />
-            <Row
-              label="Takes"
-              value={quote ? (quote.timeEstimate <= 60 ? "Under a minute" : `About ${Math.ceil(quote.timeEstimate / 60)} minutes`) : "…"}
-              colors={colors}
-              last
-            />
+            <Row label="Fee" value={quote ? `${fmtCoin(quote.fee, from.symbol)} ${from.symbol}` : "…"} colors={colors} />
+            <Row label="Network fee" value="Free" colors={colors} accent />
+            <Row label="To" value={toAddr ? short(toAddr) : `Your ${SWAP_CHAIN_NAME[to.chain]} wallet`} colors={colors} last />
           </View>
 
-          <View style={s.noteRow}>
-            <Feather name="shield" size={14} color={colors.mutedForeground} style={{ marginTop: 2 }} />
-            <Text style={[s.noteText, { color: colors.mutedForeground }]}>
-              If the price moves below the minimum or the swap fails, your {from.symbol} comes back to your{" "}
-              {SWAP_CHAIN_NAME[from.chain]} wallet.
-            </Text>
-          </View>
-          {!!sendError && <Text style={[s.errorText, { color: colors.destructive }]}>{sendError}</Text>}
-          {!!quoteError && <Text style={[s.errorText, { color: colors.destructive }]}>{quoteError}</Text>}
+          <Text style={[s.quiet, s.centered, { color: colors.mutedForeground, marginTop: 14 }]}>
+            If it can't complete, it comes back to your wallet.
+          </Text>
+          {!!(sendError || quoteError) && <Text style={[s.hint, { color: colors.destructive }]}>{sendError || quoteError}</Text>}
         </ScrollView>
         <View style={[s.footerCol, { paddingBottom: bottomPad + 16 }]}>
-          {!sending && quote && <Text style={[s.holdText, { color: colors.mutedForeground }]}>Price held for 0:{String(hold).padStart(2, "0")}</Text>}
+          {!sending && quote && (
+            <Text style={[s.quiet, { color: colors.mutedForeground, marginBottom: 10 }]}>Price refreshes in {hold}s</Text>
+          )}
           <TouchableOpacity
-            style={[s.primaryBtn, s.stretch, { backgroundColor: colors.primary, opacity: !quote || sending ? 0.6 : 1 }]}
+            style={[s.cta, s.stretch, { backgroundColor: colors.primary, opacity: !quote || sending ? 0.55 : 1 }]}
             disabled={!quote || sending}
             onPress={() => requestPin(send)}
           >
             {sending ? (
               <ActivityIndicator color={colors.primaryForeground} />
             ) : (
-              <>
-                <Feather name="lock" size={17} color={colors.primaryForeground} />
-                <Text style={[s.primaryBtnText, { color: colors.primaryForeground }]}>Confirm with PIN</Text>
-              </>
+              <Text style={[s.ctaText, { color: colors.primaryForeground }]}>Confirm swap</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -588,116 +536,121 @@ export default function SwapScreen() {
   const hint = !from || !to
     ? ""
     : belowMin
-      ? `The smallest swap is $${config.minUsd}.`
+      ? `Minimum swap is $${config!.minUsd}`
       : overBalance
-        ? `You have ${fmtCoin(fromBalance, from.symbol)} ${from.symbol} on ${SWAP_CHAIN_NAME[from.chain]}.`
+        ? "More than your balance"
         : quoteError;
 
   return (
     <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
-      {header("Swap", "Into your own wallet, any chain")}
+      {header("Swap")}
       <KeyboardAvoidingView style={s.flex1} behavior={Platform.OS === "ios" ? "padding" : undefined}>
         <ScrollView contentContainerStyle={[s.body, { paddingBottom: 24 }]} keyboardShouldPersistTaps="handled">
-          {!!config.notice && (
-            <View style={[s.notice, { borderColor: colors.warning + "55", backgroundColor: colors.warning + "12" }]}>
-              <Feather name="clock" size={14} color={colors.warning} />
-              <Text style={[s.noticeText, { color: colors.foreground }]}>{config.notice}</Text>
+          {!!config?.notice && (
+            <View style={[s.notice, { backgroundColor: colors.warning + "14" }]}>
+              <Feather name="clock" size={13} color={colors.warning} />
+              <Text style={[s.noticeText, { color: colors.foreground }]} numberOfLines={2}>
+                {config.notice}
+              </Text>
             </View>
           )}
 
-          <View style={[s.box, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <View style={s.boxTop}>
-              <Text style={[s.capLabel, { color: colors.mutedForeground }]}>You pay</Text>
-              <View style={s.balanceRow}>
-                <Text style={[s.capLabel, { color: colors.mutedForeground }]}>
-                  Balance {from ? fmtCoin(fromBalance, from.symbol) : "0.00"}
-                </Text>
+          <View style={[s.panel, { backgroundColor: colors.card }]}>
+            <View style={s.panelTop}>
+              <Text style={[s.panelLabel, { color: colors.mutedForeground }]}>You pay</Text>
+              {!!from && (
                 <TouchableOpacity
                   onPress={() => setAmountText(String(Math.floor(fromBalance * 1e6) / 1e6))}
+                  disabled={fromBalance <= 0}
                   hitSlop={10}
-                  disabled={!from || fromBalance <= 0}
+                  style={s.balanceBtn}
                 >
-                  <Text style={[s.maxText, { color: colors.primary }]}>Max</Text>
+                  <Text style={[s.panelLabel, { color: colors.mutedForeground }]}>{fmtCoin(fromBalance, from.symbol)}</Text>
+                  <View style={[s.maxPill, { backgroundColor: colors.primary + "1F" }]}>
+                    <Text style={[s.maxText, { color: colors.primary }]}>MAX</Text>
+                  </View>
                 </TouchableOpacity>
-              </View>
+              )}
             </View>
-            <View style={s.boxMid}>
+            <View style={s.panelMid}>
               <TextInput
                 value={amountText}
                 onChangeText={(t) => setAmountText(t.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"))}
-                placeholder="0.00"
+                placeholder="0"
                 placeholderTextColor={colors.mutedForeground}
                 keyboardType="decimal-pad"
                 style={[s.amountInput, { color: colors.foreground }]}
                 accessibilityLabel="Amount to swap"
               />
-              <AssetChip asset={from} colors={colors} onPress={() => setPicker("from")} placeholder="Pick" />
+              <AssetChip asset={from} colors={colors} onPress={() => setPicker("from")} />
             </View>
-            <Text style={[s.capLabel, { color: colors.mutedForeground }]}>{usd > 0 ? `$${usd.toFixed(2)}` : " "}</Text>
+            <Text style={[s.panelLabel, { color: colors.mutedForeground }]}>{usd > 0 ? `$${usd.toFixed(2)}` : " "}</Text>
           </View>
 
           <View style={s.flipWrap}>
             <TouchableOpacity
-              style={[s.flipBtn, { backgroundColor: colors.background, borderColor: colors.border, opacity: canFlip ? 1 : 0.4 }]}
+              style={[s.flipBtn, { backgroundColor: colors.card, borderColor: colors.background, opacity: canFlip ? 1 : 0.5 }]}
               onPress={flip}
               disabled={!canFlip}
               accessibilityLabel="Swap direction"
             >
-              <Feather name="repeat" size={18} color={colors.primary} style={{ transform: [{ rotate: "90deg" }] }} />
+              <Feather name="arrow-down" size={18} color={colors.foreground} />
             </TouchableOpacity>
           </View>
 
-          <View style={[s.box, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Text style={[s.capLabel, { color: colors.mutedForeground }]}>You get</Text>
-            <View style={s.boxMid}>
+          <View style={[s.panel, { backgroundColor: colors.card }]}>
+            <Text style={[s.panelLabel, { color: colors.mutedForeground }]}>You receive</Text>
+            <View style={s.panelMid}>
               <View style={s.flex1}>
                 {quoting && !quote ? (
-                  <ActivityIndicator color={colors.mutedForeground} style={{ alignSelf: "flex-start", height: 42 }} />
+                  <ActivityIndicator color={colors.mutedForeground} style={{ alignSelf: "flex-start", height: 44 }} />
                 ) : (
-                  <Text style={[s.amountOut, { color: quote ? colors.foreground : colors.mutedForeground }]} numberOfLines={1} adjustsFontSizeToFit>
-                    {quote ? fmtCoin(quote.amountOut, to?.symbol) : "0.00"}
+                  <Text
+                    style={[s.amountOut, { color: quote ? colors.foreground : colors.mutedForeground }]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                  >
+                    {quote ? fmtCoin(quote.amountOut, to?.symbol) : "0"}
                   </Text>
                 )}
               </View>
-              <AssetChip asset={to} colors={colors} onPress={() => setPicker("to")} placeholder="Pick" />
+              <AssetChip asset={to} colors={colors} onPress={() => setPicker("to")} />
             </View>
-            <Text style={[s.capLabel, { color: colors.mutedForeground }]}>Estimate, updated live</Text>
+            <Text style={[s.panelLabel, { color: colors.mutedForeground }]}>
+              {quote?.amountOutUsd ? `$${quote.amountOutUsd.toFixed(2)}` : " "}
+            </Text>
           </View>
 
-          {from && to && (
-            <View style={s.facts}>
-              <Fact label="Rate" value={quote ? `1 ${from.symbol} = ${quote.rate.toFixed(4)} ${to.symbol}` : "…"} colors={colors} />
-              <Fact label={`Fee (${feePct}%)`} value={quote ? `${fmtCoin(quote.fee, from.symbol)} ${from.symbol}` : amount > 0 ? "…" : `${feePct}% of what you send`} colors={colors} />
-              <Fact label="Arrives" value={`Your ${SWAP_CHAIN_NAME[to.chain]} wallet, under a minute`} colors={colors} />
+          {quote && from && to ? (
+            <View style={s.meta}>
+              <Text style={[s.quiet, { color: colors.mutedForeground }]}>
+                1 {from.symbol} = {quote.rate.toFixed(4)} {to.symbol}
+              </Text>
+              <Text style={[s.quiet, { color: colors.mutedForeground }]}>
+                Fee {fmtCoin(quote.fee, from.symbol)} {from.symbol}
+              </Text>
             </View>
-          )}
+          ) : null}
 
-          {!!hint && <Text style={[s.errorText, { color: belowMin || overBalance ? colors.warning : colors.destructive }]}>{hint}</Text>}
-
-          <TouchableOpacity onPress={() => router.push("/sweep" as any)} style={s.sweepLink}>
-            <Text style={[s.sweepText, { color: colors.mutedForeground }]}>
-              Sweep balances of $5 or less into USDC on Movement
-            </Text>
-            <Feather name="chevron-right" size={14} color={colors.mutedForeground} />
-          </TouchableOpacity>
+          {!!hint && <Text style={[s.hint, { color: belowMin || overBalance ? colors.warning : colors.destructive }]}>{hint}</Text>}
         </ScrollView>
       </KeyboardAvoidingView>
       <View style={[s.footerCol, { paddingBottom: bottomPad + 16 }]}>
         <TouchableOpacity
-          style={[s.primaryBtn, s.stretch, { backgroundColor: colors.primary, opacity: canReview ? 1 : 0.45 }]}
+          style={[s.cta, s.stretch, { backgroundColor: colors.primary, opacity: canReview ? 1 : 0.4 }]}
           disabled={!canReview}
           onPress={() => {
             setSendError("");
             setStep("review");
           }}
         >
-          <Text style={[s.primaryBtnText, { color: colors.primaryForeground }]}>Review swap</Text>
+          <Text style={[s.ctaText, { color: colors.primaryForeground }]}>{amount > 0 ? "Review" : "Enter an amount"}</Text>
         </TouchableOpacity>
       </View>
 
       <Picker
         visible={picker !== null}
-        title={picker === "from" ? "Swap from" : "Swap to"}
+        title={picker === "from" ? "You pay with" : "You receive"}
         assets={assets.filter((a) => (picker === "from" ? a.from : a.to))}
         selected={picker === "from" ? fromId : toId}
         balanceOf={balanceOf}
@@ -714,13 +667,9 @@ export default function SwapScreen() {
     return (
       <Modal transparent animationType="slide" visible>
         <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={() => setShowPin(false)}>
-          <View
-            style={[s.pinSheet, { backgroundColor: colors.card, paddingBottom: bottomPad + 16 }]}
-            onStartShouldSetResponder={() => true}
-          >
+          <View style={[s.sheet, { backgroundColor: colors.card, paddingBottom: bottomPad + 16 }]} onStartShouldSetResponder={() => true}>
             <View style={[s.handle, { backgroundColor: colors.border }]} />
-            <Text style={[s.pinHeading, { color: colors.foreground }]}>Confirm with PIN</Text>
-            <Text style={[s.pinSub, { color: colors.mutedForeground }]}>Enter your 4-digit PIN to authorise this swap</Text>
+            <Text style={[s.sheetTitle, s.centered, { color: colors.foreground }]}>Enter your PIN</Text>
             <View style={s.pinDots}>
               {[0, 1, 2, 3].map((i) => (
                 <View
@@ -734,7 +683,7 @@ export default function SwapScreen() {
                 />
               ))}
             </View>
-            <Text style={[s.pinErr, { color: pinError ? colors.destructive : "transparent" }]}>Incorrect PIN, try again</Text>
+            <Text style={[s.pinErr, { color: pinError ? colors.destructive : "transparent" }]}>Incorrect PIN</Text>
             <Keypad
               disabled={pin.length >= 4}
               onKey={(k) => handlePinInput(pin + k)}
@@ -776,64 +725,27 @@ function CoinMark({ asset, chain, size, colors }: { asset: string; chain: string
   );
 }
 
-function AssetChip({ asset, colors, onPress, placeholder }: { asset: SwapAsset | null; colors: any; onPress: () => void; placeholder: string }) {
+function AssetChip({ asset, colors, onPress }: { asset: SwapAsset | null; colors: any; onPress: () => void }) {
   return (
-    <TouchableOpacity style={[s.chip, { backgroundColor: colors.secondary, borderColor: colors.border }]} onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity style={[s.chip, { backgroundColor: colors.background }]} onPress={onPress} activeOpacity={0.8}>
       {asset ? (
         <>
-          <CoinMark asset={asset.asset} chain={asset.chain} size={28} colors={colors} />
-          <View>
-            <Text style={[s.chipSym, { color: colors.foreground }]}>{asset.symbol}</Text>
-            <Text style={[s.chipChain, { color: colors.mutedForeground }]}>{SWAP_CHAIN_NAME[asset.chain]}</Text>
-          </View>
+          <CoinMark asset={asset.asset} chain={asset.chain} size={26} colors={colors} />
+          <Text style={[s.chipSym, { color: colors.foreground }]}>{asset.symbol}</Text>
         </>
       ) : (
-        <Text style={[s.chipSym, { color: colors.foreground, paddingHorizontal: 6 }]}>{placeholder}</Text>
+        <Text style={[s.chipSym, { color: colors.foreground, paddingLeft: 6 }]}>Select</Text>
       )}
       <Feather name="chevron-down" size={15} color={colors.mutedForeground} />
     </TouchableOpacity>
   );
 }
 
-function Fact({ label, value, colors }: { label: string; value: string; colors: any }) {
-  return (
-    <View style={s.fact}>
-      <Text style={[s.factLabel, { color: colors.mutedForeground }]}>{label}</Text>
-      <Text style={[s.factValue, { color: colors.foreground }]} numberOfLines={1}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
-function Row({
-  label,
-  value,
-  colors,
-  last,
-  strong,
-  accent,
-  link,
-}: {
-  label: string;
-  value: string;
-  colors: any;
-  last?: boolean;
-  strong?: boolean;
-  accent?: boolean;
-  link?: string;
-}) {
+function Row({ label, value, colors, last, accent, link }: { label: string; value: string; colors: any; last?: boolean; accent?: boolean; link?: string }) {
   const body = (
     <View style={[s.row, !last && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
       <Text style={[s.rowLabel, { color: colors.mutedForeground }]}>{label}</Text>
-      <Text
-        style={[
-          s.rowValue,
-          { color: link || accent ? colors.primary : colors.foreground },
-          (strong || link || accent) && { fontFamily: "Inter_600SemiBold" },
-        ]}
-        numberOfLines={1}
-      >
+      <Text style={[s.rowValue, { color: link || accent ? colors.primary : colors.foreground }]} numberOfLines={1}>
         {value}
       </Text>
     </View>
@@ -841,39 +753,24 @@ function Row({
   return link ? <TouchableOpacity onPress={() => Linking.openURL(link)}>{body}</TouchableOpacity> : body;
 }
 
-function TrackStep({
-  state,
-  title,
-  sub,
-  colors,
-  last,
-}: {
-  state: "done" | "active" | "todo";
-  title: string;
-  sub: string;
-  colors: any;
-  last?: boolean;
-}) {
+function TrackStep({ state, title, colors, last }: { state: "done" | "active" | "todo"; title: string; colors: any; last?: boolean }) {
   return (
     <View style={s.track}>
       <View style={s.trackRail}>
         {state === "done" ? (
-          <View style={[s.trackDone, { backgroundColor: colors.primary }]}>
+          <View style={[s.trackDot, { backgroundColor: colors.primary }]}>
             <Feather name="check" size={12} color={colors.primaryForeground} />
           </View>
         ) : state === "active" ? (
-          <View style={[s.trackActive, { borderColor: colors.primary }]}>
-            <View style={[s.trackPip, { backgroundColor: colors.primary }]} />
+          <View style={[s.trackDot, { borderWidth: 2, borderColor: colors.primary }]}>
+            <ActivityIndicator size="small" color={colors.primary} style={{ transform: [{ scale: 0.6 }] }} />
           </View>
         ) : (
-          <View style={[s.trackTodo, { borderColor: colors.border }]} />
+          <View style={[s.trackDot, { borderWidth: 2, borderColor: colors.border }]} />
         )}
         {!last && <View style={[s.trackLine, { backgroundColor: state === "done" ? colors.primary : colors.border }]} />}
       </View>
-      <View style={s.trackText}>
-        <Text style={[s.trackTitle, { color: state === "todo" ? colors.mutedForeground : colors.foreground }]}>{title}</Text>
-        <Text style={[s.trackSub, { color: colors.mutedForeground }]}>{sub}</Text>
-      </View>
+      <Text style={[s.trackTitle, { color: state === "todo" ? colors.mutedForeground : colors.foreground }]}>{title}</Text>
     </View>
   );
 }
@@ -919,23 +816,15 @@ function Picker({
   return (
     <Modal transparent visible={visible} animationType="slide" onRequestClose={onClose}>
       <TouchableOpacity style={s.modalOverlay} activeOpacity={1} onPress={onClose}>
-        <View
-          style={[s.pickerSheet, { backgroundColor: colors.card, paddingBottom: bottomPad + 16 }]}
-          onStartShouldSetResponder={() => true}
-        >
+        <View style={[s.sheet, s.pickerSheet, { backgroundColor: colors.card, paddingBottom: bottomPad + 12 }]} onStartShouldSetResponder={() => true}>
           <View style={[s.handle, { backgroundColor: colors.border }]} />
-          <View style={s.pickerHead}>
-            <Text style={[s.pickerTitle, { color: colors.foreground }]}>{title}</Text>
-            <TouchableOpacity onPress={onClose} hitSlop={12} accessibilityLabel="Close">
-              <Feather name="x" size={20} color={colors.mutedForeground} />
-            </TouchableOpacity>
-          </View>
-          <View style={[s.search, { backgroundColor: colors.input, borderColor: colors.border }]}>
+          <Text style={[s.sheetTitle, { color: colors.foreground }]}>{title}</Text>
+          <View style={[s.search, { backgroundColor: colors.background }]}>
             <Feather name="search" size={16} color={colors.mutedForeground} />
             <TextInput
               value={q}
               onChangeText={setQ}
-              placeholder="Search a coin or chain"
+              placeholder="Search"
               placeholderTextColor={colors.mutedForeground}
               style={[s.searchInput, { color: colors.foreground }]}
               accessibilityLabel="Search coins"
@@ -948,37 +837,37 @@ function Picker({
                 <TouchableOpacity
                   key={c ?? "all"}
                   onPress={() => setChain(c)}
-                  style={[s.filterChip, on ? { backgroundColor: colors.primary } : { backgroundColor: colors.secondary, borderColor: colors.border, borderWidth: StyleSheet.hairlineWidth }]}
+                  style={[s.filterChip, { backgroundColor: on ? colors.foreground : colors.background }]}
                 >
-                  <Text style={[s.filterText, { color: on ? colors.primaryForeground : colors.foreground }]}>
+                  <Text style={[s.filterText, { color: on ? colors.background : colors.mutedForeground }]}>
                     {c ? SWAP_CHAIN_NAME[c as keyof typeof SWAP_CHAIN_NAME] : "All"}
                   </Text>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
-          <ScrollView style={{ maxHeight: 420 }} keyboardShouldPersistTaps="handled">
+          <ScrollView style={{ maxHeight: 440 }} keyboardShouldPersistTaps="handled">
             {list.map((a) => {
               const bal = balanceOf(a);
+              const on = selected === a.id;
               return (
-                <TouchableOpacity key={a.id} style={s.pickRow} onPress={() => onPick(a)} activeOpacity={0.75}>
-                  <CoinMark asset={a.asset} chain={a.chain} size={34} colors={colors} />
+                <TouchableOpacity
+                  key={a.id}
+                  style={[s.pickRow, on && { backgroundColor: colors.background }]}
+                  onPress={() => onPick(a)}
+                  activeOpacity={0.75}
+                >
+                  <CoinMark asset={a.asset} chain={a.chain} size={36} colors={colors} />
                   <View style={s.flex1}>
                     <Text style={[s.pickSym, { color: colors.foreground }]}>{a.symbol}</Text>
-                    <Text style={[s.pickNote, { color: colors.mutedForeground }]}>
-                      {SWAP_CHAIN_NAME[a.chain]}
-                      {bal > 0 ? ` · ${fmtCoin(bal, a.symbol)} in your wallet` : ""}
-                    </Text>
+                    <Text style={[s.quiet, { color: colors.mutedForeground }]}>{SWAP_CHAIN_NAME[a.chain]}</Text>
                   </View>
-                  {selected === a.id && <Feather name="check" size={18} color={colors.primary} />}
+                  {bal > 0 && <Text style={[s.pickBal, { color: colors.foreground }]}>{fmtCoin(bal, a.symbol)}</Text>}
                 </TouchableOpacity>
               );
             })}
-            {!list.length && <Text style={[s.pickNote, { color: colors.mutedForeground, paddingVertical: 24, textAlign: "center" }]}>Nothing matches that.</Text>}
+            {!list.length && <Text style={[s.quiet, s.centered, { color: colors.mutedForeground, paddingVertical: 28 }]}>No match</Text>}
           </ScrollView>
-          <Text style={[s.pickFoot, { color: colors.mutedForeground }]}>
-            Only coins your wallet can hold are listed, so whatever you pick lands in your own wallet.
-          </Text>
         </View>
       </TouchableOpacity>
     </Modal>
@@ -989,107 +878,86 @@ const s = StyleSheet.create({
   container: { flex: 1 },
   flex1: { flex: 1 },
   stretch: { alignSelf: "stretch" },
-  header: { flexDirection: "row", alignItems: "center", paddingHorizontal: 20, paddingBottom: 16 },
-  back: { width: 40 },
-  headerText: { flex: 1, alignItems: "center", marginRight: 40 },
-  title: { fontSize: 19, fontFamily: "Inter_700Bold", letterSpacing: -0.3 },
-  titleSub: { fontSize: 12.5, fontFamily: "Inter_400Regular", marginTop: 2 },
-  body: { paddingHorizontal: 20 },
+  centered: { textAlign: "center" },
+
+  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingBottom: 14 },
+  iconBtn: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
+  title: { fontSize: 17, fontFamily: "Inter_700Bold", letterSpacing: -0.3 },
+
+  body: { paddingHorizontal: 16 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 14 },
-  centerText: { fontSize: 15, fontFamily: "Inter_500Medium", textAlign: "center", lineHeight: 21 },
+  centerText: { fontSize: 15, fontFamily: "Inter_500Medium", textAlign: "center" },
+  quiet: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  hint: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 14, textAlign: "center" },
 
-  notice: { flexDirection: "row", alignItems: "center", gap: 8, padding: 12, borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, marginBottom: 12 },
-  noticeText: { flex: 1, fontSize: 12.5, fontFamily: "Inter_500Medium", lineHeight: 17 },
+  notice: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 12, marginBottom: 10 },
+  noticeText: { flex: 1, fontSize: 12.5, fontFamily: "Inter_500Medium" },
 
-  box: { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, padding: 16 },
-  boxTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  balanceRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  maxText: { fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
-  boxMid: { flexDirection: "row", alignItems: "center", gap: 10, marginVertical: 10 },
-  capLabel: { fontSize: 12, fontFamily: "Inter_500Medium" },
-  amountInput: { flex: 1, minWidth: 0, fontSize: 34, fontFamily: "Inter_700Bold", letterSpacing: -0.8, padding: 0 },
-  amountOut: { fontSize: 34, fontFamily: "Inter_700Bold", letterSpacing: -0.8 },
+  panel: { borderRadius: 24, paddingHorizontal: 18, paddingVertical: 16 },
+  panelTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  panelLabel: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  balanceBtn: { flexDirection: "row", alignItems: "center", gap: 6 },
+  maxPill: { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6 },
+  maxText: { fontSize: 10.5, fontFamily: "Inter_700Bold", letterSpacing: 0.4 },
+  panelMid: { flexDirection: "row", alignItems: "center", gap: 12, marginVertical: 12 },
+  amountInput: { flex: 1, minWidth: 0, fontSize: 40, fontFamily: "Inter_700Bold", letterSpacing: -1.2, padding: 0 },
+  amountOut: { fontSize: 40, fontFamily: "Inter_700Bold", letterSpacing: -1.2 },
 
-  chip: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 7, paddingRight: 10, paddingVertical: 7, borderRadius: 999, borderWidth: StyleSheet.hairlineWidth, minHeight: 44 },
-  chipSym: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  chipChain: { fontSize: 10.5, fontFamily: "Inter_400Regular" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 6, paddingRight: 10, height: 44, borderRadius: 22 },
+  chipSym: { fontSize: 15, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
 
-  flipWrap: { alignItems: "center", marginVertical: -12, zIndex: 1 },
-  flipBtn: { width: 44, height: 44, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
+  flipWrap: { alignItems: "center", marginVertical: -18, zIndex: 1 },
+  flipBtn: { width: 44, height: 44, borderRadius: 14, borderWidth: 4, alignItems: "center", justifyContent: "center" },
 
-  facts: { marginTop: 16, gap: 10, paddingHorizontal: 4 },
-  fact: { flexDirection: "row", justifyContent: "space-between", gap: 12 },
-  factLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  factValue: { fontSize: 13, fontFamily: "Inter_500Medium", flexShrink: 1, textAlign: "right" },
+  meta: { flexDirection: "row", justifyContent: "space-between", marginTop: 14, paddingHorizontal: 6 },
 
-  errorText: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 14, textAlign: "center", lineHeight: 18 },
-  sweepLink: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4, marginTop: 22, paddingVertical: 8 },
-  sweepText: { fontSize: 12.5, fontFamily: "Inter_500Medium" },
+  footerRow: { flexDirection: "row", gap: 10, paddingHorizontal: 16, paddingTop: 10 },
+  footerCol: { paddingHorizontal: 16, paddingTop: 10, alignItems: "center" },
+  cta: { height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  ctaText: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  ghostBtn: { flex: 1, height: 56, borderRadius: 18, alignItems: "center", justifyContent: "center" },
+  ghostBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
 
-  footer: { flexDirection: "row", gap: 10, paddingHorizontal: 20, paddingTop: 10 },
-  footerCol: { paddingHorizontal: 20, paddingTop: 10, alignItems: "center" },
-  primaryBtn: { height: 54, borderRadius: 16, alignItems: "center", justifyContent: "center", flexDirection: "row", gap: 8 },
-  primaryBtnText: { fontSize: 16, fontFamily: "Inter_700Bold" },
-  secondaryBtn: { flex: 1, height: 54, borderRadius: 16, alignItems: "center", justifyContent: "center", borderWidth: StyleSheet.hairlineWidth },
-  secondaryBtnText: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  holdText: { fontSize: 12, fontFamily: "Inter_400Regular", marginBottom: 10 },
+  card: { borderRadius: 22, paddingHorizontal: 18 },
+  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 14, gap: 12 },
+  rowLabel: { fontSize: 14, fontFamily: "Inter_400Regular" },
+  rowValue: { fontSize: 14, fontFamily: "Inter_600SemiBold", flexShrink: 1, textAlign: "right" },
 
-  card: { borderRadius: 18, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 16 },
-  row: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 12, gap: 12 },
-  rowLabel: { fontSize: 13, fontFamily: "Inter_400Regular" },
-  rowValue: { fontSize: 13, fontFamily: "Inter_500Medium", flexShrink: 1, textAlign: "right" },
-  reviewLine: { flexDirection: "row", alignItems: "center", gap: 12 },
-  reviewFig: { fontSize: 20, fontFamily: "Inter_700Bold", letterSpacing: -0.4 },
-  reviewChain: { fontSize: 12.5, fontFamily: "Inter_400Regular" },
-  reviewArrow: { flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 13 },
-  hair: { flex: 1, height: StyleSheet.hairlineWidth },
-  noteRow: { flexDirection: "row", gap: 9, marginTop: 14, paddingHorizontal: 2 },
-  noteText: { flex: 1, fontSize: 12.5, lineHeight: 18, fontFamily: "Inter_400Regular" },
+  reviewLine: { flexDirection: "row", alignItems: "center", gap: 14 },
+  reviewFig: { fontSize: 22, fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
+  reviewDivider: { height: StyleSheet.hairlineWidth, justifyContent: "center", marginLeft: 54 },
+  reviewArrow: { position: "absolute", left: -41, width: 28, height: 28, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, alignItems: "center", justifyContent: "center" },
 
-  pairHero: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 14, marginTop: 20, marginBottom: 16 },
-  dots: { flexDirection: "row", gap: 5 },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  watchTitle: { fontSize: 24, fontFamily: "Inter_700Bold", letterSpacing: -0.6, textAlign: "center" },
-  watchSub: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 6, marginBottom: 26 },
-  leaveNote: { fontSize: 12.5, lineHeight: 18, fontFamily: "Inter_400Regular", textAlign: "center", marginBottom: 14, paddingHorizontal: 10 },
+  pairHero: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 18, marginTop: 28, marginBottom: 20 },
+  watchTitle: { fontSize: 28, fontFamily: "Inter_700Bold", letterSpacing: -0.8, textAlign: "center" },
+  watchSub: { fontSize: 14, fontFamily: "Inter_500Medium", textAlign: "center", marginTop: 6, marginBottom: 28 },
 
-  track: { flexDirection: "row", gap: 12 },
+  track: { flexDirection: "row", gap: 14 },
   trackRail: { alignItems: "center" },
-  trackDone: { width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  trackActive: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
-  trackPip: { width: 8, height: 8, borderRadius: 4 },
-  trackTodo: { width: 22, height: 22, borderRadius: 11, borderWidth: 2 },
-  trackLine: { width: 2, height: 32 },
-  trackText: { paddingTop: 1, paddingBottom: 10, flex: 1 },
-  trackTitle: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
-  trackSub: { fontSize: 12.5, fontFamily: "Inter_400Regular", marginTop: 2 },
+  trackDot: { width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  trackLine: { width: 2, height: 26 },
+  trackTitle: { fontSize: 15, fontFamily: "Inter_600SemiBold", paddingTop: 2 },
 
-  doneBody: { paddingHorizontal: 20, alignItems: "center", paddingTop: 70 },
-  doneHalo: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", marginBottom: 22 },
-  doneDisc: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center" },
-  doneEyebrow: { fontSize: 15, fontFamily: "Inter_500Medium" },
-  doneFigure: { fontSize: 32, fontFamily: "Inter_700Bold", letterSpacing: -0.9, marginTop: 6, textAlign: "center" },
-  doneSub: { fontSize: 13, fontFamily: "Inter_400Regular", marginTop: 6, textAlign: "center", lineHeight: 18 },
+  doneBody: { paddingHorizontal: 16, alignItems: "center", paddingTop: 80 },
+  doneDisc: { width: 64, height: 64, borderRadius: 32, alignItems: "center", justifyContent: "center", marginBottom: 22 },
+  doneFigure: { fontSize: 34, fontFamily: "Inter_700Bold", letterSpacing: -1, textAlign: "center" },
+  doneSub: { fontSize: 14, fontFamily: "Inter_500Medium", marginTop: 6, textAlign: "center" },
 
   modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
-  handle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, marginTop: 10, marginBottom: 12 },
-  pinSheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20 },
-  pinHeading: { fontSize: 18, fontFamily: "Inter_700Bold", textAlign: "center" },
-  pinSub: { fontSize: 13, fontFamily: "Inter_400Regular", textAlign: "center", marginTop: 6 },
-  pinDots: { flexDirection: "row", justifyContent: "center", gap: 16, marginTop: 22 },
+  sheet: { borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 16 },
+  handle: { alignSelf: "center", width: 36, height: 4, borderRadius: 2, marginTop: 10, marginBottom: 14 },
+  sheetTitle: { fontSize: 18, fontFamily: "Inter_700Bold", letterSpacing: -0.3, marginBottom: 14 },
+  pinDots: { flexDirection: "row", justifyContent: "center", gap: 16, marginTop: 6 },
   pinDot: { width: 14, height: 14, borderRadius: 7 },
   pinErr: { fontSize: 12.5, fontFamily: "Inter_500Medium", textAlign: "center", marginVertical: 12 },
 
-  pickerSheet: { borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, maxHeight: "85%" },
-  pickerHead: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  pickerTitle: { fontSize: 18, fontFamily: "Inter_700Bold", letterSpacing: -0.3 },
-  search: { flexDirection: "row", alignItems: "center", gap: 10, height: 46, paddingHorizontal: 14, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth },
-  searchInput: { flex: 1, fontSize: 14, fontFamily: "Inter_400Regular", padding: 0 },
+  pickerSheet: { maxHeight: "85%" },
+  search: { flexDirection: "row", alignItems: "center", gap: 10, height: 46, paddingHorizontal: 14, borderRadius: 14 },
+  searchInput: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium", padding: 0 },
   chips: { gap: 8, paddingVertical: 12 },
-  filterChip: { height: 32, paddingHorizontal: 12, borderRadius: 999, justifyContent: "center" },
-  filterText: { fontSize: 12.5, fontFamily: "Inter_600SemiBold" },
-  pickRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 11, minHeight: 56 },
-  pickSym: { fontSize: 15, fontFamily: "Inter_600SemiBold" },
-  pickNote: { fontSize: 12.5, fontFamily: "Inter_400Regular", marginTop: 1 },
-  pickFoot: { fontSize: 12, lineHeight: 17, fontFamily: "Inter_400Regular", marginTop: 10 },
+  filterChip: { height: 32, paddingHorizontal: 14, borderRadius: 16, justifyContent: "center" },
+  filterText: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
+  pickRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 8, borderRadius: 14, minHeight: 58 },
+  pickSym: { fontSize: 15, fontFamily: "Inter_700Bold" },
+  pickBal: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

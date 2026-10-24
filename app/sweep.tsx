@@ -614,7 +614,8 @@ export default function SweepSheet() {
           <View style={s.list}>
             {legs.map((l, i) => (
               <LegRow
-                key={l.chain}
+                // Coin and chain: USDC and USDT can both be swept off Solana, and the chain alone repeats.
+                key={`${l.asset}-${l.chain}`}
                 leg={l}
                 first={i === 0}
                 colors={colors}
