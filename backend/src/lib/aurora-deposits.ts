@@ -428,6 +428,8 @@ export async function syncAuroraLedger(userId: string): Promise<void> {
 /* ─── Background ───────────────────────────────────────────────────── */
 
 let inFlightRunning = false;
+/** How long a deposit still converting is followed before a person takes over. */
+const FOLLOW_FOR_MS = 3 * 24 * 60 * 60_000;
 let discoveryRunning = false;
 
 /** Deposits already seen and still converting: finish them while the app is closed. */
@@ -435,8 +437,29 @@ export async function syncInFlightAuroraDeposits(): Promise<void> {
   if (inFlightRunning || !isAuroraConfigured()) return;
   inFlightRunning = true;
   try {
+    /**
+     * Followed for three days, then left for a person.
+     *
+     * Every followed row costs status reads against an hourly limit shared by
+     * everyone, and a row that will never settle - dust under the minimum,
+     * sent by mistake or on purpose - would otherwise be read forever, until
+     * nobody's deposits could be read at all. Past three days it says it is
+     * taking longer than usual and stops being polled.
+     */
+    const cutoff = new Date(Date.now() - FOLLOW_FOR_MS);
+    const stale = await prisma.transaction.findMany({
+      where: { reference: { startsWith: "AUDEP-" }, status: { in: ["PENDING", "PROCESSING"] }, createdAt: { lt: cutoff } },
+      select: { id: true, metadata: true },
+      take: 200,
+    });
+    for (const s of stale) {
+      const m = (s.metadata ?? {}) as any;
+      if (m.routedStatus === "review") continue;
+      await prisma.transaction.update({ where: { id: s.id }, data: { metadata: { ...m, routedStatus: "review" } } }).catch(() => {});
+    }
+
     const rows = await prisma.transaction.findMany({
-      where: { reference: { startsWith: "AUDEP-" }, status: { in: ["PENDING", "PROCESSING"] } },
+      where: { reference: { startsWith: "AUDEP-" }, status: { in: ["PENDING", "PROCESSING"] }, createdAt: { gte: cutoff } },
       select: { userId: true },
       distinct: ["userId"],
     });
@@ -667,6 +690,7 @@ async function settleFromWallet(): Promise<void> {
     where: {
       reference: { startsWith: "AUDEP-" },
       status: { in: ["PENDING", "PROCESSING"] },
+      createdAt: { gte: new Date(Date.now() - FOLLOW_FOR_MS) },
     },
     select: { id: true, userId: true, createdAt: true, metadata: true },
     orderBy: { createdAt: "asc" },
@@ -680,6 +704,9 @@ async function settleFromWallet(): Promise<void> {
     const m = (row.metadata ?? {}) as any;
     const chain = AURORA_DEPOSIT_CHAINS.find((c) => c.chainId === Number(m.chainId));
     if (!chain) continue;
+    // Nothing can have been paid for a payment its own chain has not confirmed,
+    // so USDC arriving meanwhile is somebody else's and must not be taken for it.
+    if (m.watched && m.confirmed === false) continue;
     const price = chain.symbol === "USDT" ? 1 : tokens?.get(chain.assetId)?.price;
     const sent = Number(m.sentAmount);
     if (!price || !(sent > 0)) continue;

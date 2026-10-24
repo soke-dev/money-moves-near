@@ -203,6 +203,20 @@ const pinLimiter = rateLimit({
   message: { error: "Too many PIN attempts, please try again later" },
 });
 
+/**
+ * Swap prices. Each one is a call to the swap provider, whose rate limit is
+ * shared by everybody, so one device asking nonstop could stop swaps for all.
+ * Thirty a minute is far above what the screen asks while somebody types.
+ */
+const swapQuoteLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  keyGenerator: deviceKey,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: "Too many price checks. Wait a moment and try again." },
+});
+
 // Refresh token: prevent token farming
 const refreshLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
@@ -293,6 +307,8 @@ app.use("/api/kyc", kycRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/funding", fundingRoutes);
 app.use("/api/routed-deposits", routedDepositRoutes);
+app.use("/api/swap/quote", swapQuoteLimiter);
+app.use("/api/swap/prepare", swapQuoteLimiter);
 app.use("/api/swap", swapRoutes);
 app.use("/api/notifications", notificationRoutes);
 // Money Moves Business: its requests (signed, internal) and the person's own answers.

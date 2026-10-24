@@ -182,18 +182,48 @@ function Count({ c }: { c?: { n: number; bad?: boolean } }) {
 /** A Business record (a business, a payment...) named in the address, if one is. */
 const recordInUrl = () => readRecord(new URLSearchParams(window.location.search))
 
+/**
+ * The page you are on lives in the address, as #section or #section/tab, so a
+ * refresh lands back on it instead of on the overview.
+ */
+const hashParts = (): string[] => window.location.hash.replace(/^#/, '').split('/').filter(Boolean)
+const sectionInHash = (): AnySection | null => {
+  const id = hashParts()[0]
+  if (!id) return null
+  return ([...SECTIONS, ...BUSINESS_SECTIONS] as readonly { id: string }[]).some((s) => s.id === id) ? (id as AnySection) : null
+}
+const isBusinessSection = (s: AnySection) => BUSINESS_SECTIONS.some((b) => b.id === s)
+/** Write the page into the address without adding a history entry or touching the query. */
+const setHash = (parts: string[]) => {
+  const next = `#${parts.join('/')}`
+  if (window.location.hash !== next) window.history.replaceState(window.history.state, '', `${window.location.pathname}${window.location.search}${next}`)
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const [params] = useSearchParams()
   // A record is a page with its own address - opened from a list, or from a link someone pasted.
   const record = readRecord(params)
   const { back, from } = useRecord()
-  const [space, setSpace] = useState<Space>(() => (recordInUrl() ? 'business' : savedSpace()))
+  const [space, setSpace] = useState<Space>(() => {
+    if (recordInUrl()) return 'business'
+    const h = sectionInHash()
+    if (h) return isBusinessSection(h) ? 'business' : 'personal'
+    return savedSpace()
+  })
   const [section, setSection] = useState<AnySection>(() => {
     const r = recordInUrl()
     if (r) return RECORD_SECTION[r.kind]
+    const h = sectionInHash()
+    if (h) return h
     return savedSpace() === 'business' ? 'b_overview' : 'overview'
   })
+
+  // Keep the address in step with the page. A sub-tab (Services) adds its own part, so it is left alone.
+  // Re-run when the query changes too: opening or leaving a record rewrites the address and drops the hash.
+  useEffect(() => {
+    if (hashParts()[0] !== section) setHash([section])
+  }, [section, params])
   const [filter, setFilter] = useState<string | undefined>()
   const [nonce, setNonce] = useState(0)
   const [refreshing, setRefreshing] = useState<'busy' | 'done' | null>(null)
@@ -652,8 +682,18 @@ function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: 
 
 type ServicesTab = 'pause' | 'providers' | 'rates' | 'converted' | 'swap' | 'emails'
 
+const SERVICES_TABS: ServicesTab[] = ['pause', 'providers', 'rates', 'converted', 'swap', 'emails']
+
 function Services() {
-  const [tab, setTab] = useState<ServicesTab>('pause')
+  // The tab is the second part of the address (#services/swap), so a refresh keeps it.
+  const [tab, setTabState] = useState<ServicesTab>(() => {
+    const t = hashParts()[1] as ServicesTab | undefined
+    return t && SERVICES_TABS.includes(t) ? t : 'pause'
+  })
+  const setTab = (t: ServicesTab) => {
+    setTabState(t)
+    setHash(['services', t])
+  }
   const [services, setServices] = useState<Service[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState<string | null>(null)

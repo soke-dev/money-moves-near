@@ -85,7 +85,7 @@ type LiveAsset = SwapAsset & { decimals: number; price: number };
 const round6 = (n: number) => Math.floor(n * 1e6) / 1e6;
 
 /** Dollar coins, valued at face for the minimum and the flat fee. */
-const isStable = (a: { asset: string }) => a.asset === "USDC" || a.asset === "USDT";
+const isStable = (a: { asset: string }) => a.asset === "USDC" || a.asset === "USDT" || a.asset === "USDCx";
 
 export type SwapPlan = {
   from: LiveAsset;
@@ -290,6 +290,7 @@ export async function prepareSwap(userId: string, fromId: string, toId: string, 
   }
   if (onChain + 1e-9 < plan.amount) throw new SwapError("Not enough balance for this swap.");
 
+  if (isEvm(plan.from.chain)) await assertFeesPaid(userId);
   if (plan.from.via) return prepareRoutedSwap(userId, plan, settings);
 
   const r = await requestQuote(quoteBody(plan, false, settings.slippageBps));
@@ -376,6 +377,34 @@ export async function prepareSwap(userId: string, fromId: string, toId: string, 
 }
 
 const meta = (t: { metadata: unknown }) => (t.metadata ?? {}) as any;
+
+/**
+ * On the EVM chains our fee is a second transfer the app signs after the swap
+ * has gone, so an app that simply never signs it swaps for free. One missed
+ * fee is an accident - a crash between the two signatures. Two where the app
+ * never even tried (no error recorded from an attempt) is a pattern, and the
+ * account stops swapping from those chains until support looks.
+ */
+async function assertFeesPaid(userId: string) {
+  const rows = await prisma.transaction.findMany({
+    where: {
+      userId,
+      type: "SWEEP",
+      status: { in: ["PROCESSING", "COMPLETED"] },
+      createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60_000), lte: new Date(Date.now() - 10 * 60_000) },
+      AND: [
+        { metadata: { path: ["kind"], equals: "swap" } },
+        { metadata: { path: ["fee", "via"], equals: "second_tx" } },
+      ],
+    },
+    select: { metadata: true },
+    take: 100,
+  });
+  const skipped = rows.map(meta).filter((m) => m.fee?.amount > 0 && !m.fee?.collected && !m.fee?.error && !m.fee?.waived).length;
+  if (skipped >= 2) {
+    throw new SwapError("Fees on your earlier swaps did not go through, so swaps from this network are paused for your account. Contact support to sort it out.", 403);
+  }
+}
 
 /** Lower the cached balance of the coin that left. Bookkeeping only: payouts never read it. */
 async function debit(userId: string, asset: string, chain: string, amount: number) {
@@ -530,7 +559,15 @@ export async function refreshSwap(swapId: string) {
     }
     // A payout claimed and never written down: whether it went is unknown, so a person looks.
     if (m.swapStatus === "PAYING") {
-      if (Date.now() - Date.parse(m.payingAt ?? "") > 10 * 60_000) await holdRouted(swapId, m, "payout never confirmed");
+      if (Date.now() - Date.parse(m.payingAt ?? "") > 10 * 60_000) {
+        // The onward payment may have gone out with its record lost: ask before calling it held.
+        const seen = m.depositAddress ? await swapStatus(m.depositAddress, undefined, m.provider ?? "aurora") : null;
+        if (seen?.ok && seen.data && seen.data.status !== "PENDING_DEPOSIT") {
+          await prisma.transaction.update({ where: { id: swapId }, data: { metadata: { ...m, swapStatus: seen.data.status } } });
+        } else {
+          await holdRouted(swapId, m, "payout never confirmed");
+        }
+      }
       return prisma.transaction.findUnique({ where: { id: swapId } });
     }
     if (m.swapStatus === "HELD" || !m.depositAddress) return tx;
@@ -615,6 +652,26 @@ export async function refreshInFlightSwaps(): Promise<void> {
   if (refreshing || !isSwapConfigured()) return;
   refreshing = true;
   try {
+    /**
+     * Never signed: gone, not failed.
+     *
+     * Backing out at the review leaves a PENDING row, and the stale-transaction
+     * job would mark it FAILED after ten minutes - a "failed swap" in somebody's
+     * history for a swap they chose not to send, counted against their daily
+     * limit too. Nothing left their wallet, so there is nothing to record. Five
+     * minutes is long past the two that a signing payload lives.
+     */
+    await prisma.transaction.deleteMany({
+      where: {
+        type: "SWEEP",
+        status: "PENDING",
+        createdAt: { lt: new Date(Date.now() - 5 * 60_000) },
+        AND: [
+          { metadata: { path: ["kind"], equals: "swap" } },
+          { metadata: { path: ["swapStatus"], equals: "AWAITING_SIGNATURE" } },
+        ],
+      },
+    });
     const rows = await prisma.transaction.findMany({
       where: {
         type: "SWEEP",
@@ -706,12 +763,21 @@ async function routeHeadroom(): Promise<number> {
   } catch {
     return 0;
   }
+  /**
+   * Promised: everything their USDCx has already reached us for, and anything
+   * prepared in the last three minutes that could still be signed. A prepared
+   * transfer expires in two, so an older unsigned one can never arrive - and
+   * counting those let one person reserve the whole wallet by preparing swaps
+   * and never sending them.
+   */
   const open = await prisma.transaction.findMany({
     where: {
       type: "SWEEP",
-      status: { in: ["PENDING", "PROCESSING"] },
       AND: [{ metadata: { path: ["route"], equals: ROUTE } }],
-      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+      OR: [
+        { status: "PROCESSING", createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) } },
+        { status: "PENDING", createdAt: { gte: new Date(Date.now() - 3 * 60_000) } },
+      ],
     },
     select: { metadata: true },
   });
@@ -869,16 +935,28 @@ async function routeOnward(swapId: string): Promise<void> {
   if (claimed.count !== 1) return;
 
   const net = Number(m.from.net);
+  /**
+   * What is known so far, carried into a hold whatever step fails. Above all
+   * the payout's hash: a hold that lost it would invite paying by hand a
+   * second time for money already sent.
+   */
+  let state: any = paying;
   try {
     if ((await routeHeadroom()) + net + 1e-9 < net) {
       // Headroom already counts this swap as promised; less than nothing left means short.
-      return holdRouted(swapId, paying, "Base swap wallet short");
+      return holdRouted(swapId, state, "Base swap wallet short");
     }
 
     // Base USDC asked for: pay their own Base wallet, done.
     if (m.to.id === ROUTE_USDC.id) {
-      const hash = await sendRouteUsdc(m.to.address, net);
-      const done = { ...paying, swapStatus: "SUCCESS", payoutTxHash: hash, txHash: hash, completedAt: new Date().toISOString() };
+      let hash: string;
+      try {
+        hash = await sendRouteUsdc(m.to.address, net);
+      } catch (err: any) {
+        return holdRouted(swapId, { ...state, ...(err?.txHash ? { payoutTxHash: err.txHash } : {}) }, `payout failed: ${err?.message}`);
+      }
+      state = { ...state, payoutTxHash: hash };
+      const done = { ...state, swapStatus: "SUCCESS", txHash: hash, completedAt: new Date().toISOString() };
       const { count } = await prisma.transaction.updateMany({
         where: { id: swapId, status: "PROCESSING" },
         data: { status: "COMPLETED", amount: net, metadata: done },
@@ -903,29 +981,36 @@ async function routeOnward(swapId: string): Promise<void> {
       recipientType: "DESTINATION_CHAIN",
     });
     const q = r.data?.quote;
-    if (!r.ok || !q?.depositAddress) return holdRouted(swapId, paying, `no onward quote: ${r.error ?? r.status}`);
+    if (!r.ok || !q?.depositAddress) return holdRouted(swapId, state, `no onward quote: ${r.error ?? r.status}`);
 
     const toDecimals = (await liveSwapAssets()).find((a) => a.id === m.to.id)?.decimals ?? 6;
     // Written before the send, so a stop after it still knows where the money went.
     const quoted = {
-      ...paying,
+      ...state,
       depositAddress: q.depositAddress,
       provider: r.provider,
       quoteCorrelationId: r.data?.correlationId ?? null,
       deadline: q.deadline ?? null,
       to: { ...m.to, expected: fromBaseUnits(q.amountOut, toDecimals), minimum: fromBaseUnits(q.minAmountOut, toDecimals) },
     };
+    state = quoted;
     await prisma.transaction.update({ where: { id: swapId }, data: { metadata: quoted } });
 
     let hash: string;
     try {
       hash = await sendRouteUsdc(q.depositAddress, net);
     } catch (err: any) {
-      return holdRouted(swapId, { ...quoted, ...(err?.txHash ? { payoutTxHash: err.txHash } : {}) }, `onward send failed: ${err?.message}`);
+      return holdRouted(swapId, { ...state, ...(err?.txHash ? { payoutTxHash: err.txHash } : {}) }, `onward send failed: ${err?.message}`);
     }
-    await prisma.transaction.update({ where: { id: swapId }, data: { metadata: { ...quoted, payoutTxHash: hash, swapStatus: "PENDING_DEPOSIT" } } });
+    state = { ...state, payoutTxHash: hash, swapStatus: "PENDING_DEPOSIT" };
+    await prisma.transaction.update({ where: { id: swapId }, data: { metadata: state } });
     submitDepositTx(hash, q.depositAddress, undefined, (r.provider ?? "aurora") as SwapProvider).catch(() => {});
   } catch (err: any) {
-    await holdRouted(swapId, paying, err?.message || "payout failed");
+    // Once the onward payment is out, the swap is only being followed, not held: the provider has it.
+    if (state.payoutTxHash && state.depositAddress) {
+      console.error(`[SWAP] ${swapId}: paid out (${state.payoutTxHash}) but could not record it: ${err?.message}`);
+      return;
+    }
+    await holdRouted(swapId, state, err?.message || "payout failed");
   }
 }
