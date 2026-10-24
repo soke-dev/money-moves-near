@@ -177,7 +177,7 @@ export default function TransactionDetailScreen() {
         return transferUsername ? `Sent to @${transferUsername}` : "Sent to User";
       case "TRANSFER_IN": return transferUsername ? `Received from @${transferUsername}` : "Received from User";
       case "AIRTIME": return meta.billType === "electricity" ? "Electricity Purchase" : meta.billType === "betting" ? "Betting Top-up" : meta.billType === "data" ? "Data Purchase" : "Airtime Purchase";
-      case "SWEEP": return "Swap";
+      case "SWEEP": return meta.kind === "swap" ? "Swap" : "Sweep";
       default: return tx.type;
     }
   };

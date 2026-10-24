@@ -391,10 +391,9 @@ export default function HomeScreen() {
   /**
    * Swapping between chains, when the server offers it.
    *
-   * The same tag opens it, because to the person both are "swap": the new
-   * screen takes any coin to any chain, and links through to the sweep for
-   * gathering small balances. When swaps are off the tag falls back to the
-   * sweep alone, exactly as it behaved before.
+   * Its own tag beside Sweep. The two split balances by size: Sweep takes
+   * the small ones (the swap minimum and under) into USDCx on Movement, and
+   * Swap takes anything bigger, any coin to any chain.
    */
   const [swapOn, setSwapOn] = useState(false);
   useFocusEffect(
@@ -408,7 +407,6 @@ export default function HomeScreen() {
       };
     }, []),
   );
-  const canSwap = swapOn || canSweep;
 
   /**
    * Say it here rather than let them find out three screens in.
@@ -1297,19 +1295,34 @@ export default function HomeScreen() {
                   scattered balances are what that figure is made of - and a
                   full-width card for an optional tidy-up outranked the token
                   rows it is about. The detail lives in the sheet. */}
-              {canSwap && (
-                <TouchableOpacity
-                  style={[styles.swapTag, { backgroundColor: colors.primary + "14", borderColor: colors.primary + "30" }]}
-                  activeOpacity={0.75}
-                  onPress={() => router.push((swapOn ? "/swap" : "/sweep") as any)}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Image
-                    source={require("@/assets/images/swap.png")}
-                    style={[styles.swapIcon, { tintColor: colors.primary }]}
-                  />
-                  <Text style={[styles.swapTagText, { color: colors.primary }]}>Swap</Text>
-                </TouchableOpacity>
+              {(canSweep || swapOn) && (
+                <View style={styles.tagRow}>
+                  {canSweep && (
+                    <TouchableOpacity
+                      style={[styles.swapTag, { backgroundColor: colors.primary + "14", borderColor: colors.primary + "30" }]}
+                      activeOpacity={0.75}
+                      onPress={() => router.push("/sweep" as any)}
+                      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                    >
+                      <Image
+                        source={require("@/assets/images/swap.png")}
+                        style={[styles.swapIcon, { tintColor: colors.primary }]}
+                      />
+                      <Text style={[styles.swapTagText, { color: colors.primary }]}>Sweep</Text>
+                    </TouchableOpacity>
+                  )}
+                  {swapOn && (
+                    <TouchableOpacity
+                      style={[styles.swapTag, { backgroundColor: colors.primary + "14", borderColor: colors.primary + "30" }]}
+                      activeOpacity={0.75}
+                      onPress={() => router.push("/swap" as any)}
+                      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                    >
+                      <Feather name="repeat" size={13} color={colors.primary} />
+                      <Text style={[styles.swapTagText, { color: colors.primary }]}>Swap</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               )}
             </View>
 
@@ -2530,6 +2543,7 @@ const styles = StyleSheet.create({
   // ── Assets ───────────────────────────────────────
   portfolioHead: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14 },
   portfolioRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  tagRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   // Called swap in the app and sweep everywhere underneath it: the route, the
   // API and the transaction type were named before the feature was, and
   // renaming a stored enum to match a label is not worth a migration.

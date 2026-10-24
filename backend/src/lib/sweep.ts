@@ -1,6 +1,7 @@
 import { prisma } from "./prisma";
 import { env } from "../config/env";
 import { getOnChainBalance } from "./balances";
+import { auroraSettings } from "./aurora-settings";
 
 /**
  * Sweep — scattered stablecoins into one USDCx balance on Movement.
@@ -354,6 +355,7 @@ export async function sweepableBalances(userId: string): Promise<
    * pays back, is only ever what the chain says this wallet holds. A balance
    * the chain won't confirm right now simply isn't offered.
    */
+  const ceiling = await sweepCeiling();
   const live = await Promise.all(
     wallets.map(async (w) => {
       try {
@@ -392,7 +394,21 @@ export async function sweepableBalances(userId: string): Promise<
       b.amount >=
       minNetFor(b.chain as SweepChain),
     )
+    /**
+     * Small balances only. Anything above the swap minimum belongs to Swap,
+     * which takes any coin to any chain into the person's own wallet; the
+     * sweep is for what is too small to swap. Sharing the one figure means
+     * every balance has exactly one place to go, and changing the minimum in
+     * the console moves both. Both coins here are dollars, so the amount is
+     * the dollar value.
+     */
+    .filter((b) => b.amount <= ceiling + 1e-9)
     .sort((a, b) => b.amount - a.amount);
+}
+
+/** The largest single balance a sweep takes: the swap minimum, $5 unless the console says otherwise. */
+export async function sweepCeiling(): Promise<number> {
+  return (await auroraSettings()).swap.minUsd;
 }
 
 /**
@@ -466,19 +482,20 @@ export function validateSelection(
   selected: { asset: string; chain: string; amount?: number }[],
   available: { asset: SweepAsset; chain: SweepChain; amount: number }[],
 ): { ok: true; legs: SweepLeg[]; total: number } | { ok: false; error: string } {
-  if (!selected.length) return { ok: false, error: "Pick at least one balance to swap." };
+  if (!selected.length) return { ok: false, error: "Pick at least one balance to sweep." };
 
   const legs: SweepLeg[] = [];
   for (const want of selected) {
     if (!isSweepAsset(want.asset) || !isSweepChain(want.chain)) {
-      return { ok: false, error: "That is not something swap can move." };
+      return { ok: false, error: "That is not something sweep can move." };
     }
     if (legs.some((l) => l.asset === want.asset && l.chain === want.chain)) {
       return { ok: false, error: "The same balance was listed twice." };
     }
     const have = available.find((a) => a.asset === want.asset && a.chain === want.chain);
     if (!have || have.amount <= 0) {
-      return { ok: false, error: `You have no ${want.asset} on ${want.chain} to swap.` };
+      // Also what a balance over the sweep ceiling gets: it is not on the list, and Swap is where it goes.
+      return { ok: false, error: `That ${want.asset} balance on ${want.chain} can't be swept. Bigger balances use Swap.` };
     }
 
     const asked = Number(want.amount);
@@ -498,7 +515,7 @@ export function validateSelection(
     if (amount < floor) {
       return {
         ok: false,
-        error: `The least you can swap from ${want.chain} is ${floor} ${want.asset}.`,
+        error: `The least you can sweep from ${want.chain} is ${floor} ${want.asset}.`,
       };
     }
 
@@ -520,6 +537,8 @@ export async function sweepQuote(userId: string) {
 
   return {
     balances,
+    // The largest single balance a sweep takes; anything bigger is for Swap.
+    ceiling: await sweepCeiling(),
     total: balances.reduce((n, b) => n + b.amount, 0),
     destination: { chain: SWEEP_DEST_CHAIN, asset: SWEEP_DEST_ASSET },
     // allowance already carries perWeek, and it carries the figure THIS

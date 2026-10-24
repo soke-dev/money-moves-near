@@ -676,7 +676,7 @@ export default function SwapScreen() {
 
           <TouchableOpacity onPress={() => router.push("/sweep" as any)} style={s.sweepLink}>
             <Text style={[s.sweepText, { color: colors.mutedForeground }]}>
-              Gather small balances into USDC on Movement instead
+              Sweep balances of $5 or less into USDC on Movement
             </Text>
             <Feather name="chevron-right" size={14} color={colors.mutedForeground} />
           </TouchableOpacity>

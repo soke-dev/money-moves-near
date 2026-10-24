@@ -482,7 +482,7 @@ export default function SweepSheet() {
       );
     } catch (e: any) {
       setRunning(false);
-      setError(e?.response?.data?.error || "Could not start that swap.");
+      setError(e?.response?.data?.error || "Could not start that sweep.");
       return;
     }
 
@@ -564,7 +564,7 @@ export default function SweepSheet() {
   // ── the header carries the state ──────────────────────────
   const head = running
     ? {
-        eyebrow: allDone ? (anyLanded ? "SWAPPED" : "NOTHING MOVED") : "SWAPPING",
+        eyebrow: allDone ? (anyLanded ? "SWEPT" : "NOTHING MOVED") : "SWEEPING",
         figure: `$${landedTotal.toFixed(2)}`,
         caption: allDone
           ? anyLanded
@@ -573,7 +573,7 @@ export default function SweepSheet() {
           : `${doneCount} of ${legs.length} ${legs.length === 1 ? "chain has" : "chains have"} answered`,
       }
     : {
-        eyebrow: "SWAP",
+        eyebrow: "SWEEP",
         figure: `$${total.toFixed(2)}`,
         caption: "into one USDC balance on Movement",
       };
@@ -655,7 +655,7 @@ export default function SweepSheet() {
       return (
         <View style={s.centre}>
           <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
-            Nothing to swap. You have no USDC or USDT sitting on Arc, Solana, Base or BNB Chain.
+            Nothing to sweep. Sweep gathers USDC or USDT balances of $5 or less on Arc, Solana, Base or BNB Chain. Use Swap for bigger ones.
           </Text>
         </View>
       );
@@ -763,7 +763,7 @@ export default function SweepSheet() {
 
                   {on && amountFor(b) < minFor(b.chain) && (
                     <Text style={[s.rowWarn, { color: colors.mutedForeground }]}>
-                      {`The least you can swap from ${CHAIN_NAME[b.chain] || b.chain} is ${minFor(b.chain)}.`}
+                      {`The least you can sweep from ${CHAIN_NAME[b.chain] || b.chain} is ${minFor(b.chain)}.`}
                     </Text>
                   )}
                 </TouchableOpacity>
@@ -782,12 +782,12 @@ export default function SweepSheet() {
         >
           <Text style={[s.ctaText, { color: colors.primaryForeground }]}>
             {noneLeft
-              ? "No swaps left this week"
+              ? "No sweeps left this week"
               : !enough
-              ? "Pick a balance to swap"
+              ? "Pick a balance to sweep"
               : selected.length === 1
-              ? `Swap $${total.toFixed(2)}`
-              : `Swap $${total.toFixed(2)} from ${selected.length}`}
+              ? `Sweep $${total.toFixed(2)}`
+              : `Sweep $${total.toFixed(2)} from ${selected.length}`}
           </Text>
         </TouchableOpacity>
 
