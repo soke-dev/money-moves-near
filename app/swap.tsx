@@ -137,7 +137,8 @@ export default function SwapScreen() {
   const to = assets.find((a) => a.id === toId) ?? null;
   const amount = Number(amountText.replace(/,/g, ""));
   const fromBalance = balanceOf(from);
-  const usd = from && amount > 0 ? amount * from.price : 0;
+  // Dollar coins at face value, as the server counts them: 2 USDC meets a $2 minimum.
+  const usd = from && amount > 0 ? (from.asset === "USDC" || from.asset === "USDT" ? amount : amount * from.price) : 0;
   const belowMin = !!config && amount > 0 && usd < config.minUsd;
   const overBalance = amount > 0 && amount > fromBalance + 1e-9;
 
@@ -702,7 +703,8 @@ export default function SwapScreen() {
 /* ─── Pieces ───────────────────────────────────────────────────────── */
 
 function CoinMark({ asset, chain, size, colors }: { asset: string; chain: string; size: number; colors: any }) {
-  const badge = Math.round(size * 0.42);
+  // Big enough to tell the chains apart at a glance, even on the small coin in the chip.
+  const badge = Math.max(15, Math.round(size * 0.56));
   return (
     <View style={{ width: size, height: size }}>
       <TokenLogo symbol={asset} size={size} />
@@ -711,8 +713,8 @@ function CoinMark({ asset, chain, size, colors }: { asset: string; chain: string
           source={CHAIN_MARKS[chain]}
           style={{
             position: "absolute",
-            right: -3,
-            bottom: -3,
+            right: -4,
+            bottom: -4,
             width: badge,
             height: badge,
             borderRadius: badge / 2,
@@ -730,7 +732,7 @@ function AssetChip({ asset, colors, onPress }: { asset: SwapAsset | null; colors
     <TouchableOpacity style={[s.chip, { backgroundColor: colors.background }]} onPress={onPress} activeOpacity={0.8}>
       {asset ? (
         <>
-          <CoinMark asset={asset.asset} chain={asset.chain} size={26} colors={colors} />
+          <CoinMark asset={asset.asset} chain={asset.chain} size={28} colors={colors} />
           <Text style={[s.chipSym, { color: colors.foreground }]}>{asset.symbol}</Text>
         </>
       ) : (
@@ -903,7 +905,7 @@ const s = StyleSheet.create({
   amountInput: { flex: 1, minWidth: 0, fontSize: 40, fontFamily: "Inter_700Bold", letterSpacing: -1.2, padding: 0 },
   amountOut: { fontSize: 40, fontFamily: "Inter_700Bold", letterSpacing: -1.2 },
 
-  chip: { flexDirection: "row", alignItems: "center", gap: 8, paddingLeft: 6, paddingRight: 10, height: 44, borderRadius: 22 },
+  chip: { flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 6, paddingRight: 10, height: 46, borderRadius: 23 },
   chipSym: { fontSize: 15, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
 
   flipWrap: { alignItems: "center", marginVertical: -18, zIndex: 1 },

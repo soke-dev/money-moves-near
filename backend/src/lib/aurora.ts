@@ -159,18 +159,18 @@ export type SwapAsset = {
  * The catalogue. Checked against the live token list on every read, so a
  * token they stop listing quietly drops out instead of failing at quote time.
  *
- * Spend side: stablecoins on Solana and the EVM chains, the ones the
- * withdrawal builders can send with our gas. SOL is receive-only, because the
- * fee comes out of the coin being sent and a SOL send has no token account
- * to take it from. TON is receive-only for now: its sends go through a relay
- * that charges in the same USDT, which this first version does not price.
+ * Stablecoins only, both sides. Spend side: Solana and the EVM chains, the
+ * ones the withdrawal builders can send with our gas. TON is receive-only for
+ * now: its sends go through a relay that charges in the same USDT, which this
+ * first version does not price. Movement USDCx is listed by Aurora but quotes
+ * "No liquidity available" in both directions, so it is left out until it
+ * routes.
  *
  * Arbitrum is left out on both sides: the app does not list balances there.
  */
 export const SWAP_ASSETS: readonly SwapAsset[] = [
   { id: "SOL:USDC", chain: "SOL", asset: "USDC", symbol: "USDC", assetId: "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near", from: true, to: true },
   { id: "SOL:USDT", chain: "SOL", asset: "USDT", symbol: "USDT", assetId: "nep141:sol-c800a4bd850783ccb82c2b2c7e84175443606352.omft.near", from: true, to: true },
-  { id: "SOL:SOL", chain: "SOL", asset: "SOL", symbol: "SOL", assetId: "nep141:sol.omft.near", from: false, to: true },
   { id: "BASE:USDC", chain: "BASE", asset: "USDC", symbol: "USDC", assetId: "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near", from: true, to: true },
   { id: "BEP20:USDC", chain: "BEP20", asset: "USDC", symbol: "USDC", assetId: "nep245:v2_1.omni.hot.tg:56_2w93GqMcEmQFDru84j3HZZWt557r", from: true, to: true },
   { id: "BEP20:USDT", chain: "BEP20", asset: "USDT", symbol: "USDT", assetId: "nep245:v2_1.omni.hot.tg:56_2CMMyVTGZkeyNZTSvS5sarzfir6g", from: true, to: true },

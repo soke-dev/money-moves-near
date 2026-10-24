@@ -81,6 +81,9 @@ type LiveAsset = SwapAsset & { decimals: number; price: number };
 /** Six places is finer than any stablecoin fee needs, and what the builders accept. */
 const round6 = (n: number) => Math.floor(n * 1e6) / 1e6;
 
+/** Dollar coins, valued at face for the minimum and the flat fee. */
+const isStable = (a: { asset: string }) => a.asset === "USDC" || a.asset === "USDT";
+
 export type SwapPlan = {
   from: LiveAsset;
   to: LiveAsset;
@@ -112,14 +115,19 @@ export async function planSwap(userId: string, fromId: string, toId: string, amo
   if (from.id === to.id) throw new SwapError("Pick two different coins.");
   if (!Number.isFinite(amount) || amount <= 0) throw new SwapError("Enter an amount.");
 
-  const usd = amount * from.price;
+  // A stablecoin counts as its face value: the minimum is "$5", and 5 USDC is
+  // $5 to the person typing it, whatever the feed's 0.9998 says.
+  const usd = isStable(from) ? amount : amount * from.price;
   if (usd + 1e-9 < settings.minUsd) {
     throw new SwapError(`The smallest swap is $${settings.minUsd}.`);
   }
 
   // A swap paid from Solana also carries a flat fee: it sends to a new deposit
   // address whose USDC account we pay to open. In the coin sent, at its price.
-  const flat = from.chain === "SOL" && settings.solanaFlatUsd > 0 ? round6(settings.solanaFlatUsd / from.price) : 0;
+  const flat =
+    from.chain === "SOL" && settings.solanaFlatUsd > 0
+      ? round6(isStable(from) ? settings.solanaFlatUsd : settings.solanaFlatUsd / from.price)
+      : 0;
   const fee = round6((amount * settings.feeBps) / 10_000 + flat);
   const net = round6(amount - fee);
   if (net <= 0) throw new SwapError("That amount is too small to swap.");
