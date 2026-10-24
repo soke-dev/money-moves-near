@@ -34,7 +34,8 @@ import { auroraSettings } from "./aurora-settings";
  */
 
 export const SWEEP_ASSETS = ["USDC", "USDT"] as const;
-export const SWEEP_CHAINS = ["SOL", "BASE", "BEP20", "ARC", "TON"] as const;
+// Monad is EVM: its legs take the same builder and sell address as Base and BNB Chain.
+export const SWEEP_CHAINS = ["SOL", "BASE", "BEP20", "ARC", "TON", "MONAD"] as const;
 
 /**
  * What a swap leaves behind, on the two chains that pay their own way.
@@ -491,6 +492,14 @@ export function validateSelection(
     }
     if (legs.some((l) => l.asset === want.asset && l.chain === want.chain)) {
       return { ok: false, error: "The same balance was listed twice." };
+    }
+    /**
+     * One leg per chain. Each leg's transfer is held and submitted under its
+     * chain (legId), so a second leg on the same chain would overwrite the
+     * first and one of them would fail. The other balance goes in the next sweep.
+     */
+    if (legs.some((l) => l.chain === want.chain)) {
+      return { ok: false, error: "Sweep one balance per chain at a time." };
     }
     const have = available.find((a) => a.asset === want.asset && a.chain === want.chain);
     if (!have || have.amount <= 0) {

@@ -56,6 +56,7 @@ const CHAIN_NAME: Record<string, string> = {
   BEP20: "BNB Chain",
   ARC: "Arc",
   TON: "TON",
+  MONAD: "Monad",
 };
 
 // Token over network, the way every wallet draws it - the token is what you
@@ -95,7 +96,19 @@ const CHAIN_ART: Record<string, any> = {
   BEP20: require("@/assets/images/bsc logo.png"),
   ARC: require("@/assets/images/ARC.jpg"),
   TON: require("@/assets/images/toncoin.png"),
+  MONAD: require("@/assets/images/monad.png"),
 };
+
+/**
+ * One balance per chain in a sweep.
+ *
+ * The server keys each leg's transfer by its chain, so USDC and USDT off the
+ * same chain in one sweep would share a key and one of them would fail. The
+ * list arrives largest first, so this keeps the biggest balance on each chain;
+ * the other can go in the next sweep.
+ */
+const onePerChain = <T extends { chain: string }>(list: T[]): T[] =>
+  list.filter((b, i) => list.findIndex((o) => o.chain === b.chain) === i);
 
 type LegState = {
   asset: string;
@@ -375,7 +388,7 @@ export default function SweepSheet() {
         setQuote(q);
         // Everything ticked to begin with: the common case is "all of it", and
         // un-ticking one is less work than ticking three.
-        setPicked(new Set(q.balances.map(key)));
+        setPicked(new Set(onePerChain(q.balances).map(key)));
         // All of everything, which is what a swap has always done. Anything
         // else is a change the person makes deliberately.
         setAmounts(Object.fromEntries(q.balances.map((b) => [key(b), fmt4(b.amount)])));
@@ -452,6 +465,8 @@ export default function SweepSheet() {
       next.delete(k);
     } else {
       next.add(k);
+      // One per chain: picking USDT on a chain puts down the USDC already picked there.
+      for (const o of quote?.balances ?? []) if (o.chain === b.chain && key(o) !== k) next.delete(key(o));
       // Coming back on after being edited down to nothing should offer the
       // whole balance again, not the nothing it was left at.
       if (!(Number(amounts[k]) > 0)) {
@@ -656,7 +671,7 @@ export default function SweepSheet() {
       return (
         <View style={s.centre}>
           <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
-            Nothing to sweep. Sweep gathers USDC or USDT balances of $5 or less on Arc, Solana, Base or BNB Chain. Use Swap for bigger ones.
+            Nothing to sweep. Sweep gathers USDC or USDT balances of $5 or less on Solana, Base, BNB Chain, Monad, Arc or TON. Use Swap for bigger ones.
           </Text>
         </View>
       );
