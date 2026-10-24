@@ -114,7 +114,8 @@ type LegState = {
   asset: string;
   chain: string;
   amount: number;
-  status: "waiting" | "sending" | "landed" | "failed";
+  /** held: their coins reached us and the USDC did not go out. A person finishes it. */
+  status: "waiting" | "sending" | "landed" | "held" | "failed";
 };
 
 const key = (b: { asset: string; chain: string }) => `${b.asset}:${b.chain}`;
@@ -166,7 +167,7 @@ function LegRow({
   const [width, setWidth] = useState(0);
 
   const working = leg.status === "sending";
-  const done = leg.status === "landed" || leg.status === "failed";
+  const done = leg.status === "landed" || leg.status === "held" || leg.status === "failed";
 
   useEffect(() => {
     if (!working) {
@@ -207,6 +208,8 @@ function LegRow({
   const word =
     leg.status === "landed"
       ? `$${leg.amount.toFixed(2)} in`
+      : leg.status === "held"
+      ? "being looked at"
       : leg.status === "failed"
       ? "did not go"
       : leg.status === "sending"
@@ -330,9 +333,10 @@ export default function SweepSheet() {
   const [legs, setLegs] = useState<LegState[]>([]);
   const [landedTotal, setLandedTotal] = useState(0);
 
-  const doneCount = legs.filter((l) => l.status === "landed" || l.status === "failed").length;
+  const doneCount = legs.filter((l) => l.status === "landed" || l.status === "held" || l.status === "failed").length;
   const allDone = legs.length > 0 && doneCount === legs.length;
   const anyLanded = legs.some((l) => l.status === "landed");
+  const anyHeld = legs.some((l) => l.status === "held");
 
   /**
    * While it is moving, there is no way out.
@@ -504,6 +508,7 @@ export default function SweepSheet() {
     setLegs(prepared.legs.map((l) => ({ ...l, status: "waiting" as const })));
 
     let landed = 0;
+    let heldAny = false;
     for (const leg of prepared.legs) {
       setLegs((ls) => ls.map((l) => (l.chain === leg.chain ? { ...l, status: "sending" } : l)));
 
@@ -534,12 +539,16 @@ export default function SweepSheet() {
         });
 
         const ok = r.status === "landed";
+        // "sent": the coins left their wallet and reached us, and the USDC did not go out.
+        // Not a failure to show them: their money is safe and someone pays it by hand.
+        const held = r.status === "sent";
+        if (held) heldAny = true;
         if (ok) {
           landed += leg.amount;
           setLandedTotal(landed);
         }
         setLegs((ls) =>
-          ls.map((l) => (l.chain === leg.chain ? { ...l, status: ok ? "landed" : "failed" } : l)),
+          ls.map((l) => (l.chain === leg.chain ? { ...l, status: ok ? "landed" : held ? "held" : "failed" } : l)),
         );
       } catch {
         setLegs((ls) => ls.map((l) => (l.chain === leg.chain ? { ...l, status: "failed" } : l)));
@@ -549,7 +558,9 @@ export default function SweepSheet() {
     Haptics.notificationAsync(
       landed > 0
         ? Haptics.NotificationFeedbackType.Success
-        : Haptics.NotificationFeedbackType.Error,
+        : heldAny
+          ? Haptics.NotificationFeedbackType.Warning
+          : Haptics.NotificationFeedbackType.Error,
     ).catch(() => {});
     refreshBalances(true);
     refreshTransactions();
@@ -570,21 +581,27 @@ export default function SweepSheet() {
       out.push(
         anyLanded
           ? { label: "Landed", kind: "badge" as const, color: STAGE_DONE }
-          : { label: "Failed", kind: "failed" as const, color: STAGE_FAILED },
+          : anyHeld
+            ? { label: "Being looked at", kind: "dot" as const, color: STAGE_PENDING }
+            : { label: "Failed", kind: "failed" as const, color: STAGE_FAILED },
       );
     }
     return out;
-  }, [allDone, anyLanded, doneCount, legs.length, colors.foreground]);
+  }, [allDone, anyLanded, anyHeld, doneCount, legs.length, colors.foreground]);
 
   // ── the header carries the state ──────────────────────────
   const head = running
     ? {
-        eyebrow: allDone ? (anyLanded ? "SWEPT" : "NOTHING MOVED") : "SWEEPING",
+        eyebrow: allDone ? (anyLanded ? "SWEPT" : anyHeld ? "BEING LOOKED AT" : "NOTHING MOVED") : "SWEEPING",
         figure: `$${landedTotal.toFixed(2)}`,
         caption: allDone
           ? anyLanded
-            ? `${landedTotal.toFixed(4)} USDC is in your Movement wallet`
-            : "No chain would part with its balance"
+            ? anyHeld
+              ? `${landedTotal.toFixed(4)} USDC is in your Movement wallet. The rest reached us and is being looked at.`
+              : `${landedTotal.toFixed(4)} USDC is in your Movement wallet`
+            : anyHeld
+              ? "Your coins reached us safely. We are sending your USDC and it will arrive shortly."
+              : "No chain would part with its balance"
           : `${doneCount} of ${legs.length} ${legs.length === 1 ? "chain has" : "chains have"} answered`,
       }
     : {
@@ -671,7 +688,9 @@ export default function SweepSheet() {
       return (
         <View style={s.centre}>
           <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
-            Nothing to sweep. Sweep gathers USDC or USDT balances of ${quote?.ceiling ?? 5} or less on Solana, Base, BNB Chain, Monad, Arc or TON. Use Swap for bigger ones.
+            {quote?.paused
+              ? quote.paused
+              : `Nothing to sweep. Sweep gathers USDC or USDT balances of $${quote?.ceiling ?? 5} or less on Solana, Base, BNB Chain, Monad, Arc or TON. Use Swap for bigger ones.`}
           </Text>
         </View>
       );

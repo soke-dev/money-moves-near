@@ -388,7 +388,7 @@ export default function TransactionDetailScreen() {
     ...(tx.type === "SWEEP" && Array.isArray(meta.legs)
       ? (meta.legs as any[]).map((l) => {
           const where =
-            ({ SOL: "Solana", BASE: "Base", BEP20: "BNB Chain" } as Record<string, string>)[
+            ({ SOL: "Solana", BASE: "Base", BEP20: "BNB Chain", MONAD: "Monad", ARC: "Arc", TON: "TON" } as Record<string, string>)[
               l.chain
             ] || l.chain;
           const landed = l.status === "landed";
@@ -400,7 +400,7 @@ export default function TransactionDetailScreen() {
               : l.status === "failed"
                 ? "Did not go"
                 : l.status === "sent"
-                  ? "Held — being looked at"
+                  ? "Reached us, being looked at"
                   : "Never sent",
             statusColor: landed ? STAGE_DONE : l.status === "failed" ? STAGE_FAILED : STAGE_PENDING,
             ...(hash ? { link: hash } : {}),

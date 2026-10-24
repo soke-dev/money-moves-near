@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import { env } from "../config/env";
 import { getOnChainBalance } from "./balances";
 import { auroraSettings } from "./aurora-settings";
+import { pauseGuard } from "./service-status";
 
 /**
  * Sweep — scattered stablecoins into one USDCx balance on Movement.
@@ -340,6 +341,11 @@ export function legId(sweepId: string, chain: string): string {
 export async function sweepableBalances(userId: string): Promise<
   { asset: SweepAsset; chain: SweepChain; amount: number; address: string | null }[]
 > {
+  // Paused in the console: prepare reads this list first, so nothing new starts,
+  // and its catch hands this message straight to the app.
+  const paused = await pauseGuard("sweep");
+  if (paused) throw new Error(paused);
+
   const wallets = await prisma.wallet.findMany({
     where: {
       userId,
@@ -539,8 +545,10 @@ export function validateSelection(
 
 /** Everything the app needs to draw the sheet. */
 export async function sweepQuote(userId: string) {
+  // Paused, it offers nothing, and with nothing offered the Sweep tag leaves Home.
+  const paused = await pauseGuard("sweep");
   const [balances, allowance] = await Promise.all([
-    sweepableBalances(userId),
+    paused ? Promise.resolve([] as Awaited<ReturnType<typeof sweepableBalances>>) : sweepableBalances(userId),
     sweepAllowance(userId),
   ]);
 
@@ -548,6 +556,7 @@ export async function sweepQuote(userId: string) {
     balances,
     // The largest single balance a sweep takes; anything bigger is for Swap.
     ceiling: await sweepCeiling(),
+    paused,
     total: balances.reduce((n, b) => n + b.amount, 0),
     destination: { chain: SWEEP_DEST_CHAIN, asset: SWEEP_DEST_ASSET },
     // allowance already carries perWeek, and it carries the figure THIS

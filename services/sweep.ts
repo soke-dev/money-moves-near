@@ -33,6 +33,8 @@ export interface SweepQuote {
   resetsAt: string | null;
   /** The largest single balance Sweep takes, in dollars. Set in the console. */
   ceiling?: number;
+  /** The console's pause message while Sweep is switched off, else null. */
+  paused?: string | null;
 }
 
 export interface PreparedLeg {

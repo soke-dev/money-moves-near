@@ -46,6 +46,7 @@ export type ServiceKey =
   | "cable"
   | "betting"
   | "signups"
+  | "sweep"
   | "emails"
   | "payout"
   | "bills"
@@ -220,6 +221,22 @@ export const SERVICES: readonly Service[] = [
     label: "New sign-ups",
     blocks: "creating a new account",
     override: () => false,
+  },
+  /**
+   * Sweep, for when the Movement treasury that pays it out cannot.
+   *
+   * A sweep takes the person's coins first and pays USDC on Movement second,
+   * so a treasury out of USDC or out of MOVE for gas leaves legs held. Paused,
+   * the Sweep tag leaves Home and new sweeps are refused; a sweep already
+   * signed still finishes, since stopping it halfway would strand coins.
+   * Swap has its own switch in the Swap tab.
+   */
+  {
+    key: "sweep",
+    label: "Sweep",
+    blocks: "gathering small balances",
+    override: () => false,
+    app: false,
   },
   /**
    * Receipts, and only receipts.
