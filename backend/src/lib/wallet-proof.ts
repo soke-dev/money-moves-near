@@ -91,3 +91,47 @@ export function provenByHeld(held: { chain: string; address: string }[]): Proven
 export function isProven(proven: Proven | null, chain: string, address: string): boolean {
   return !!proven?.[chain]?.some((a) => sameAddress(chain, a, address));
 }
+
+/**
+ * Fill in an account's missing addresses from a sign-in token that has just
+ * verified - the same proof /wallet/addresses accepts, read on the server.
+ *
+ * The app's own save could fail for good: on every launch it sent the cached
+ * addresses before the email wallet had restored its session, so the save
+ * carried no token, was refused, and the refusal was swallowed. Those accounts
+ * held a wallet the server never recorded, and everything that reads the
+ * stored address - Bitcoin and Tron deposits, converted deposits - showed them
+ * nothing. Signing in now heals it.
+ *
+ * Only empty addresses are filled; one already on file is never replaced here
+ * (that is /wallet/addresses' job, with its own rules). A token naming more
+ * than one wallet on a chain is ambiguous, so that chain is left alone.
+ */
+export async function fillMissingAddressesFromClaims(
+  userId: string,
+  claims: { evmAddresses: string[]; solanaAddresses: string[] },
+): Promise<number> {
+  const { prisma } = await import("./prisma");
+  const evm = [...new Set(claims.evmAddresses.map((a) => a.toLowerCase()))].length === 1 ? claims.evmAddresses[0] : null;
+  const sol = [...new Set(claims.solanaAddresses)].length === 1 ? claims.solanaAddresses[0] : null;
+
+  const fills: [string, string][] = [];
+  if (evm) for (const c of EVM_FAMILY) fills.push([c, evm]);
+  if (sol) {
+    fills.push(["SOL", sol]);
+    try {
+      fills.push(["MOVE", movementAddressFromSolana(sol)]);
+      fills.push(["TON", ton.tonAddressFromSolana(sol)]);
+    } catch {
+      // Not a valid Solana key: only SOL itself is taken.
+    }
+  }
+
+  let filled = 0;
+  for (const [chain, address] of fills) {
+    const r = await prisma.wallet.updateMany({ where: { userId, chain: chain as any, address: null }, data: { address } });
+    filled += r.count;
+  }
+  if (filled) console.log(`[WALLET] filled ${filled} missing address row(s) from the sign-in token for user ${userId}`);
+  return filled;
+}

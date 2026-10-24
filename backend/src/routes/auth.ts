@@ -15,6 +15,7 @@ import { requireAuth, requireActiveSession } from "../middleware/auth";
 import { validate } from "../middleware/validate";
 import { checkSignupEmail } from "../lib/email-check";
 import { verifyDynamicToken } from "../lib/dynamic";
+import { fillMissingAddressesFromClaims } from "../lib/wallet-proof";
 import { normaliseCode, findReferrer, attributionBlock, inviterName, claimWindow } from "../lib/referrals";
 import { signupsPausedMessage } from "../lib/service-status";
 import { healMissingIdentity } from "./kyc";
@@ -477,6 +478,8 @@ router.post("/dynamic", async (req: Request, res: Response) => {
     // was corrected in their console after we stored it. Asks again, without
     // holding up the sign-in.
     healMissingIdentity(user.id).catch(() => {});
+    // The token just verified names this account's wallets: record any the app never managed to.
+    fillMissingAddressesFromClaims(user.id, claims).catch((e: any) => console.warn("[WALLET] fill from token failed:", e?.message));
 
     res.json({
       user: {
