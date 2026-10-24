@@ -2678,6 +2678,15 @@ router.post(
             id, solWallet.address, to, leg.amount, leg.asset as "USDT"
           );
           prepared.push({ ...leg, signingMessage });
+        } else if (leg.chain === "STELLAR") {
+          // A payment to the sell address; the treasury's fee bump pays the network, so they need no XLM.
+          const { signingMessage } = await stellar.preparePayment(id, {
+            from: from.address,
+            to,
+            coin: leg.asset as stellar.StellarCoin,
+            amount: leg.amount,
+          });
+          prepared.push({ ...leg, signingMessage });
         } else {
           const { signingMessage, txRequest } = await prepareEvmWithdrawal(
             id, from.address, to, leg.amount,
@@ -2793,6 +2802,8 @@ router.post(
             ? await submitSolanaWithdrawal(id, signature, publicKey)
             : chain === "TON"
             ? await submitTonWithdrawal(id, signature)
+            : chain === "STELLAR"
+            ? await stellar.submitPayment(id, signature)
             : await submitEvmWithdrawal(id, signature, publicKey, signedRaw);
       } catch (chainErr: any) {
         const message = chainErr?.message || "That chain refused the transfer";
