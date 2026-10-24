@@ -15,7 +15,7 @@ import QRCode from 'qrcode'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowLeftRight, BadgeCheck, Banknote, Users, MessageSquare,
-  Megaphone, PiggyBank, ToggleLeft, Repeat, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins, Shuffle,
+  Megaphone, PiggyBank, ToggleLeft, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins,
 } from 'lucide-react'
 import { PersonalCrypto } from './PersonalCrypto'
 import { SwapSettings } from './SwapSettings'
@@ -76,9 +76,6 @@ const SECTIONS = [
   { id: 'broadcast', label: 'Broadcast', Icon: Megaphone },
   { id: 'savings', label: 'Savings', Icon: PiggyBank },
   { id: 'services', label: 'Services', Icon: ToggleLeft },
-  // Drawn under Services in the rail: both are services the app offers.
-  { id: 'routed', label: 'Converted', Icon: Repeat, parent: 'services' },
-  { id: 'swap', label: 'Swap', Icon: Shuffle, parent: 'services' },
   { id: 'vouchers', label: 'Vouchers', Icon: Gift },
   { id: 'radar', label: 'Radar', Icon: RadarIcon },
 ] as const
@@ -414,13 +411,11 @@ export default function Dashboard() {
             {section === 'kyc' && <Kyc key={nonce} initial={filter} />}
             {section === 'deposits' && <Deposits key={nonce} />}
             {section === 'crypto' && <PersonalCrypto key={nonce} />}
-            {section === 'swap' && <SwapSettings key={nonce} />}
             {section === 'users' && <People key={nonce} initial={filter} />}
             {section === 'support' && <Support key={nonce} initial={filter} />}
             {section === 'broadcast' && <BroadcastSection key={nonce} />}
             {section === 'savings' && <Savings key={nonce} />}
             {section === 'services' && <Services key={nonce} />}
-            {section === 'routed' && <Routed key={nonce} />}
             {section === 'vouchers' && <Vouchers key={nonce} />}
             {section === 'radar' && <Radar key={nonce} />}
             </>}
@@ -655,7 +650,7 @@ function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: 
   )
 }
 
-type ServicesTab = 'pause' | 'providers' | 'rates' | 'emails'
+type ServicesTab = 'pause' | 'providers' | 'rates' | 'converted' | 'swap' | 'emails'
 
 function Services() {
   const [tab, setTab] = useState<ServicesTab>('pause')
@@ -753,6 +748,8 @@ function Services() {
           ['pause', 'Pause switches', pausedCount],
           ['providers', 'Providers'],
           ['rates', 'Naira rates'],
+          ['converted', 'Converted'],
+          ['swap', 'Swap'],
           ['emails', 'Emails'],
         ]}
       />
@@ -959,6 +956,11 @@ function Services() {
         ))}
 
       {tab === 'rates' && <RatesPanel />}
+
+      {/* Deposits that arrive converted, and swaps between chains: services the app offers, kept beside the rest. */}
+      {tab === 'converted' && <Routed />}
+
+      {tab === 'swap' && <SwapSettings />}
 
       {tab === 'emails' && (
         <Panel
