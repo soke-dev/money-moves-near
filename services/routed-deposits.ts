@@ -174,6 +174,13 @@ export function groupRouted(assets: RoutedAsset[]): RoutedGroup[] {
     };
   });
 
+  // Arbitrum is Ethereum's network for most people sending from it, so it sits right under Ethereum.
+  const arb = groups.findIndex((g) => g.chainId === 42161);
+  if (arb >= 0 && groups.some((g) => g.chainId === 1)) {
+    const [moved] = groups.splice(arb, 1);
+    groups.splice(groups.findIndex((g) => g.chainId === 1) + 1, 0, moved);
+  }
+
   return [...groups.filter((g) => g.available), ...groups.filter((g) => !g.available)];
 }
 

@@ -22,7 +22,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { getDisplayCurrency, type DisplayCurrency } from "@/services/display-currency";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Feather, MaterialIcons } from "@expo/vector-icons";
+import { Feather, MaterialIcons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
 // Aliased: react-native's own Animated already owns the name in this file.
@@ -1304,30 +1304,30 @@ export default function HomeScreen() {
                   full-width card for an optional tidy-up outranked the token
                   rows it is about. The detail lives in the sheet. */}
               {(canSweep || swapOn) && (
+                /* Buttons, not glowing pills: the screen's own surface, the
+                   text colour for both the glyph and the word. The figure
+                   beside them is the headline. */
                 <View style={styles.tagRow}>
-                  {canSweep && (
-                    <TouchableOpacity
-                      style={[styles.swapTag, { backgroundColor: colors.primary + "14", borderColor: colors.primary + "30" }]}
-                      activeOpacity={0.75}
-                      onPress={() => router.push("/sweep" as any)}
-                      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
-                    >
-                      <Image
-                        source={require("@/assets/images/swap.png")}
-                        style={[styles.swapIcon, { tintColor: colors.primary }]}
-                      />
-                      <Text style={[styles.swapTagText, { color: colors.primary }]}>Sweep</Text>
-                    </TouchableOpacity>
-                  )}
                   {swapOn && (
                     <TouchableOpacity
-                      style={[styles.swapTag, { backgroundColor: colors.primary + "14", borderColor: colors.primary + "30" }]}
-                      activeOpacity={0.75}
+                      style={[styles.tagBtn, { backgroundColor: colors.card }]}
+                      activeOpacity={0.6}
                       onPress={() => router.push("/swap" as any)}
-                      hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+                      hitSlop={{ top: 8, bottom: 8 }}
                     >
-                      <Feather name="repeat" size={13} color={colors.primary} />
-                      <Text style={[styles.swapTagText, { color: colors.primary }]}>Swap</Text>
+                      <Feather name="repeat" size={14} color={colors.foreground} />
+                      <Text style={[styles.tagText, { color: colors.foreground }]}>Swap</Text>
+                    </TouchableOpacity>
+                  )}
+                  {canSweep && (
+                    <TouchableOpacity
+                      style={[styles.tagBtn, { backgroundColor: colors.card }]}
+                      activeOpacity={0.6}
+                      onPress={() => router.push("/sweep" as any)}
+                      hitSlop={{ top: 8, bottom: 8 }}
+                    >
+                      <MaterialCommunityIcons name="broom" size={16} color={colors.foreground} />
+                      <Text style={[styles.tagText, { color: colors.foreground }]}>Sweep</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -2552,6 +2552,8 @@ const styles = StyleSheet.create({
   portfolioHead: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 14 },
   portfolioRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   tagRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  tagBtn: { flexDirection: "row", alignItems: "center", gap: 6, height: 36, paddingHorizontal: 13, borderRadius: 10 },
+  tagText: { fontSize: 13, fontFamily: "Inter_600SemiBold", letterSpacing: -0.1 },
   // Called swap in the app and sweep everywhere underneath it: the route, the
   // API and the transaction type were named before the feature was, and
   // renaming a stored enum to match a label is not worth a migration.

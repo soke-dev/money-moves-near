@@ -184,9 +184,9 @@ export default function SelectCryptoScreen() {
                   ]}
                   numberOfLines={1}
                 >
-                  {/* Where it lands, beside the network: BTC and Tron arrive on
-                      Solana now, everything else on Movement, so the row says which. */}
-                  {c.available ? `${c.note} · USDC on ${c.settlesOn}` : "Currently unavailable"}
+                  {/* The network only. Where it lands is on the deposit screen
+                      it opens, which says "Arrives as USDC on ..." in full. */}
+                  {c.available ? c.note : "Currently unavailable"}
                 </Text>
               </View>
               {/* What it becomes, at the end of the row where the eye lands
