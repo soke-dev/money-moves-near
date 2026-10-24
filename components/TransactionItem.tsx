@@ -107,7 +107,11 @@ export function TransactionItem({
        * list read "SWEEP" in capitals while the detail screen it opens has
        * said "Swap" all along. The word the feature goes by is swap.
        */
-      case "SWEEP": return `Swapped to ${label}`;
+      // A swap between chains names both ends; a sweep only ever went one way.
+      case "SWEEP":
+        return metadata?.kind === "swap" && metadata?.from?.symbol
+          ? `Swapped ${metadata.from.symbol} to ${metadata.to?.symbol ?? label}`
+          : `Swapped to ${label}`;
       default: return type;
     }
   };

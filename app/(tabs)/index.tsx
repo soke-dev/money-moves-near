@@ -54,6 +54,7 @@ import { FONT_SCALE } from "@/constants/transfer";
 import { useServiceStatus } from "@/hooks/useServiceStatus";
 import { PausedCard, type PausedDetail } from "@/components/PausedSheet";
 import { getSweepQuote, type SweepQuote } from "@/services/sweep";
+import { getSwapConfig } from "@/services/swap";
 import {
   PAUSED_TITLES,
   PAUSED_FALLBACK,
@@ -385,7 +386,29 @@ export default function HomeScreen() {
    * refuses a fourth anyway, so nothing here is load-bearing - this only
    * decides whether the answer is reachable.
    */
-  const canSwap = !!sweepable && sweepable.balances.length > 0;
+  const canSweep = !!sweepable && sweepable.balances.length > 0;
+
+  /**
+   * Swapping between chains, when the server offers it.
+   *
+   * The same tag opens it, because to the person both are "swap": the new
+   * screen takes any coin to any chain, and links through to the sweep for
+   * gathering small balances. When swaps are off the tag falls back to the
+   * sweep alone, exactly as it behaved before.
+   */
+  const [swapOn, setSwapOn] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      let alive = true;
+      getSwapConfig()
+        .then((c) => alive && setSwapOn(!!c.enabled))
+        .catch(() => alive && setSwapOn(false));
+      return () => {
+        alive = false;
+      };
+    }, []),
+  );
+  const canSwap = swapOn || canSweep;
 
   /**
    * Say it here rather than let them find out three screens in.
@@ -1278,7 +1301,7 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   style={[styles.swapTag, { backgroundColor: colors.primary + "14", borderColor: colors.primary + "30" }]}
                   activeOpacity={0.75}
-                  onPress={() => router.push("/sweep" as any)}
+                  onPress={() => router.push((swapOn ? "/swap" : "/sweep") as any)}
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                 >
                   <Image

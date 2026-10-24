@@ -15,9 +15,10 @@ import QRCode from 'qrcode'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowLeftRight, BadgeCheck, Banknote, Users, MessageSquare,
-  Megaphone, PiggyBank, ToggleLeft, Repeat, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins,
+  Megaphone, PiggyBank, ToggleLeft, Repeat, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins, Shuffle,
 } from 'lucide-react'
 import { PersonalCrypto } from './PersonalCrypto'
+import { SwapSettings } from './SwapSettings'
 import {
   C, MONO, H1, Label, Mono, Card, Row, MetaBit, Status, Empty, Loading,
   Btn, Chips, Search, Field, Input, Textarea, Modal, Detail, Pager,
@@ -76,6 +77,7 @@ const SECTIONS = [
   { id: 'savings', label: 'Savings', Icon: PiggyBank },
   { id: 'services', label: 'Services', Icon: ToggleLeft },
   { id: 'routed', label: 'Converted', Icon: Repeat },
+  { id: 'swap', label: 'Swap', Icon: Shuffle },
   { id: 'vouchers', label: 'Vouchers', Icon: Gift },
   { id: 'radar', label: 'Radar', Icon: RadarIcon },
 ] as const
@@ -381,6 +383,7 @@ export default function Dashboard() {
             {section === 'kyc' && <Kyc key={nonce} initial={filter} />}
             {section === 'deposits' && <Deposits key={nonce} />}
             {section === 'crypto' && <PersonalCrypto key={nonce} />}
+            {section === 'swap' && <SwapSettings key={nonce} />}
             {section === 'users' && <People key={nonce} initial={filter} />}
             {section === 'support' && <Support key={nonce} initial={filter} />}
             {section === 'broadcast' && <BroadcastSection key={nonce} />}

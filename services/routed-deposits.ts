@@ -20,7 +20,16 @@ export interface RoutedAsset {
   /** From the server, per address. Never assume it. */
   minimum: string | null;
   decimals: number | null;
+  /** What it becomes, and on which of the person's wallets. Per asset: BTC and Tron land on Solana, the rest on Movement. */
+  settlesAs?: string;
+  settlesOn?: string;
 }
+
+/** Where a routed deposit lands, as a person would say it. */
+export const SETTLE_CHAIN_NAME: Record<string, string> = {
+  SOL: "Solana",
+  MOVE: "Movement",
+};
 
 export interface RoutedDeposits {
   assets: RoutedAsset[];
@@ -46,6 +55,8 @@ export interface RoutedGroup {
    * is off rather than wonder whether they imagined it - but it does not open.
    */
   available: boolean;
+  /** The wallet it lands in: "Solana" or "Movement". */
+  settlesOn: string;
 }
 
 export const ROUTED_CHAIN_NAME: Record<number, string> = {
@@ -158,6 +169,8 @@ export function groupRouted(assets: RoutedAsset[]): RoutedGroup[] {
       note: CHAIN_NOTE[chainId] ?? ROUTED_CHAIN_NAME[chainId] ?? "",
       logo: ROUTED_CHAIN_LOGO[chainId] ?? list[0].symbol,
       available,
+      // One address, one destination: every asset on a chain settles the same way.
+      settlesOn: SETTLE_CHAIN_NAME[list[0].settlesOn ?? "MOVE"] ?? "Movement",
     };
   });
 

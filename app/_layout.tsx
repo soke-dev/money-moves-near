@@ -109,6 +109,7 @@ function RootLayoutNav() {
           contentStyle: { backgroundColor: "transparent" },
         }}
       />
+      <Stack.Screen name="swap" options={{ headerShown: false }} />
       <Stack.Screen name="deposit" options={{ headerShown: false }} />
       <Stack.Screen name="deposit-routed" options={{ headerShown: false }} />
       <Stack.Screen name="transfer" options={{ headerShown: false }} />

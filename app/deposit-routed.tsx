@@ -29,9 +29,10 @@ import {
  * Send one thing, receive another.
  *
  * The address on this screen is not the person's wallet - it belongs to the
- * converting rail, and what they send is swapped and delivered to their
- * Movement balance as USDC. That is the one fact the screen has to get across,
- * because every other deposit screen in the app means the opposite.
+ * converting rail, and what they send is swapped and delivered to their own
+ * wallet as USDC: on Solana for Bitcoin and Tron, on Movement for the rest.
+ * That is the one fact the screen has to get across, because every other
+ * deposit screen in the app means the opposite.
  *
  * So the conversion is stated above the address rather than below it, in the
  * place somebody looks before they copy anything.
@@ -100,7 +101,7 @@ export default function RoutedDepositScreen() {
             {group ? group.label : "Deposit"}
           </Text>
           <Text style={[s.titleSub, { color: colors.mutedForeground }]}>
-            {group ? "Arrives as USDC" : "Loading"}
+            {group ? `Arrives as USDC on ${group.settlesOn}` : "Loading"}
           </Text>
         </View>
       </View>
@@ -141,7 +142,7 @@ export default function RoutedDepositScreen() {
               <View style={s.convertsFill} />
               <Feather name="arrow-right" size={14} color={colors.mutedForeground} />
               <View style={s.convertsFill} />
-              <Text style={[s.convertsName, { color: colors.foreground }]}>USDC</Text>
+              <Text style={[s.convertsName, { color: colors.foreground }]}>USDC on {group.settlesOn}</Text>
               <TokenLogo symbol="USDC" size={20} />
             </View>
 
@@ -191,8 +192,11 @@ export default function RoutedDepositScreen() {
                 {symbols.join(" or ")} on {chainName} only. Another network will not arrive.
               </Note>
               <Note colors={colors} icon="clock">
-                Conversion takes a few minutes. The rate is whatever the market gives when it
-                lands, so the amount will not match exactly.
+                {group.chainId === 10001
+                  ? "Bitcoin waits for confirmations first, so this takes longer than other coins. "
+                  : "Conversion takes a few minutes. "}
+                The rate is whatever the market gives when it lands, so the amount will not match
+                exactly.
               </Note>
               {/* Where it went, said on the screen they sent it from. Without
                   this the deposit disappears the moment they leave here. */}

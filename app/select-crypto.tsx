@@ -141,7 +141,7 @@ export default function SelectCryptoScreen() {
           <Rail
             colors={colors}
             title="Other crypto"
-            sub="Arrives as USDC on Movement"
+            sub="Converted to USDC on the way in"
             icon
             gap
           />
@@ -184,7 +184,9 @@ export default function SelectCryptoScreen() {
                   ]}
                   numberOfLines={1}
                 >
-                  {c.available ? c.note : "Currently unavailable"}
+                  {/* Where it lands, beside the network: BTC and Tron arrive on
+                      Solana now, everything else on Movement, so the row says which. */}
+                  {c.available ? `${c.note} · USDC on ${c.settlesOn}` : "Currently unavailable"}
                 </Text>
               </View>
               {/* What it becomes, at the end of the row where the eye lands

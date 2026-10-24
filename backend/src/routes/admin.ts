@@ -20,6 +20,8 @@ import {
   type RoutedState,
 } from "../lib/stableyard-visibility";
 import { enrolledAccounts, routedActivityReadOnly } from "../lib/stableyard-account";
+import { isAuroraConfigured } from "../lib/aurora";
+import { auroraSettings, updateAuroraSettings, LIMITS as AURORA_LIMITS } from "../lib/aurora-settings";
 import {
   normaliseCode,
   generateCode as generateVoucherCode,
@@ -2340,6 +2342,59 @@ router.post(
 // landing as USDCx. Two things are wanted here: seeing what is in flight, and
 // turning an asset off without a deploy.
 // ═══════════════════════════════════════════════════════════
+
+// ─── GET /admin/swap/settings — swaps, and the BTC / Tron deposit switches ──
+//
+// Swaps (fee, minimum, slippage, daily cap, on/off) and the two deposits that
+// arrive as USDC on Solana (on, off or hidden, and their dollar minimum).
+// Every value is re-read by the API on each request, so a change here takes
+// effect within seconds and needs no deploy.
+router.get("/swap/settings", requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    return res.json({ configured: isAuroraConfigured(), settings: await auroraSettings(), limits: AURORA_LIMITS });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/swap/settings", requireAdmin, async (req: Request, res: Response) => {
+  try {
+    const settings = await updateAuroraSettings(req.body ?? {}, (req as any).admin?.email);
+    return res.json({ configured: isAuroraConfigured(), settings, limits: AURORA_LIMITS });
+  } catch (err: any) {
+    return res.status(400).json({ error: err?.message || "Could not change that." });
+  }
+});
+
+// ─── GET /admin/swap/recent — the latest swaps, and whether their fee came in ──
+router.get("/swap/recent", requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rows = await prisma.transaction.findMany({
+      where: { type: "SWEEP", metadata: { path: ["kind"], equals: "swap" } },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+      select: { id: true, userId: true, status: true, amount: true, createdAt: true, metadata: true, user: { select: { email: true, username: true } } },
+    });
+    return res.json({
+      swaps: rows.map((r) => {
+        const m = (r.metadata ?? {}) as any;
+        return {
+          id: r.id,
+          user: r.user?.username ? `@${r.user.username}` : r.user?.email ?? r.userId,
+          status: r.status,
+          swapStatus: m.swapStatus ?? null,
+          from: m.from ? `${m.from.amount} ${m.from.symbol} on ${m.from.chain}` : null,
+          to: m.to ? `${Number(r.amount)} ${m.to.symbol} on ${m.to.chain}` : null,
+          fee: m.fee ? { amount: m.fee.amount, symbol: m.fee.symbol, collected: !!m.fee.collected, error: m.fee.error ?? m.fee.skipped ?? null } : null,
+          originTxHash: m.originTxHash ?? null,
+          createdAt: r.createdAt,
+        };
+      }),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ─── GET /admin/routed/assets — the catalogue and its switches ──
 router.get("/routed/assets", requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {

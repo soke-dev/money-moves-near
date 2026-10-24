@@ -349,7 +349,32 @@ export default function TransactionDetailScreen() {
           ...(routedGot ? { statusColor: STAGE_DONE } : {}),
         }]
       : []),
-    ...(isRouted ? [{ label: "Arrives on", value: "Movement" }] : []),
+    // BTC and Tron land on Solana now, the rest on Movement: the row's own chain says which.
+    ...(isRouted ? [{ label: "Arrives on", value: tx.chain === "SOL" ? "Solana" : "Movement" }] : []),
+    /**
+     * A swap between chains: what left, from where, and what it cost. The
+     * amount and chain above are where it arrived; these are the other end.
+     */
+    ...(tx.type === "SWEEP" && meta.kind === "swap" && meta.from
+      ? [
+          { label: "You paid", value: `${fmtAsset(meta.from.amount, meta.from.asset)} ${meta.from.symbol}` },
+          {
+            label: "From",
+            value: ({ SOL: "Solana", BASE: "Base", BEP20: "BNB Chain", MONAD: "Monad", TON: "TON" } as Record<string, string>)[meta.from.chain] || meta.from.chain,
+          },
+          ...(meta.fee?.amount > 0 ? [{ label: `Fee (${(meta.fee.bps ?? 0) / 100}%)`, value: `${fmtAsset(meta.fee.amount, meta.from.asset)} ${meta.fee.symbol}` }] : []),
+          ...(tx.status === "REFUNDED" && meta.refundedAmount
+            ? [{ label: "Returned", value: `${fmtAsset(meta.refundedAmount, meta.from.asset)} ${meta.from.symbol}`, statusColor: STAGE_PENDING }]
+            : []),
+          ...(meta.originTxHash
+            ? [{
+                label: "Sent in",
+                value: truncate(String(meta.originTxHash)),
+                link: meta.originExplorerUrl || getExplorerUrl(meta.originTxHash, meta.from.chain) || undefined,
+              }]
+            : []),
+        ]
+      : []),
     /**
      * A sweep is several transfers under one row, and which of them worked is
      * the thing somebody opens this screen to find out.

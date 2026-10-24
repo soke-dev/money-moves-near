@@ -301,6 +301,8 @@ export async function supersedeOpenSweeps(userId: string): Promise<number> {
   });
 
   const untouched = open.filter((row) => {
+    // A cross-chain swap shares this row type but is not a sweep; it closes itself.
+    if ((row.metadata as any)?.kind === "swap") return false;
     const legs = ((row.metadata as any)?.legs ?? []) as SweepLeg[];
     return legs.every((l) => l.status === "pending" || l.status === "failed");
   });

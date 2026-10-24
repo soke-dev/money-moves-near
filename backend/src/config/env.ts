@@ -220,6 +220,19 @@ const envSchema = z.object({
   STABLEYARD_APP_SECRET: z.string().default(""),
 
   /**
+   * Aurora Intents — swaps between chains, and BTC / Tron USDT deposits that
+   * arrive as USDC on Solana.
+   *
+   * Optional, like Stableyard: with no key, swaps report themselves off and
+   * BTC and Tron stay on Stableyard exactly as before. The key comes from
+   * Intents Studio. Persistent deposit addresses also need Aurora to approve
+   * the organisation; until they do, creating one answers 403 and the deposit
+   * screens say the option is unavailable.
+   */
+  AURORA_INTENTS_API_KEY: z.string().default(""),
+  AURORA_INTENTS_BASE_URL: z.string().url().default("https://intents-api.aurora.dev"),
+
+  /**
    * How often the server looks for deposits on its own, in minutes, so a
    * closed app still gets "Crypto Received" and a correctly dated record.
    * 0 turns it off. See lib/deposit-watcher.ts.

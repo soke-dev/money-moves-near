@@ -16,6 +16,10 @@ import {
   syncInFlightRoutedDeposits,
   discoverRoutedDeposits,
 } from "./lib/stableyard-ledger";
+import { isAuroraConfigured } from "./lib/aurora";
+import { syncInFlightAuroraDeposits, discoverAuroraDeposits } from "./lib/aurora-deposits";
+import { refreshInFlightSwaps } from "./lib/aurora-swap";
+import swapRoutes from "./routes/swap";
 import { prisma } from "./lib/prisma";
 import { extractClientInfo } from "./middleware/auth";
 import { errorHandler } from "./middleware/error";
@@ -289,6 +293,7 @@ app.use("/api/kyc", kycRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/funding", fundingRoutes);
 app.use("/api/routed-deposits", routedDepositRoutes);
+app.use("/api/swap", swapRoutes);
 app.use("/api/notifications", notificationRoutes);
 // Money Moves Business: its requests (signed, internal) and the person's own answers.
 app.use("/api/internal/business-links", businessLinksInternal);
@@ -368,6 +373,29 @@ async function main() {
       setInterval(() => {
         discoverRoutedDeposits().catch(() => {});
       }, 5 * 60_000);
+    }
+
+    /**
+     * Aurora: swaps and BTC / Tron deposits, finished while the app is closed.
+     *
+     * Swaps in flight are checked every minute - one status read each, and
+     * there are rarely any. Deposits already seen are followed every two
+     * minutes; finding new ones walks every address on file, so it runs every
+     * ten, well inside their hourly limit for the endpoint.
+     */
+    if (isAuroraConfigured()) {
+      setInterval(() => {
+        refreshInFlightSwaps().catch(() => {});
+      }, 60_000);
+      setInterval(() => {
+        syncInFlightAuroraDeposits().catch(() => {});
+      }, 2 * 60_000);
+      setTimeout(() => {
+        discoverAuroraDeposits().catch(() => {});
+      }, 40_000);
+      setInterval(() => {
+        discoverAuroraDeposits().catch(() => {});
+      }, 10 * 60_000);
     }
 
     /**
