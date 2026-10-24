@@ -26,9 +26,8 @@ import { useTheme } from "@/context/ThemeContext";
  * artwork clipped by each tile.
  *
  * Swap and Business open things; Saving and Earn are still being built and say
- * so. The two rows split the screen's height between them, so the page fills
- * itself on a small phone and a tall one alike rather than leaving a black
- * third at the bottom.
+ * so. Each tile is the Bills card's height; stretched to fill the screen they
+ * read as posters rather than as things to tap.
  */
 
 /**
@@ -127,7 +126,7 @@ export default function FinanceScreen() {
               end={{ x: 0.9, y: 1 }}
               style={s.tile}
             >
-              <Feather name="repeat" size={132} color={colors.primary} style={[s.art, { opacity: artOpacity }]} />
+              <Feather name="repeat" size={ART} color={colors.primary} style={[s.art, { opacity: artOpacity }]} />
               {tileBody({
                 status: "ANY COIN, ANY CHAIN",
                 statusColor: colors.primary,
@@ -175,7 +174,7 @@ export default function FinanceScreen() {
 
           <View style={s.cell}>
             <View style={[s.tile, { backgroundColor: colors.card }]}>
-              <Ionicons name="leaf" size={132} color={colors.primary} style={[s.art, { opacity: artOpacity }]} />
+              <Ionicons name="leaf" size={ART} color={colors.primary} style={[s.art, { opacity: artOpacity }]} />
               {tileBody({
                 status: "COMING SOON",
                 statusColor: colors.mutedForeground,
@@ -262,11 +261,14 @@ export default function FinanceScreen() {
   );
 }
 
+const TILE_H = 152;
+const ART = 96;
+
 const s = StyleSheet.create({
   root: { flex: 1 },
   pattern: { position: "absolute", top: 0, left: 0, right: 0 },
 
-  // A column, not a scroller: the two rows share the height there is.
+  // A column, not a scroller: four tiles fit on any phone.
   page: { flex: 1, paddingHorizontal: 16 },
 
   label: {
@@ -278,18 +280,19 @@ const s = StyleSheet.create({
     marginBottom: 14,
   },
 
-  row: { flex: 1, flexDirection: "row", gap: 12, marginBottom: 12 },
+  // The Bills card size, so the two grids in the app read as one family.
+  row: { flexDirection: "row", gap: 12, marginBottom: 12 },
   cell: { flex: 1 },
   tile: {
-    flex: 1,
-    borderRadius: 22,
+    height: TILE_H,
+    borderRadius: 20,
     padding: 16,
     justifyContent: "space-between",
     overflow: "hidden",
   },
   // Oversized and clipped by the tile, so it reads as texture rather than as an icon.
-  art: { position: "absolute", right: -30, top: -18 },
-  artImg: { width: 132, height: 132, resizeMode: "contain" },
+  art: { position: "absolute", right: -16, top: -14 },
+  artImg: { width: ART, height: ART, resizeMode: "contain" },
 
   tileTop: { minHeight: 14 },
   status: { fontFamily: MONO, fontSize: 9.5, lineHeight: 13, letterSpacing: 1.4 },
