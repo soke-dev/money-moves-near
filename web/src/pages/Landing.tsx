@@ -575,14 +575,16 @@ function Personal() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.7, delay: 0.08, ease: EASE }}
-              className="text-[46px] leading-[1.0] tracking-[-0.04em] sm:text-[64px]"
-              style={{ fontFamily: DISPLAY, fontWeight: 700 }}
+              className="leading-[1.0] tracking-[-0.04em]"
+              // Three rows on every phone: each line stays whole, and the size
+              // follows the screen so the longest one fits inside the 20px gutters.
+              style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 'clamp(28px, calc((100vw - 40px) / 7.9), 64px)' }}
             >
-              Own Your Wallet,
+              <span className="whitespace-nowrap">Own Your Wallet,</span>
               <br />
-              Spend Anywhere
+              <span className="whitespace-nowrap">Spend Anywhere</span>
               <br />
-              Across Africa.
+              <span className="whitespace-nowrap">Across Africa.</span>
             </motion.h1>
 
             <motion.p

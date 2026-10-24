@@ -76,13 +76,17 @@ const SECTIONS = [
   { id: 'broadcast', label: 'Broadcast', Icon: Megaphone },
   { id: 'savings', label: 'Savings', Icon: PiggyBank },
   { id: 'services', label: 'Services', Icon: ToggleLeft },
-  { id: 'routed', label: 'Converted', Icon: Repeat },
-  { id: 'swap', label: 'Swap', Icon: Shuffle },
+  // Drawn under Services in the rail: both are services the app offers.
+  { id: 'routed', label: 'Converted', Icon: Repeat, parent: 'services' },
+  { id: 'swap', label: 'Swap', Icon: Shuffle, parent: 'services' },
   { id: 'vouchers', label: 'Vouchers', Icon: Gift },
   { id: 'radar', label: 'Radar', Icon: RadarIcon },
 ] as const
 
 type SectionId = (typeof SECTIONS)[number]['id']
+
+/** The section a rail item is drawn under, if any. */
+const parentOf = (s: { id: string }): string | undefined => (s as { parent?: string }).parent
 
 /** What a section should open showing, when the overview sends you there. */
 type Jump = { section: SectionId; filter?: string }
@@ -276,26 +280,53 @@ export default function Dashboard() {
           </div>
 
           <nav className="flex flex-col gap-0.5">
-            {sections.map((s) => {
-              const on = s.id === section
-              return (
-                <button
-                  key={s.id}
-                  onClick={() => jump({ section: s.id })}
-                  className="flex items-center gap-2.5 text-left h-9 px-3 rounded-lg text-[13.5px] font-medium transition-colors"
-                  style={{
-                    background: on ? 'rgba(129,251,2,0.10)' : 'transparent',
-                    color: on ? C.lime : C.muted,
-                  }}
-                >
-                  {/* Inherits the row's colour, so the selected state is one
-                      decision rather than two that can drift apart. */}
-                  <s.Icon size={16} strokeWidth={2} className="shrink-0" />
-                  {s.label}
-                  <Count c={counts[s.id]} />
-                </button>
-              )
-            })}
+            {sections
+              .filter((s) => !parentOf(s))
+              .map((s) => {
+                const on = s.id === section
+                const children = sections.filter((c) => parentOf(c) === s.id)
+                return (
+                  <div key={s.id} className="flex flex-col gap-0.5">
+                    <button
+                      onClick={() => jump({ section: s.id })}
+                      className="flex items-center gap-2.5 text-left h-9 px-3 rounded-lg text-[13.5px] font-medium transition-colors"
+                      style={{
+                        background: on ? 'rgba(129,251,2,0.10)' : 'transparent',
+                        color: on ? C.lime : C.muted,
+                      }}
+                    >
+                      {/* Inherits the row's colour, so the selected state is one
+                          decision rather than two that can drift apart. */}
+                      <s.Icon size={16} strokeWidth={2} className="shrink-0" />
+                      {s.label}
+                      <Count c={counts[s.id]} />
+                    </button>
+                    {/* Its sub-sections, indented beneath it on a hairline. */}
+                    {children.length > 0 && (
+                      <div className="ml-[22px] pl-2 flex flex-col gap-0.5" style={{ borderLeft: `1px solid ${C.line}` }}>
+                        {children.map((c) => {
+                          const cOn = c.id === section
+                          return (
+                            <button
+                              key={c.id}
+                              onClick={() => jump({ section: c.id })}
+                              className="flex items-center gap-2 text-left h-8 px-2.5 rounded-lg text-[13px] font-medium transition-colors"
+                              style={{
+                                background: cOn ? 'rgba(129,251,2,0.10)' : 'transparent',
+                                color: cOn ? C.lime : C.muted,
+                              }}
+                            >
+                              <c.Icon size={14} strokeWidth={2} className="shrink-0" />
+                              {c.label}
+                              <Count c={counts[c.id]} />
+                            </button>
+                          )
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
           </nav>
 
           <button
