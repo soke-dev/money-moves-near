@@ -43,9 +43,6 @@ const DIRECT = [
   { symbol: "USDC", name: "USD Coin" },
   { symbol: "USDT", name: "Tether" },
   { symbol: "MOVE", name: "Movement" },
-  // Receivable so it can be sold: a token you cannot be sent is a token you
-  // cannot off-ramp.
-  { symbol: "cNGN", name: "cNGN" },
 ];
 
 /**
@@ -182,15 +179,25 @@ export default function SelectCryptoScreen() {
           </React.Fragment>
         ))}
 
-        {(others === null || others.length > 0) && (
-          <Rail
-            colors={colors}
-            title="Other crypto"
-            sub="Converted to USDC on the way in"
-            icon
-            gap
-          />
-        )}
+        {/* Always there: cNGN is in it whatever the converted list says. */}
+        <Rail colors={colors} title="Other crypto" gap />
+
+        {/* cNGN first. It arrives as itself, on its own deposit screen; it sits
+            here rather than with the main coins because few people send it.
+            Receivable so it can be sold: a token you cannot be sent is a token
+            you cannot off-ramp. */}
+        <TouchableOpacity
+          style={[styles.row, { backgroundColor: colors.card }]}
+          activeOpacity={0.75}
+          onPress={() => handleCryptoTap("cNGN")}
+        >
+          <TokenLogo symbol="cNGN" size={34} />
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={[styles.rowTitle, { color: colors.foreground }]}>cNGN</Text>
+            <Text style={[styles.rowNote, { color: colors.mutedForeground }]}>Naira stablecoin</Text>
+          </View>
+          <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
+        </TouchableOpacity>
 
         {others === null ? (
           <View style={styles.loading}>
@@ -231,21 +238,9 @@ export default function SelectCryptoScreen() {
                 >
                   {/* The network only. Where it lands is on the deposit screen
                       it opens, which says "Arrives as USDC on ..." in full. */}
-                  {c.available ? c.note : "Currently unavailable"}
+                  {c.available ? `${c.note} · settles as USDC` : "Currently unavailable"}
                 </Text>
               </View>
-              {/* What it becomes, at the end of the row where the eye lands
-                  after reading the name - and beside the chevron, which is
-                  where you are going. */}
-              {c.available && (
-                <View style={styles.outcome}>
-                  <Image
-                    source={require("@/assets/images/alter.png")}
-                    style={[styles.outcomeSwap, { tintColor: colors.mutedForeground }]}
-                  />
-                  <TokenLogo symbol="USDC" size={20} />
-                </View>
-              )}
               {c.available && (
                 <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
               )}
