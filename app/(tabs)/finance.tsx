@@ -1,25 +1,34 @@
-import React from "react";
-import { View, Text, StyleSheet, Image, Platform } from "react-native";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Image,
+  Platform,
+  TouchableOpacity,
+  Modal,
+  Pressable,
+  Linking,
+} from "react-native";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
+import Reanimated, { SlideInDown, SlideOutDown } from "react-native-reanimated";
 import Svg, { Circle, Path } from "react-native-svg";
-import { Ionicons } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
-import { useApp } from "@/context/AppContext";
-import { FONT_SCALE } from "@/constants/transfer";
 
 /**
- * Finance — the shape of it, before any of it works.
+ * Finance: four tiles, two to a row, the way Bills lays its cards out, in this
+ * tab's own clothes - the dot field behind, monospaced small print, oversized
+ * artwork clipped by each tile.
  *
- * Two products, neither built. It said so in a list: two rows a third of the
- * way down a tab, each with a COMING SOON badge and a chevron pointing at a
- * screen that does not exist, and two thirds of the tab left black under them.
- *
- * So the two things are the page rather than entries on it. Each takes half
- * the screen whatever the screen is, which is what removes the dead space -
- * not more content, the same content given the room it was being denied. The
- * chevrons are gone: a row that opens nothing should not look like it does.
+ * Swap and Business open things; Saving and Earn are still being built and say
+ * so. The two rows split the screen's height between them, so the page fills
+ * itself on a small phone and a tall one alike rather than leaving a black
+ * third at the bottom.
  */
 
 /**
@@ -29,83 +38,55 @@ import { FONT_SCALE } from "@/constants/transfer";
  */
 const MONO = Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" });
 
-/**
- * The rates the two tiles work their figures out from.
- *
- * They are illustrations, and both tiles are worded so they read as one - Earn
- * says "if it were earning", Saving says "example". Neither is an offer, and
- * nothing on this screen is a quote. When the real numbers are settled, these
- * four constants are the only edit.
- */
-const EARN_RATE = 0.09;              // a year, on an open balance
-/**
- * Saving pays nothing, so its example quotes no rate: money put away is money
- * you get back. What the figure shows is what putting a sum aside every month
- * comes to - addition, which needs no promise behind it.
- */
-const SAVE_EXAMPLE_MONTHLY = 5_000;
-const SAVE_EXAMPLE_MONTHS = 6;
-
-/** What the Earn tile falls back to before anyone has a balance. */
-const EARN_EXAMPLE_NGN = 100_000;
-
-/**
- * Whole naira, and no mark.
- *
- * The mark is drawn beside the figure as a glyph, so the string must not carry
- * one; and kobo on a projection is precision the number does not have.
- */
-const naira = (n: number) => Math.round(n).toLocaleString("en-NG");
+/** The marketing site, opened on its Business view. */
+const BUSINESS_SITE = "https://usemoneymoves.xyz/?for=business";
 
 export default function FinanceScreen() {
   const colors = useColors();
   const { isDark } = useTheme();
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
-
-  const { ngnBalance } = useApp();
+  const [showBusiness, setShowBusiness] = useState(false);
 
   /**
-   * The lit tile, lit for the theme it is in.
-   *
-   * The wash was three fixed greens chosen against black. In light mode they
-   * ran dark-green into a white card, and the caption and the COMING SOON mark
-   * - both drawn in theme colours meant for a pale ground - landed on the dark
-   * half and disappeared. The light set is the same idea at the other end:
-   * pale enough for near-black type to sit on it.
-   *
-   * The artwork carries a little more weight on a pale ground, where a 10%
-   * tint has nothing to stand out against.
+   * The lit tile, lit for the theme it is in: deep greens against black, pale
+   * ones under near-black type in the light.
    */
-  const earnWash: readonly [string, string, string] = isDark
+  const litWash: readonly [string, string, string] = isDark
     ? ["#22380FCC", "#131F0BE6", colors.card]
     : ["#D9F2B0", "#EAF8D6", colors.card];
   const artOpacity = isDark ? 0.1 : 0.17;
 
-  /**
-   * Earn works off the balance the person actually holds, because a number
-   * with their own money in it is the one that lands. A new account holds
-   * nothing and would be shown a year's earnings of zero, so below a
-   * thousand naira the tile borrows a round sum and says so.
-   */
-  const earnOnOwn = ngnBalance >= 1_000;
-  const earnBase = earnOnOwn ? ngnBalance : EARN_EXAMPLE_NGN;
-  const earnYear = earnBase * EARN_RATE;
-
-  /** The Saving example: a sum a month, for a term. */
-  const saveTotal = SAVE_EXAMPLE_MONTHLY * SAVE_EXAMPLE_MONTHS;
+  const tileBody = (opts: { status: string; statusColor: string; title: string; sub: string; live?: boolean }) => (
+    <>
+      <View style={s.tileTop}>
+        <Text style={[s.status, { color: opts.statusColor }]} numberOfLines={1}>
+          {opts.status}
+        </Text>
+      </View>
+      <View>
+        <View style={s.titleRow}>
+          <Text style={[s.title, { color: colors.foreground }]} numberOfLines={1}>
+            {opts.title}
+          </Text>
+          {opts.live && <Feather name="arrow-up-right" size={18} color={colors.foreground} />}
+        </View>
+        <Text style={[s.sub, { color: colors.mutedForeground }]} numberOfLines={2}>
+          {opts.sub}
+        </Text>
+      </View>
+    </>
+  );
 
   return (
     <View style={[s.root, { backgroundColor: colors.background }]}>
       {/* A faint vector field behind everything: a dot grid with two arcs
-          sweeping up through it, at a few percent opacity. At full strength a
-          pattern competes with what sits on it. */}
+          sweeping up through it, at a few percent opacity. */}
       <View style={[s.pattern, { height: topPad + 320 }]} pointerEvents="none">
         <Svg width="100%" height="100%" viewBox="0 0 390 320">
           {Array.from({ length: 9 }).map((_, r) =>
             Array.from({ length: 12 }).map((__, c) => (
-              /* Opacity falls with depth, so the grid dissolves downward
-                 rather than stopping at a hard edge. */
               <Circle
                 key={r + "-" + c}
                 cx={10 + c * 34}
@@ -116,8 +97,6 @@ export default function FinanceScreen() {
               />
             )),
           )}
-
-          {/* Two rising sweeps - growth, without drawing a literal chart. */}
           <Path
             d="M-20 250 C 80 250, 120 140, 220 120 S 360 60, 420 20"
             stroke={colors.primary}
@@ -136,94 +115,149 @@ export default function FinanceScreen() {
       </View>
 
       <View style={[s.page, { paddingTop: topPad + 22, paddingBottom: insets.bottom + 104 }]}>
-        {/* Echoes the tagline - "The Smarter Way to Move Money" - with the verb
-            swapped for what this screen is about. */}
         <Text style={[s.label, { color: colors.mutedForeground }]}>THE SMARTER WAY TO GROW</Text>
 
-        {/* ── Earn ────────────────────────────────────────────────────
-            The lit one. The glow used to be a gradient washing the top of the
-            screen behind the content; it is the card itself now, so the light
-            on the page comes from something rather than from nowhere. */}
-        <LinearGradient
-          colors={earnWash}
-          locations={[0, 0.55, 1]}
-          start={{ x: 0.1, y: 0 }}
-          end={{ x: 0.9, y: 1 }}
-          style={s.tile}
-        >
-          {/* Oversized and clipped by the tile, the way the loyalty card and
-              the bills tiles carry their artwork. */}
-          <Ionicons name="leaf" size={190} color={colors.primary} style={[s.art, { opacity: artOpacity }]} />
+        <View style={s.row}>
+          {/* ── Swap: the lit one, because it is the one that works today. */}
+          <TouchableOpacity style={s.cell} activeOpacity={0.85} onPress={() => router.push("/swap" as any)}>
+            <LinearGradient
+              colors={litWash}
+              locations={[0, 0.55, 1]}
+              start={{ x: 0.1, y: 0 }}
+              end={{ x: 0.9, y: 1 }}
+              style={s.tile}
+            >
+              <Feather name="repeat" size={132} color={colors.primary} style={[s.art, { opacity: artOpacity }]} />
+              {tileBody({
+                status: "ANY COIN, ANY CHAIN",
+                statusColor: colors.primary,
+                title: "Swap",
+                sub: "Move between coins and chains",
+                live: true,
+              })}
+            </LinearGradient>
+          </TouchableOpacity>
 
-          <Text style={[s.status, { color: colors.primary }]}>COMING SOON</Text>
-
-          <View style={s.tileFoot}>
-            <Text style={[s.statCap, { color: colors.mutedForeground }]}>
-              {`YOUR ${naira(earnBase)} AT ${(EARN_RATE * 100).toFixed(0)}%`}
-            </Text>
-            <View style={s.figRow}>
-              {/* A glyph, not a text character: the naira mark has a crossbar
-                  the system font renders through the letter at this size. */}
+          {/* ── Money Moves Business: explained in a sheet, then the website. */}
+          <TouchableOpacity style={s.cell} activeOpacity={0.85} onPress={() => setShowBusiness(true)}>
+            <View style={[s.tile, { backgroundColor: colors.card }]}>
               <Image
-                source={require("@/assets/images/nairaiconnew.png")}
-                style={[s.nairaMark, { tintColor: colors.primary }]}
+                source={require("@/assets/images/store.png")}
+                style={[s.art, s.artImg, { tintColor: colors.primary, opacity: artOpacity }]}
               />
-              <Text style={[s.fig, { color: colors.primary }]} numberOfLines={1}>
-                {naira(earnYear)}
-              </Text>
+              {tileBody({
+                status: "MONEY MOVES",
+                statusColor: colors.mutedForeground,
+                title: "Business",
+                sub: "Get paid by your customers",
+                live: true,
+              })}
             </View>
-            <Text style={[s.statFoot, { color: colors.mutedForeground }]}>
-              {earnOnOwn ? "A YEAR, ON WHAT YOU HOLD NOW" : "A YEAR \u00B7 EXAMPLE BALANCE"}
-            </Text>
-
-            <View style={[s.seam, { backgroundColor: colors.border }]} />
-
-            <Text style={[s.title, { color: colors.foreground }]}>Earn</Text>
-            <Text style={[s.sub, { color: colors.mutedForeground }]}>
-              Grow the money you hold
-            </Text>
-          </View>
-        </LinearGradient>
-
-        {/* ── Saving ─────────────────────────────────────────────── */}
-        <View style={[s.tile, { backgroundColor: colors.card }]}>
-          <Image
-            source={require("@/assets/images/piggy-bank.png")}
-            style={[s.art, s.artImg, { tintColor: colors.primary, opacity: artOpacity }]}
-          />
-
-          <Text style={[s.status, { color: colors.mutedForeground }]}>COMING SOON</Text>
-
-          <View style={s.tileFoot}>
-            <Text style={[s.statCap, { color: colors.mutedForeground }]}>
-              {`PUT ${naira(SAVE_EXAMPLE_MONTHLY)} AWAY A MONTH`}
-            </Text>
-            <View style={s.figRow}>
-              <Image
-                source={require("@/assets/images/nairaiconnew.png")}
-                style={[s.nairaMark, { tintColor: colors.foreground }]}
-              />
-              <Text style={[s.fig, { color: colors.foreground }]} numberOfLines={1}>
-                {naira(saveTotal)}
-              </Text>
-            </View>
-            <Text style={[s.statFoot, { color: colors.mutedForeground }]}>
-              {`IN ${SAVE_EXAMPLE_MONTHS} MONTHS \u00B7 EXAMPLE`}
-            </Text>
-
-            <View style={[s.seam, { backgroundColor: colors.border }]} />
-
-            <Text style={[s.title, { color: colors.foreground }]}>Saving</Text>
-            <Text style={[s.sub, { color: colors.mutedForeground }]}>
-              Put money away for later
-            </Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
-        <Text style={[s.footer, { color: colors.mutedForeground }]}>
-          We&apos;re building it. We&apos;ll let you know when it lands.
-        </Text>
+        <View style={s.row}>
+          {/* ── Still being built: no press, no chevron. */}
+          <View style={s.cell}>
+            <View style={[s.tile, { backgroundColor: colors.card }]}>
+              <Image
+                source={require("@/assets/images/piggy-bank.png")}
+                style={[s.art, s.artImg, { tintColor: colors.primary, opacity: artOpacity }]}
+              />
+              {tileBody({
+                status: "COMING SOON",
+                statusColor: colors.mutedForeground,
+                title: "Saving",
+                sub: "Put money away for later",
+              })}
+            </View>
+          </View>
+
+          <View style={s.cell}>
+            <View style={[s.tile, { backgroundColor: colors.card }]}>
+              <Ionicons name="leaf" size={132} color={colors.primary} style={[s.art, { opacity: artOpacity }]} />
+              {tileBody({
+                status: "COMING SOON",
+                statusColor: colors.mutedForeground,
+                title: "Earn",
+                sub: "Grow the money you hold",
+              })}
+            </View>
+          </View>
+        </View>
       </View>
+
+      {/* Money Moves Business, as a card floating clear of the edges, the same
+          way Home's sheets do it. */}
+      {showBusiness && (
+        <Modal transparent animationType="fade" visible statusBarTranslucent onRequestClose={() => setShowBusiness(false)}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowBusiness(false)}>
+            {Platform.OS === "ios" ? (
+              <BlurView intensity={22} tint="dark" style={StyleSheet.absoluteFill} />
+            ) : (
+              <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.62)" }]} />
+            )}
+          </Pressable>
+
+          <View style={s.sheetDock} pointerEvents="box-none">
+            <Reanimated.View
+              entering={SlideInDown.duration(260)}
+              exiting={SlideOutDown.duration(200)}
+              style={[
+                s.sheet,
+                { backgroundColor: colors.card, borderColor: colors.border, marginBottom: (insets.bottom || 12) + 10 },
+              ]}
+            >
+              <View style={s.sheetHead}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[s.sheetEyebrow, { color: colors.primary }]}>MONEY MOVES BUSINESS</Text>
+                  <Text style={[s.sheetTitle, { color: colors.foreground }]}>Take payments from customers</Text>
+                </View>
+                <TouchableOpacity
+                  style={[s.sheetClose, { backgroundColor: colors.background }]}
+                  onPress={() => setShowBusiness(false)}
+                  hitSlop={8}
+                >
+                  <Feather name="x" size={16} color={colors.foreground} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[s.sheetBody, { color: colors.mutedForeground }]}>
+                Customers pay in stablecoins or local fiat, and every payment settles instantly to a wallet only you
+                control.
+              </Text>
+
+              <View style={[s.points, { borderColor: colors.border }]}>
+                {[
+                  "Payment links, invoices and checkout",
+                  "Settle in stablecoins or to your bank",
+                  "For freelancers and registered businesses",
+                ].map((line, i) => (
+                  <View
+                    key={line}
+                    style={[s.point, i > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border }]}
+                  >
+                    <Feather name="check" size={15} color={colors.primary} />
+                    <Text style={[s.pointText, { color: colors.foreground }]}>{line}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                style={[s.cta, { backgroundColor: colors.primary }]}
+                activeOpacity={0.85}
+                onPress={() => {
+                  setShowBusiness(false);
+                  Linking.openURL(BUSINESS_SITE).catch(() => {});
+                }}
+              >
+                <Text style={[s.ctaText, { color: colors.primaryForeground }]}>Visit website</Text>
+                <Feather name="arrow-up-right" size={17} color={colors.primaryForeground} />
+              </TouchableOpacity>
+            </Reanimated.View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -232,9 +266,7 @@ const s = StyleSheet.create({
   root: { flex: 1 },
   pattern: { position: "absolute", top: 0, left: 0, right: 0 },
 
-  // A column, not a scroller: there is nothing here to scroll to, and a
-  // ScrollView over content shorter than the screen is where the empty two
-  // thirds came from.
+  // A column, not a scroller: the two rows share the height there is.
   page: { flex: 1, paddingHorizontal: 16 },
 
   label: {
@@ -246,57 +278,56 @@ const s = StyleSheet.create({
     marginBottom: 14,
   },
 
-  // flex: 1 on both, so the two split whatever height the device has and the
-  // page fills itself on a small phone and a tall one alike.
+  row: { flex: 1, flexDirection: "row", gap: 12, marginBottom: 12 },
+  cell: { flex: 1 },
   tile: {
     flex: 1,
-    borderRadius: 24,
-    padding: 20,
-    marginBottom: 12,
-    justifyContent: "flex-end",
+    borderRadius: 22,
+    padding: 16,
+    justifyContent: "space-between",
     overflow: "hidden",
   },
-  art: { position: "absolute", right: -34, top: -26, opacity: 0.1 },
-  artImg: { width: 190, height: 190, resizeMode: "contain" },
+  // Oversized and clipped by the tile, so it reads as texture rather than as an icon.
+  art: { position: "absolute", right: -30, top: -18 },
+  artImg: { width: 132, height: 132, resizeMode: "contain" },
 
-  // Top-left, opposite the artwork, so the two corners of the tile are doing
-  // different jobs and neither is empty.
-  status: {
-    position: "absolute",
-    top: 20,
-    left: 20,
-    fontFamily: MONO,
-    fontSize: 10,
-    lineHeight: 14,
-    letterSpacing: 1.6,
+  tileTop: { minHeight: 14 },
+  status: { fontFamily: MONO, fontSize: 9.5, lineHeight: 13, letterSpacing: 1.4 },
+
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 6 },
+  title: { fontSize: 23, lineHeight: 29, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.8, flexShrink: 1 },
+  sub: { fontFamily: MONO, fontSize: 11, lineHeight: 15, marginTop: 4 },
+
+  sheetDock: { flex: 1, justifyContent: "flex-end" },
+  sheet: {
+    marginHorizontal: 12,
+    borderRadius: 28,
+    borderWidth: StyleSheet.hairlineWidth,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    paddingBottom: 16,
+    shadowColor: "#000",
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 16,
   },
-
-  tileFoot: { gap: 0 },
-
-  statCap: { fontFamily: MONO, fontSize: 9.5, lineHeight: 13, letterSpacing: 1.6 },
-  figRow: { flexDirection: "row", alignItems: "flex-end", marginTop: 7 },
-  // Box, not glyph: `contain` scales the mark's transparent margin too, so it
-  // fills about two thirds of what is set here. 30 lands it on the cap height
-  // of the 28pt figure; the lift puts it on their baseline.
-  nairaMark: { width: 30 * FONT_SCALE, height: 30 * FONT_SCALE, resizeMode: "contain", marginRight: -4 * FONT_SCALE, marginBottom: 3 * FONT_SCALE },
-  fig: { fontSize: 28, lineHeight: 34, fontFamily: "Inter_800ExtraBold", letterSpacing: -1, flexShrink: 1 },
-  statFoot: { fontFamily: MONO, fontSize: 10, lineHeight: 14, letterSpacing: 1.1, marginTop: 5 },
-
-  // The figures are what this product would do; the name is what it is called.
-  // A rule between them stops the two blocks reading as one paragraph.
-  seam: { height: StyleSheet.hairlineWidth, marginTop: 14, marginBottom: 13 },
-
-  title: { fontSize: 26, lineHeight: 32, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.9 },
-  sub: { fontFamily: MONO, fontSize: 12, lineHeight: 17, marginTop: 3 },
-
-  // Monospaced like the label, so the two quiet lines on the screen belong to
-  // each other.
-  footer: {
-    fontFamily: MONO,
-    fontSize: 11,
-    lineHeight: 16,
-    textAlign: "center",
-    paddingHorizontal: 30,
-    marginTop: 4,
+  sheetHead: { flexDirection: "row", alignItems: "flex-start", gap: 12 },
+  sheetEyebrow: { fontFamily: MONO, fontSize: 10, lineHeight: 14, letterSpacing: 1.6 },
+  sheetTitle: { fontSize: 21, lineHeight: 27, fontFamily: "Inter_700Bold", letterSpacing: -0.5, marginTop: 6 },
+  sheetClose: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  sheetBody: { fontSize: 14, lineHeight: 20, fontFamily: "Inter_400Regular", marginTop: 10 },
+  points: { marginTop: 16, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth },
+  point: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12 },
+  pointText: { fontSize: 14, lineHeight: 19, fontFamily: "Inter_500Medium", flex: 1 },
+  cta: {
+    marginTop: 18,
+    height: 54,
+    borderRadius: 27,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
+  ctaText: { fontSize: 16, lineHeight: 21, fontFamily: "Inter_800ExtraBold", letterSpacing: -0.3 },
 });
