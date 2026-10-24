@@ -142,7 +142,8 @@ export default function SelectCryptoScreen() {
               activeOpacity={0.75}
               onPress={() => handleCryptoTap(c.symbol)}
             >
-              <TokenLogo symbol={c.symbol} size={34} dark />
+              {/* The coin's own colours: a list of grey marks read as disabled. */}
+              <TokenLogo symbol={c.symbol} size={34} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.rowTitle, { color: colors.foreground }]}>{c.symbol}</Text>
                 <Text style={[styles.rowNote, { color: colors.mutedForeground }]}>{c.name}</Text>
@@ -168,18 +169,9 @@ export default function SelectCryptoScreen() {
                     style={[styles.rowNote, { color: btc && !btc.available ? colors.warning : colors.mutedForeground }]}
                     numberOfLines={1}
                   >
-                    {btc && !btc.available ? "Currently unavailable" : "Bitcoin"}
+                    {btc && !btc.available ? "Currently unavailable" : "Bitcoin · settles as USDC"}
                   </Text>
                 </View>
-                {btc?.available && (
-                  <View style={styles.outcome}>
-                    <Image
-                      source={require("@/assets/images/alter.png")}
-                      style={[styles.outcomeSwap, { tintColor: colors.mutedForeground }]}
-                    />
-                    <TokenLogo symbol="USDC" size={20} />
-                  </View>
-                )}
                 {btc?.available ? (
                   <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
                 ) : !btc ? (
