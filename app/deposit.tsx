@@ -23,6 +23,7 @@ import { useApp } from "@/context/AppContext";
 import { TOKEN_NETWORKS, TokenSymbol, NetworkInfo } from "@/constants/transfer";
 import { getLocalAddresses } from "@/services/wallet-core";
 import { getStellarStatus, activateStellar } from "@/services/stellar";
+import { getRoutedDeposits, type RoutedAsset } from "@/services/routed-deposits";
 import QRCode from "react-native-qrcode-svg";
 import * as Sharing from "expo-sharing";
 import { captureRef } from "react-native-view-shot";
@@ -37,6 +38,9 @@ const NETWORK_NAMES: Record<string, string> = {
   ARB: "Arbitrum",
   STELLAR: "Stellar",
   MONAD: "Monad",
+  TRON: "Tron",
+  ETH_IN: "Ethereum",
+  ARB_IN: "Arbitrum",
 };
 
 // Chain marks for the picker. A name alone makes the list read as settings;
@@ -51,6 +55,31 @@ const NETWORK_LOGOS: Record<string, any> = {
   ARB: require("@/assets/images/arbitrumlogo.png"),
   STELLAR: require("@/assets/images/stellar.jpg"),
   MONAD: require("@/assets/images/monad.png"),
+  TRON: require("@/assets/images/trx.png"),
+  ETH_IN: require("@/assets/images/eth.png"),
+  ARB_IN: require("@/assets/images/arbitrumlogo.png"),
+};
+
+/**
+ * Networks that convert on the way in, offered in the dropdown on this screen
+ * only: Tron for USDT, Ethereum and Arbitrum for both.
+ *
+ * None is one of the person's wallets. A coin sent there goes to a deposit
+ * address of their own that converts it, and arrives as USDC in their wallet.
+ * So they are added here, not to TOKEN_NETWORKS, which also drives sends and
+ * withdrawals.
+ */
+type ConvertedNet = NetworkInfo & { chainId: number; standard: string };
+const CONVERTED_NETS: Record<string, ConvertedNet[]> = {
+  USDT: [
+    { name: "Tron", tag: "TRON", chainId: 728126428, standard: "TRC20" },
+    { name: "Ethereum", tag: "ETH_IN", chainId: 1, standard: "ERC20" },
+    { name: "Arbitrum", tag: "ARB_IN", chainId: 42161, standard: "Arbitrum One" },
+  ],
+  USDC: [
+    { name: "Ethereum", tag: "ETH_IN", chainId: 1, standard: "ERC20" },
+    { name: "Arbitrum", tag: "ARB_IN", chainId: 42161, standard: "Arbitrum One" },
+  ],
 };
 
 export default function DepositScreen() {
@@ -78,7 +107,29 @@ export default function DepositScreen() {
   }, [walletReady]);
 
   const token = (params.crypto as TokenSymbol) || "USDC";
-  const networks = TOKEN_NETWORKS[token] || TOKEN_NETWORKS.USDC;
+  /**
+   * The converting addresses, read once when the screen opens: they decide
+   * which converting networks the dropdown lists (only what the server
+   * offers - one switched off in the console is simply not there) and which
+   * address each shows.
+   */
+  const [routed, setRouted] = useState<RoutedAsset[] | null>(CONVERTED_NETS[token] ? null : []);
+  useEffect(() => {
+    if (!CONVERTED_NETS[token]) return;
+    let alive = true;
+    getRoutedDeposits()
+      .then((d) => alive && setRouted(d.assets ?? []))
+      .catch(() => alive && setRouted([]));
+    return () => {
+      alive = false;
+    };
+  }, [token]);
+  const offered = (n: ConvertedNet) => !!routed?.some((a) => a.chainId === n.chainId && a.symbol === token);
+
+  const networks: NetworkInfo[] = [
+    ...(TOKEN_NETWORKS[token] || TOKEN_NETWORKS.USDC),
+    ...(CONVERTED_NETS[token] ?? []).filter(offered),
+  ];
   const initialTag = params.network || networks[0].tag;
   const initialNet = networks.find((n) => n.tag === initialTag) || networks[0];
 
@@ -92,7 +143,20 @@ export default function DepositScreen() {
   // Always prefer the locally-derived address; fall back to backend only if local isn't ready yet
   const localAddr = localAddresses?.[selectedNetwork.tag] || "";
   const backendAddr = walletAddresses[selectedNetwork.tag] || "";
-  const walletAddress = localAddr || backendAddr;
+
+  // A converting network picked: its address from the list read above.
+  const conv = (CONVERTED_NETS[token] ?? []).find((n) => n.tag === selectedNetwork.tag) ?? null;
+  const isConverted = !!conv;
+  const convAsset = conv ? routed?.find((a) => a.chainId === conv.chainId && a.symbol === token) : undefined;
+  const convAddr: { state: "loading" | "ready" | "unavailable"; address: string; minimum: string | null } =
+    routed === null
+      ? { state: "loading", address: "", minimum: null }
+      : convAsset && convAsset.state !== "unavailable" && convAsset.address
+        ? { state: "ready", address: convAsset.address, minimum: convAsset.minimum }
+        : { state: "unavailable", address: "", minimum: null };
+  const convBlocked = isConverted && convAddr.state !== "ready";
+
+  const walletAddress = isConverted ? convAddr.address : localAddr || backendAddr;
 
   // Detect tampering: backend address differs from locally-derived address
   useEffect(() => {
@@ -189,7 +253,7 @@ export default function DepositScreen() {
    * and who sent it.
    */
   const shareMessage = () =>
-    `Send me ${token} on ${networkName}. My Money Moves wallet address:\n` +
+    `Send me ${token} on ${networkName}. My Money Moves ${isConverted ? "deposit" : "wallet"} address:\n` +
     `${walletAddress}\n\n` +
     `${token} on ${networkName} only. Any other token or chain cannot be recovered.`;
 
@@ -365,7 +429,24 @@ export default function DepositScreen() {
       >
         {/* Stellar, not yet open for this coin: offer to open it rather than
             show an address the network would refuse payments to. */}
-        {stellarBlocked ? (
+        {convBlocked ? (
+          <View style={[s.stellarCard, { backgroundColor: colors.card }]}>
+            <Image source={NETWORK_LOGOS[selectedNetwork.tag]} style={s.stellarLogo} resizeMode="cover" />
+            {convAddr.state === "loading" ? (
+              <>
+                <ActivityIndicator color={colors.primary} />
+                <Text style={[s.stellarText, { color: colors.mutedForeground }]}>Getting your {networkName} address…</Text>
+              </>
+            ) : (
+              <>
+                <Text style={[s.stellarTitle, { color: colors.foreground }]}>{networkName} is not available right now</Text>
+                <Text style={[s.stellarText, { color: colors.mutedForeground }]}>
+                  Pick another network to deposit {token} for now.
+                </Text>
+              </>
+            )}
+          </View>
+        ) : stellarBlocked ? (
           <View style={[s.stellarCard, { backgroundColor: colors.card }]}>
             <Image source={NETWORK_LOGOS.STELLAR} style={s.stellarLogo} resizeMode="cover" />
             {stellarState === "checking" ? (
@@ -463,10 +544,10 @@ export default function DepositScreen() {
           </View>
         </TouchableOpacity>
 
-        {!stellarBlocked && (
+        {!stellarBlocked && !convBlocked && (
         <View style={[s.addressCard, { backgroundColor: colors.card }]}>
           <View style={{ flex: 1 }}>
-            <Text style={[s.addressLabel, { color: colors.mutedForeground }]}>Wallet address</Text>
+            <Text style={[s.addressLabel, { color: colors.mutedForeground }]}>{isConverted ? "Deposit address" : "Wallet address"}</Text>
             <Text style={[s.addressText, { color: colors.foreground }]} selectable>
               {walletAddress}
             </Text>
@@ -485,7 +566,14 @@ export default function DepositScreen() {
             lose money - wrong token, wrong chain - are stated first. */}
         <View style={[s.infoCard, { backgroundColor: colors.card }]}>
           <Text style={[s.infoTitle, { color: colors.foreground }]}>Deposit info</Text>
-          {(isStellar
+          {(isConverted
+            ? [
+                `Send ${token} only, on ${networkName} (${conv!.standard})`,
+                ...(convAddr.minimum ? [`At least ${convAddr.minimum} ${token}`] : []),
+                "Arrives as USDC in your wallet, converted on the way in",
+                "Another token or chain cannot be recovered",
+              ]
+            : isStellar
             ? [
                 // On Stellar USDT is issued as USDT0; a sender's wallet may
                 // list it under either name.
@@ -513,7 +601,7 @@ export default function DepositScreen() {
         {/* In the flow, under the info, rather than pinned to the bottom.
             The screen is short enough to hold everything, and a fixed bar left
             a gap under the content that made the page look unfinished. */}
-        {!stellarBlocked && (
+        {!stellarBlocked && !convBlocked && (
         <View style={s.actions}>
           <TouchableOpacity
             style={[s.actionBtn, { backgroundColor: colors.muted }]}

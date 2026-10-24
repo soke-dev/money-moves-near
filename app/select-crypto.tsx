@@ -28,6 +28,17 @@ import {
  * chain it arrives on - which is what the network sheet asks for the ones that
  * exist on more than one.
  */
+/** Converted at the door: Bitcoin in the main list, Tron USDT under USDT. */
+/**
+ * What stays under Other crypto. USDC and USDT on Ethereum and Arbitrum are
+ * networks in those coins' own dropdowns now, and ETH on Arbitrum is not
+ * offered, so Arbitrum drops out of this list entirely.
+ */
+const inOtherCrypto = (a: { chainId: number; symbol: string }) =>
+  a.chainId !== 42161 && !(a.chainId === 1 && (a.symbol === "USDC" || a.symbol === "USDT"));
+const BTC_CHAIN = 10001;
+const TRON_CHAIN = 728126428;
+
 const DIRECT = [
   { symbol: "USDC", name: "USD Coin" },
   { symbol: "USDT", name: "Tether" },
@@ -53,6 +64,10 @@ export default function SelectCryptoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [converted, setConverted] = useState<RoutedGroup[] | null>(null);
+  // Bitcoin is drawn in the main list and Tron USDT inside USDT's network list,
+  // so "Other crypto" holds everything else.
+  const btc = converted?.find((g) => g.chainId === BTC_CHAIN);
+  const others = converted?.filter((g) => g.chainId !== BTC_CHAIN && g.chainId !== TRON_CHAIN) ?? null;
 
   /**
    * Asked once, and quietly.
@@ -66,7 +81,7 @@ export default function SelectCryptoScreen() {
     getRoutedDeposits()
       // Grouped by address: Ethereum USDC and USDT are one place to send to,
       // and two rows said there were two.
-      .then((d) => setConverted(groupRouted(d.assets ?? [])))
+      .then((d) => setConverted(groupRouted((d.assets ?? []).filter(inOtherCrypto))))
       .catch((e) => {
         // Quiet for the person, loud for us. Hiding the section on failure is
         // right in production and invisible while building it - the first run
@@ -118,26 +133,64 @@ export default function SelectCryptoScreen() {
         <Rail
           colors={colors}
           title="Deposit crypto"
-          sub="Arrives as the same token, on the same network"
         />
 
         {DIRECT.map((c) => (
-          <TouchableOpacity
-            key={c.symbol}
-            style={[styles.row, { backgroundColor: colors.card }]}
-            activeOpacity={0.75}
-            onPress={() => handleCryptoTap(c.symbol)}
-          >
-            <TokenLogo symbol={c.symbol} size={34} dark />
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={[styles.rowTitle, { color: colors.foreground }]}>{c.symbol}</Text>
-              <Text style={[styles.rowNote, { color: colors.mutedForeground }]}>{c.name}</Text>
-            </View>
-            <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
-          </TouchableOpacity>
+          <React.Fragment key={c.symbol}>
+            <TouchableOpacity
+              style={[styles.row, { backgroundColor: colors.card }]}
+              activeOpacity={0.75}
+              onPress={() => handleCryptoTap(c.symbol)}
+            >
+              <TokenLogo symbol={c.symbol} size={34} dark />
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.rowTitle, { color: colors.foreground }]}>{c.symbol}</Text>
+                <Text style={[styles.rowNote, { color: colors.mutedForeground }]}>{c.name}</Text>
+              </View>
+              <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
+            </TouchableOpacity>
+
+            {/* Bitcoin sits with the coins people come here for, under USDT. It
+                still converts: its own screen says so, with its address. */}
+            {c.symbol === "USDT" && (converted === null || btc) && (
+              <TouchableOpacity
+                style={[styles.row, { backgroundColor: colors.card }, btc && !btc.available && styles.rowOff]}
+                activeOpacity={0.75}
+                disabled={!btc || !btc.available}
+                onPress={() =>
+                  router.push({ pathname: "/deposit-routed", params: { chainId: String(BTC_CHAIN) } } as any)
+                }
+              >
+                <TokenLogo symbol="BTC" size={34} />
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={[styles.rowTitle, { color: colors.foreground }]}>BTC</Text>
+                  <Text
+                    style={[styles.rowNote, { color: btc && !btc.available ? colors.warning : colors.mutedForeground }]}
+                    numberOfLines={1}
+                  >
+                    {btc && !btc.available ? "Currently unavailable" : "Bitcoin"}
+                  </Text>
+                </View>
+                {btc?.available && (
+                  <View style={styles.outcome}>
+                    <Image
+                      source={require("@/assets/images/alter.png")}
+                      style={[styles.outcomeSwap, { tintColor: colors.mutedForeground }]}
+                    />
+                    <TokenLogo symbol="USDC" size={20} />
+                  </View>
+                )}
+                {btc?.available ? (
+                  <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
+                ) : !btc ? (
+                  <ActivityIndicator size="small" color={colors.mutedForeground} />
+                ) : null}
+              </TouchableOpacity>
+            )}
+          </React.Fragment>
         ))}
 
-        {(converted === null || converted.length > 0) && (
+        {(others === null || others.length > 0) && (
           <Rail
             colors={colors}
             title="Other crypto"
@@ -147,12 +200,12 @@ export default function SelectCryptoScreen() {
           />
         )}
 
-        {converted === null ? (
+        {others === null ? (
           <View style={styles.loading}>
             <ActivityIndicator size="small" color={colors.mutedForeground} />
           </View>
         ) : (
-          converted.map((c) => (
+          others.map((c) => (
             <TouchableOpacity
               key={c.chainId}
               style={[styles.row, { backgroundColor: colors.card }, !c.available && styles.rowOff]}
@@ -240,7 +293,7 @@ function Rail({
 }: {
   colors: any;
   title: string;
-  sub: string;
+  sub?: string;
   icon?: boolean;
   gap?: boolean;
 }) {
@@ -259,7 +312,7 @@ function Rail({
           />
         )}
       </View>
-      <Text style={[styles.railSub, { color: colors.mutedForeground }]}>{sub}</Text>
+      {!!sub && <Text style={[styles.railSub, { color: colors.mutedForeground }]}>{sub}</Text>}
     </View>
   );
 }

@@ -56,9 +56,9 @@ export const AURORA_DEFAULTS: AuroraSettings = {
   deposits: {
     // Their FAQ recommends at least $1, or $2 on Tron: below that the
     // processing costs can exceed the deposit and it sits there. Bitcoin is
-    // $5: their FAQ treats amounts around 5,000 sats as dust that can stall,
-    // and $5 stays clear of that while the price moves between send and arrival.
-    btc: { state: "visible", minUsd: 5 },
+    // $3, the business's call (2026-10-24): about 3,700 sats at $80k, under the
+    // 5,000 their FAQ calls dust, so a payment near the floor may be slow to convert.
+    btc: { state: "visible", minUsd: 3 },
     tron: { state: "visible", minUsd: 2 },
   },
   swap: {
