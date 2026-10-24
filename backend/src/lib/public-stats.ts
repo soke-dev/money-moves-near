@@ -18,7 +18,8 @@ import { fetchRates } from "../routes/rates";
  *    both legs, the way a processor counts it;
  *  - on/off-ramp: naira converted to crypto (BUY) and back (SELL);
  *  - transactions: completed only;
- *  - people: accounts that exist (closed ones are not counted).
+ *  - people: every account ever made, closed ones included (shown as downloads);
+ *  - active: people with at least one completed transaction, as the console counts them.
  * Dollar values use the dollar for the stablecoins and today's feed price for
  * the rest; an asset the feed has no price for adds nothing rather than a
  * guess. usdNgn is the dollar's naira price as the app quotes it today (the
@@ -33,6 +34,7 @@ export interface PublicStats {
   rampVolumeUsd: number;
   transactions: number;
   people: number;
+  active: number;
   months: { month: string; processed: number; ramp: number; tx: number }[];
   assets: { symbol: string; usd: number; tx: number }[];
 }
@@ -53,12 +55,13 @@ async function compute(): Promise<PublicStats> {
     if (v > 0) usd[sym] = v;
   }
 
-  const [txns, people] = await Promise.all([
+  const [txns, people, active] = await Promise.all([
     prisma.transaction.findMany({
       where: { status: "COMPLETED" },
       select: { type: true, asset: true, amount: true, createdAt: true },
     }),
-    prisma.user.count({ where: { deletedAt: null } }),
+    prisma.user.count(),
+    prisma.transaction.groupBy({ by: ["userId"], where: { status: "COMPLETED" } }).then((rows) => rows.length),
   ]);
 
   let total = 0;
@@ -93,6 +96,7 @@ async function compute(): Promise<PublicStats> {
     rampVolumeUsd: Math.round(ramp),
     transactions: txns.length,
     people,
+    active,
     months: [...months.entries()]
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([month, v]) => ({ month, processed: Math.round(v.processed), ramp: Math.round(v.ramp), tx: v.tx })),

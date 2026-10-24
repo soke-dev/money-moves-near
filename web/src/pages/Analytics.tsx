@@ -67,6 +67,7 @@ const SNAPSHOT = {
    * a factor of three.
    */
   people: 376,
+  active: 0,
   months: [
     { month: '2026-04', processed: 4772, ramp: 1111, tx: 446 },
     { month: '2026-05', processed: 5490, ramp: 2705, tx: 404 },
@@ -616,13 +617,19 @@ export default function Analytics() {
           </div>
         </Reveal>
 
-        <div className="mt-14 grid gap-x-10 gap-y-9 sm:grid-cols-2">
+        <div className="mt-14 grid gap-x-10 gap-y-9 sm:grid-cols-3">
           <Reveal delay={0.04}>
             <Stat label="Transactions" value={data.transactions.toLocaleString('en-US')} />
           </Reveal>
           <Reveal delay={0.1}>
             <Stat label="Mobile downloads" value={data.people.toLocaleString('en-US')} />
           </Reveal>
+          {/* People who have completed at least one transaction. Absent from the old snapshot, so hidden until live. */}
+          {data.active > 0 && (
+            <Reveal delay={0.16}>
+              <Stat label="Active users" value={data.active.toLocaleString('en-US')} />
+            </Reveal>
+          )}
         </div>
       </section>
 
