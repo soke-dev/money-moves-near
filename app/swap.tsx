@@ -11,7 +11,7 @@ import {
   Modal,
   Image,
   Linking,
-  KeyboardAvoidingView,
+  Keyboard,
 } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -69,6 +69,9 @@ const REVIEW_HOLD_S = 30;
 
 const short = (a?: string | null) => (a && a.length > 14 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a || "");
 
+/** "You pay with" lists only coins holding at least this much. Anything less is dust no swap could take. */
+const MIN_PAY_BALANCE = 0.1;
+
 /** Where to start: what the person holds most of, going to USDC on Monad, or whatever else is first. */
 function defaultsFor(c: SwapConfig, held: (a: SwapAsset) => number, wanted?: string) {
   const froms = c.assets.filter((a) => a.from);
@@ -113,6 +116,19 @@ export default function SwapScreen() {
   const [pin, setPin] = useState("");
   const [pinError, setPinError] = useState(false);
   const pendingAction = useRef<() => void>(() => {});
+
+  // Review rides the keyboard, as Save does on the name screen, so it is never behind the keys.
+  const [kbHeight, setKbHeight] = useState(0);
+  useEffect(() => {
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const show = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates.height));
+    const hide = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
 
   /* ── Config: shown from memory at once, refreshed behind ── */
   useEffect(() => {
@@ -545,7 +561,7 @@ export default function SwapScreen() {
   return (
     <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
       {header("Swap")}
-      <KeyboardAvoidingView style={s.flex1} behavior={Platform.OS === "ios" ? "padding" : undefined}>
+      <View style={s.flex1}>
         <ScrollView contentContainerStyle={[s.body, { paddingBottom: 24 }]} keyboardShouldPersistTaps="handled">
           {!!config?.notice && (
             <View style={[s.notice, { backgroundColor: colors.warning + "14" }]}>
@@ -635,12 +651,13 @@ export default function SwapScreen() {
 
           {!!hint && <Text style={[s.hint, { color: belowMin || overBalance ? colors.warning : colors.destructive }]}>{hint}</Text>}
         </ScrollView>
-      </KeyboardAvoidingView>
-      <View style={[s.footerCol, { paddingBottom: bottomPad + 16 }]}>
+      </View>
+      <View style={[s.footerCol, { marginBottom: kbHeight, paddingBottom: kbHeight > 0 ? 12 : bottomPad + 16 }]}>
         <TouchableOpacity
           style={[s.cta, s.stretch, { backgroundColor: colors.primary, opacity: canReview ? 1 : 0.4 }]}
           disabled={!canReview}
           onPress={() => {
+            Keyboard.dismiss();
             setSendError("");
             setStep("review");
           }}
@@ -652,7 +669,8 @@ export default function SwapScreen() {
       <Picker
         visible={picker !== null}
         title={picker === "from" ? "You pay with" : "You receive"}
-        assets={assets.filter((a) => (picker === "from" ? a.from : a.to))}
+        assets={assets.filter((a) => (picker === "from" ? a.from && balanceOf(a) >= MIN_PAY_BALANCE : a.to))}
+        empty={picker === "from" ? "No balance to swap yet" : "No match"}
         selected={picker === "from" ? fromId : toId}
         balanceOf={balanceOf}
         onPick={pick}
@@ -781,6 +799,7 @@ function Picker({
   visible,
   title,
   assets,
+  empty,
   selected,
   balanceOf,
   onPick,
@@ -791,6 +810,7 @@ function Picker({
   visible: boolean;
   title: string;
   assets: SwapAsset[];
+  empty: string;
   selected: string | null;
   balanceOf: (a: SwapAsset) => number;
   onPick: (a: SwapAsset) => void;
@@ -868,7 +888,11 @@ function Picker({
                 </TouchableOpacity>
               );
             })}
-            {!list.length && <Text style={[s.quiet, s.centered, { color: colors.mutedForeground, paddingVertical: 28 }]}>No match</Text>}
+            {!list.length && (
+              <Text style={[s.quiet, s.centered, { color: colors.mutedForeground, paddingVertical: 28 }]}>
+                {q.trim() ? "No match" : empty}
+              </Text>
+            )}
           </ScrollView>
         </View>
       </TouchableOpacity>
