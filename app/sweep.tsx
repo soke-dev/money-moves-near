@@ -671,7 +671,7 @@ export default function SweepSheet() {
       return (
         <View style={s.centre}>
           <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
-            Nothing to sweep. Sweep gathers USDC or USDT balances of $5 or less on Solana, Base, BNB Chain, Monad, Arc or TON. Use Swap for bigger ones.
+            Nothing to sweep. Sweep gathers USDC or USDT balances of ${quote?.ceiling ?? 5} or less on Solana, Base, BNB Chain, Monad, Arc or TON. Use Swap for bigger ones.
           </Text>
         </View>
       );

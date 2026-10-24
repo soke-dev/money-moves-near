@@ -396,20 +396,20 @@ export async function sweepableBalances(userId: string): Promise<
       minNetFor(b.chain as SweepChain),
     )
     /**
-     * Small balances only. Anything above the swap minimum belongs to Swap,
-     * which takes any coin to any chain into the person's own wallet; the
-     * sweep is for what is too small to swap. Sharing the one figure means
-     * every balance has exactly one place to go, and changing the minimum in
-     * the console moves both. Both coins here are dollars, so the amount is
-     * the dollar value.
+     * Small balances only. Anything bigger belongs to Swap, which takes any
+     * coin to any chain into the person's own wallet. The limit is its own
+     * console setting rather than the swap minimum: when the two were one
+     * figure, lowering the minimum to $2 dropped every balance between $2 and
+     * $5 out of Sweep. A balance in between can now go either way. Both coins
+     * here are dollars, so the amount is the dollar value.
      */
     .filter((b) => b.amount <= ceiling + 1e-9)
     .sort((a, b) => b.amount - a.amount);
 }
 
-/** The largest single balance a sweep takes: the swap minimum, $5 unless the console says otherwise. */
+/** The largest single balance a sweep takes: $5 unless the console says otherwise. */
 export async function sweepCeiling(): Promise<number> {
-  return (await auroraSettings()).swap.minUsd;
+  return (await auroraSettings()).swap.sweepMaxUsd;
 }
 
 /**

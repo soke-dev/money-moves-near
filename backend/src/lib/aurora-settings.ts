@@ -36,6 +36,12 @@ export type AuroraSettings = {
     slippageBps: number;
     /** Swaps one account may start in a rolling day. Each one costs us gas. */
     perDay: number;
+    /**
+     * The largest single balance Sweep takes, in dollars. Its own figure, not
+     * the swap minimum: lowering the minimum let Swap take smaller balances,
+     * and it also quietly stopped Sweep taking anything between the two.
+     */
+    sweepMaxUsd: number;
   };
 };
 
@@ -47,7 +53,7 @@ export const AURORA_DEFAULTS: AuroraSettings = {
     btc: { state: "visible", minUsd: 2 },
     tron: { state: "visible", minUsd: 2 },
   },
-  swap: { enabled: true, feeBps: 100, solanaFlatUsd: 0.25, minUsd: 5, slippageBps: 100, perDay: 20 },
+  swap: { enabled: true, feeBps: 100, solanaFlatUsd: 0.25, minUsd: 5, slippageBps: 100, perDay: 20, sweepMaxUsd: 5 },
 };
 
 /** Hard limits, so a typo in the console cannot set a 90% fee or a free-for-all. */
@@ -57,6 +63,7 @@ export const LIMITS = {
   minUsd: { min: 1, max: 10_000 },
   slippageBps: { min: 10, max: 500 },
   perDay: { min: 1, max: 200 },
+  sweepMaxUsd: { min: 0.5, max: 50 },
   depositMinUsd: { min: 1, max: 1_000 },
 } as const;
 
@@ -69,6 +76,7 @@ const KEYS = {
   swapMin: "au:swap:minUsd",
   swapSlippage: "au:swap:slippageBps",
   swapPerDay: "au:swap:perDay",
+  sweepMax: "au:swap:sweepMaxUsd",
 };
 
 function num(v: string | null | undefined, fallback: number, range: { min: number; max: number }): number {
@@ -110,6 +118,7 @@ export async function auroraSettings(): Promise<AuroraSettings> {
       minUsd: num(v.get(KEYS.swapMin), d.swap.minUsd, LIMITS.minUsd),
       slippageBps: num(v.get(KEYS.swapSlippage), d.swap.slippageBps, LIMITS.slippageBps),
       perDay: num(v.get(KEYS.swapPerDay), d.swap.perDay, LIMITS.perDay),
+      sweepMaxUsd: num(v.get(KEYS.sweepMax), d.swap.sweepMaxUsd, LIMITS.sweepMaxUsd),
     },
   };
   cache = { at: Date.now(), value };
@@ -167,6 +176,7 @@ export async function updateAuroraSettings(
     if (s.minUsd !== undefined) writes.push([KEYS.swapMin, String(inRange("Minimum swap", s.minUsd, LIMITS.minUsd))]);
     if (s.slippageBps !== undefined) writes.push([KEYS.swapSlippage, String(Math.round(inRange("Slippage", s.slippageBps, LIMITS.slippageBps)))]);
     if (s.perDay !== undefined) writes.push([KEYS.swapPerDay, String(Math.round(inRange("Swaps per day", s.perDay, LIMITS.perDay)))]);
+    if (s.sweepMaxUsd !== undefined) writes.push([KEYS.sweepMax, String(inRange("Largest sweep balance", s.sweepMaxUsd, LIMITS.sweepMaxUsd))]);
   }
 
   for (const [key, value] of writes) await put(key, value, updatedBy);

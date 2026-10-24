@@ -31,6 +31,8 @@ export interface SweepQuote {
    * because only the server knows which attempt is the oldest.
    */
   resetsAt: string | null;
+  /** The largest single balance Sweep takes, in dollars. Set in the console. */
+  ceiling?: number;
 }
 
 export interface PreparedLeg {

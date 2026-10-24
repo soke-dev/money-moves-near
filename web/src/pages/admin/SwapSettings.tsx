@@ -15,7 +15,7 @@ const API = import.meta.env.VITE_API_URL || ''
 type DepositState = 'visible' | 'unavailable' | 'hidden'
 type Settings = {
   deposits: Record<'btc' | 'tron', { state: DepositState; minUsd: number }>
-  swap: { enabled: boolean; feeBps: number; solanaFlatUsd: number; minUsd: number; slippageBps: number; perDay: number }
+  swap: { enabled: boolean; feeBps: number; solanaFlatUsd: number; minUsd: number; slippageBps: number; perDay: number; sweepMaxUsd?: number }
 }
 type RecentSwap = {
   id: string
@@ -48,7 +48,7 @@ function authed(init?: RequestInit): RequestInit {
 export function SwapSettings() {
   const [configured, setConfigured] = useState(true)
   const [settings, setSettings] = useState<Settings | null>(null)
-  const [draft, setDraft] = useState({ fee: '', solFlat: '', min: '', slippage: '', perDay: '', btcMin: '', tronMin: '' })
+  const [draft, setDraft] = useState({ fee: '', solFlat: '', min: '', slippage: '', perDay: '', sweepMax: '', btcMin: '', tronMin: '' })
   const [recent, setRecent] = useState<RecentSwap[] | null>(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
@@ -62,6 +62,8 @@ export function SwapSettings() {
       min: String(s.swap.minUsd),
       slippage: String(s.swap.slippageBps / 100),
       perDay: String(s.swap.perDay),
+      // Absent until the API that knows about it is deployed.
+      sweepMax: s.swap.sweepMaxUsd == null ? '' : String(s.swap.sweepMaxUsd),
       btcMin: String(s.deposits.btc.minUsd),
       tronMin: String(s.deposits.tron.minUsd),
     })
@@ -113,6 +115,7 @@ export function SwapSettings() {
           minUsd: Number(draft.min),
           slippageBps: Math.round(Number(draft.slippage) * 100),
           perDay: Math.round(Number(draft.perDay)),
+          ...(draft.sweepMax.trim() ? { sweepMaxUsd: Number(draft.sweepMax) } : {}),
         },
       },
       'Swap settings saved',
@@ -144,7 +147,7 @@ export function SwapSettings() {
               />
             }
           >
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-3">
               <Field label="Platform fee (%)" hint="Of what is sent. 1 means 1%.">
                 <Input inputMode="decimal" value={draft.fee} onChange={(e) => setDraft({ ...draft, fee: e.target.value })} />
               </Field>
@@ -159,6 +162,9 @@ export function SwapSettings() {
               </Field>
               <Field label="Swaps per person per day">
                 <Input inputMode="numeric" value={draft.perDay} onChange={(e) => setDraft({ ...draft, perDay: e.target.value })} />
+              </Field>
+              <Field label="Largest balance Sweep takes ($)" hint="Balances up to this go to Sweep. Swap takes anything from the smallest swap up.">
+                <Input inputMode="decimal" value={draft.sweepMax} onChange={(e) => setDraft({ ...draft, sweepMax: e.target.value })} />
               </Field>
             </div>
             <div className="mt-4 flex justify-end">
