@@ -284,10 +284,38 @@ async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Pr
     settledAt: settled ? p.payout!.created_at : null,
   };
 
-  const existing = await prisma.transaction.findUnique({
+  let existing = await prisma.transaction.findUnique({
     where: { reference },
     select: { id: true, status: true, amount: true, metadata: true },
   });
+
+  /**
+   * Our watcher may have written this deposit first, from the chain itself.
+   * That row becomes this one rather than sitting beside it, whatever hash
+   * Aurora reports; the chain's own hash is kept so the watcher still knows it.
+   */
+  if (!existing) {
+    const watched = await prisma.transaction.findFirst({
+      where: {
+        userId,
+        status: "PENDING",
+        reference: { startsWith: "AUDEP-" },
+        AND: [
+          { metadata: { path: ["watched"], equals: true } },
+          { metadata: { path: ["depositAddress"], equals: p.received.deposit_address } },
+        ],
+      },
+      orderBy: { createdAt: "asc" },
+      select: { id: true, status: true, amount: true, metadata: true },
+    });
+    if (watched) {
+      await prisma.transaction.update({ where: { id: watched.id }, data: { reference } });
+      existing = watched;
+    }
+  }
+  const prior = (existing?.metadata ?? {}) as any;
+  const chainTxHash: string | undefined = prior.chainTxHash ?? (prior.watched ? prior.sourceTxHash : undefined);
+  if (chainTxHash && chainTxHash !== p.received.tx_hash) (metadata as any).chainTxHash = chainTxHash;
 
   if (existing) {
     const unchanged =
@@ -424,5 +452,166 @@ export async function discoverAuroraDeposits(): Promise<void> {
     }
   } finally {
     discoveryRunning = false;
+  }
+}
+
+/* ─── Watching the addresses ourselves ─────────────────────────────── */
+
+/**
+ * A deposit the moment it is broadcast, before Aurora has seen it.
+ *
+ * Aurora reports a deposit only once it has picked it up, and a Bitcoin
+ * payment sent at a low fee can sit unconfirmed for hours first - with nothing
+ * in the person's history to say it exists. So each address is read straight
+ * off its chain: Bitcoin from mempool.space, which shows unconfirmed payments
+ * too, and Tron USDT from TronGrid. What is found becomes a "detected" row,
+ * and Aurora's own record takes that row over when it arrives (see record()).
+ *
+ * Read-only public APIs, no keys.
+ */
+type Incoming = { txHash: string; amount: number; confirmed: boolean; at: Date };
+
+const TRON_USDT_CONTRACT = "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+
+async function getJson(url: string): Promise<any | null> {
+  try {
+    const r = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    return r.ok ? await r.json() : null;
+  } catch {
+    return null;
+  }
+}
+
+async function incomingBtc(address: string): Promise<Incoming[] | null> {
+  const txs = await getJson(`https://mempool.space/api/address/${encodeURIComponent(address)}/txs`);
+  if (!Array.isArray(txs)) return null;
+  const out: Incoming[] = [];
+  for (const tx of txs) {
+    const sats = (tx.vout ?? [])
+      .filter((v: any) => v.scriptpubkey_address === address)
+      .reduce((n: number, v: any) => n + Number(v.value || 0), 0);
+    if (sats <= 0 || !tx.txid) continue;
+    const confirmed = !!tx.status?.confirmed;
+    out.push({
+      txHash: tx.txid,
+      amount: sats / 1e8,
+      confirmed,
+      at: confirmed && tx.status?.block_time ? new Date(tx.status.block_time * 1000) : new Date(),
+    });
+  }
+  return out;
+}
+
+async function incomingTron(address: string): Promise<Incoming[] | null> {
+  const j = await getJson(
+    `https://api.trongrid.io/v1/accounts/${encodeURIComponent(address)}/transactions/trc20?only_to=true&limit=20&contract_address=${TRON_USDT_CONTRACT}`,
+  );
+  if (!j || !Array.isArray(j.data)) return null;
+  return j.data
+    .filter((t: any) => t.to === address && t.transaction_id)
+    .map((t: any) => ({
+      txHash: t.transaction_id,
+      amount: Number(t.value || 0) / 1e6,
+      // TronGrid lists a transfer once it is in a block, and Tron finalises in seconds.
+      confirmed: true,
+      at: t.block_timestamp ? new Date(t.block_timestamp) : new Date(),
+    }))
+    .filter((t: Incoming) => t.amount > 0);
+}
+
+/** Write what the chain shows that Aurora has not reported yet. */
+async function watchAddress(userId: string, chain: AuroraDepositChain, address: string): Promise<void> {
+  const found = chain.kind === "btc" ? await incomingBtc(address) : await incomingTron(address);
+  if (!found?.length) return;
+
+  // Only recent ones: anything older that Aurora never reported is not "on its way".
+  const since = Date.now() - 3 * 24 * 60 * 60_000;
+  for (const inc of found) {
+    if (inc.at.getTime() < since) continue;
+    const reference = referenceFor(inc.txHash);
+    const existing = await prisma.transaction.findFirst({
+      where: {
+        userId,
+        OR: [
+          { reference },
+          { reference: { startsWith: "AUDEP-" }, metadata: { path: ["sourceTxHash"], equals: inc.txHash } },
+          { reference: { startsWith: "AUDEP-" }, metadata: { path: ["chainTxHash"], equals: inc.txHash } },
+        ],
+      },
+      select: { id: true, status: true, metadata: true },
+    });
+
+    const sentAmount = String(Number(inc.amount.toFixed(chain.decimals)));
+    if (existing) {
+      // Still ours and still waiting: keep the confirmation flag current.
+      const m = (existing.metadata ?? {}) as any;
+      if (m.watched && existing.status === "PENDING" && m.confirmed !== inc.confirmed) {
+        await prisma.transaction.update({ where: { id: existing.id }, data: { metadata: { ...m, confirmed: inc.confirmed } } });
+      }
+      continue;
+    }
+
+    await prisma.transaction.create({
+      data: {
+        userId,
+        type: "DEPOSIT",
+        asset: "USDC",
+        chain: "SOL",
+        amount: 0,
+        fee: 0,
+        status: "PENDING",
+        reference,
+        createdAt: inc.at,
+        metadata: {
+          source: "routed_deposit",
+          provider: "aurora",
+          chainId: chain.chainId,
+          routedStatus: "detected",
+          sentAmount,
+          sentSymbol: chain.symbol,
+          sourceTxHash: inc.txHash,
+          depositAddress: address,
+          confirmed: inc.confirmed,
+          // Ours, from the chain, until Aurora's record replaces it.
+          watched: true,
+          settledAt: null,
+        },
+      },
+    });
+    console.log(`[AU-DEP] watching ${chain.kind} ${inc.txHash} for ${userId} (${inc.confirmed ? "confirmed" : "unconfirmed"})`);
+    await sendNotification({
+      userId,
+      type: "transaction",
+      title: "Deposit Seen",
+      body: `${sentAmount} ${chain.symbol} is on its way. It converts to USDC on Solana once the network confirms it.`,
+    }).catch(() => {});
+  }
+}
+
+let watchRunning = false;
+
+/** Every deposit address on file, read off its own chain. */
+export async function watchAuroraAddresses(): Promise<void> {
+  if (watchRunning || !isAuroraConfigured()) return;
+  watchRunning = true;
+  try {
+    const rows = await prisma.serviceStatus.findMany({
+      where: { key: { startsWith: "auaddr:" } },
+      select: { key: true, value: true },
+    });
+    for (const row of rows) {
+      const [, kind, userId] = row.key.split(":");
+      const chain = AURORA_DEPOSIT_CHAINS.find((c) => c.kind === kind);
+      let address: string | null = null;
+      try {
+        address = JSON.parse(row.value ?? "")?.address ?? null;
+      } catch {
+        address = null;
+      }
+      if (!chain || !userId || !address) continue;
+      await watchAddress(userId, chain, address).catch((e: any) => console.error(`[AU-DEP] watch ${kind}:`, e?.message));
+    }
+  } finally {
+    watchRunning = false;
   }
 }

@@ -17,7 +17,7 @@ import {
   discoverRoutedDeposits,
 } from "./lib/stableyard-ledger";
 import { isAuroraConfigured } from "./lib/aurora";
-import { syncInFlightAuroraDeposits, discoverAuroraDeposits } from "./lib/aurora-deposits";
+import { syncInFlightAuroraDeposits, discoverAuroraDeposits, watchAuroraAddresses } from "./lib/aurora-deposits";
 import { refreshInFlightSwaps } from "./lib/aurora-swap";
 import swapRoutes from "./routes/swap";
 import { prisma } from "./lib/prisma";
@@ -389,6 +389,13 @@ async function main() {
       }, 60_000);
       setInterval(() => {
         syncInFlightAuroraDeposits().catch(() => {});
+      }, 2 * 60_000);
+      // The addresses read off their own chains, so a deposit shows the moment it is broadcast.
+      setTimeout(() => {
+        watchAuroraAddresses().catch(() => {});
+      }, 20_000);
+      setInterval(() => {
+        watchAuroraAddresses().catch(() => {});
       }, 2 * 60_000);
       setTimeout(() => {
         discoverAuroraDeposits().catch(() => {});
