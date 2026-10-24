@@ -42,8 +42,15 @@ export type AuroraSettings = {
      * and it also quietly stopped Sweep taking anything between the two.
      */
     sweepMaxUsd: number;
+    /** The largest single swap, in dollars of what is sent. Every chain and coin. */
+    maxUsd: number;
+    /** Who quotes and settles swaps. BTC and Tron deposits stay on Aurora either way. */
+    provider: SwapProvider;
   };
 };
+
+export type SwapProvider = "oneclick" | "aurora";
+const SWAP_PROVIDERS: SwapProvider[] = ["oneclick", "aurora"];
 
 export const AURORA_DEFAULTS: AuroraSettings = {
   deposits: {
@@ -54,7 +61,17 @@ export const AURORA_DEFAULTS: AuroraSettings = {
     btc: { state: "visible", minUsd: 5 },
     tron: { state: "visible", minUsd: 2 },
   },
-  swap: { enabled: true, feeBps: 100, solanaFlatUsd: 0.25, minUsd: 5, slippageBps: 100, perDay: 20, sweepMaxUsd: 5 },
+  swap: {
+    enabled: true,
+    feeBps: 100,
+    solanaFlatUsd: 0.25,
+    minUsd: 5,
+    slippageBps: 100,
+    perDay: 20,
+    sweepMaxUsd: 5,
+    maxUsd: 50,
+    provider: "oneclick",
+  },
 };
 
 /** Hard limits, so a typo in the console cannot set a 90% fee or a free-for-all. */
@@ -65,6 +82,7 @@ export const LIMITS = {
   slippageBps: { min: 10, max: 500 },
   perDay: { min: 1, max: 200 },
   sweepMaxUsd: { min: 0.5, max: 50 },
+  maxUsd: { min: 5, max: 10_000 },
   depositMinUsd: { min: 1, max: 1_000 },
 } as const;
 
@@ -78,6 +96,8 @@ const KEYS = {
   swapSlippage: "au:swap:slippageBps",
   swapPerDay: "au:swap:perDay",
   sweepMax: "au:swap:sweepMaxUsd",
+  swapMax: "au:swap:maxUsd",
+  swapProvider: "au:swap:provider",
 };
 
 function num(v: string | null | undefined, fallback: number, range: { min: number; max: number }): number {
@@ -120,6 +140,10 @@ export async function auroraSettings(): Promise<AuroraSettings> {
       slippageBps: num(v.get(KEYS.swapSlippage), d.swap.slippageBps, LIMITS.slippageBps),
       perDay: num(v.get(KEYS.swapPerDay), d.swap.perDay, LIMITS.perDay),
       sweepMaxUsd: num(v.get(KEYS.sweepMax), d.swap.sweepMaxUsd, LIMITS.sweepMaxUsd),
+      maxUsd: num(v.get(KEYS.swapMax), d.swap.maxUsd, LIMITS.maxUsd),
+      provider: SWAP_PROVIDERS.includes(v.get(KEYS.swapProvider) as SwapProvider)
+        ? (v.get(KEYS.swapProvider) as SwapProvider)
+        : d.swap.provider,
     },
   };
   cache = { at: Date.now(), value };
@@ -178,6 +202,11 @@ export async function updateAuroraSettings(
     if (s.slippageBps !== undefined) writes.push([KEYS.swapSlippage, String(Math.round(inRange("Slippage", s.slippageBps, LIMITS.slippageBps)))]);
     if (s.perDay !== undefined) writes.push([KEYS.swapPerDay, String(Math.round(inRange("Swaps per day", s.perDay, LIMITS.perDay)))]);
     if (s.sweepMaxUsd !== undefined) writes.push([KEYS.sweepMax, String(inRange("Largest sweep balance", s.sweepMaxUsd, LIMITS.sweepMaxUsd))]);
+    if (s.maxUsd !== undefined) writes.push([KEYS.swapMax, String(inRange("Largest swap", s.maxUsd, LIMITS.maxUsd))]);
+    if (s.provider !== undefined) {
+      if (!SWAP_PROVIDERS.includes(s.provider)) throw new Error("provider must be oneclick or aurora");
+      writes.push([KEYS.swapProvider, s.provider]);
+    }
   }
 
   for (const [key, value] of writes) await put(key, value, updatedBy);

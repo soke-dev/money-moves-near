@@ -231,6 +231,13 @@ const envSchema = z.object({
    */
   AURORA_INTENTS_API_KEY: z.string().default(""),
   AURORA_INTENTS_BASE_URL: z.string().url().default("https://intents-api.aurora.dev"),
+  // NEAR Intents 1Click, for swaps. Partner key from partners.near-intents.org.
+  ONECLICK_API_KEY: z.string().default(""),
+  ONECLICK_BASE_URL: z.string().url().default("https://1click.chaindefuser.com"),
+  // Swaps out of Movement: where users' USDCx is received (address only), and
+  // the EVM wallet that pays out on Base or funds the onward 1Click swap.
+  SWAP_MOVEMENT_ADDRESS: z.string().default(""),
+  SWAP_EVM_PRIVATE_KEY: z.string().default(""),
 
   /**
    * How often the server looks for deposits on its own, in minutes, so a

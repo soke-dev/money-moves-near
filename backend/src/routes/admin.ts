@@ -20,7 +20,9 @@ import {
   type RoutedState,
 } from "../lib/stableyard-visibility";
 import { enrolledAccounts, routedActivityReadOnly } from "../lib/stableyard-account";
-import { isAuroraConfigured } from "../lib/aurora";
+import { isSwapConfigured, isAuroraConfigured, isOneClickConfigured, isMovementRouteConfigured } from "../lib/aurora";
+import { routeWalletAddress } from "../lib/aurora-swap";
+import { getOnChainBalance } from "../lib/balances";
 import { auroraSettings, updateAuroraSettings, LIMITS as AURORA_LIMITS } from "../lib/aurora-settings";
 import {
   normaliseCode,
@@ -2349,9 +2351,25 @@ router.post(
 // arrive as USDC on Solana (on, off or hidden, and their dollar minimum).
 // Every value is re-read by the API on each request, so a change here takes
 // effect within seconds and needs no deploy.
+/** Which keys are set, and the two wallets swaps out of Movement run through. */
+async function swapWiring() {
+  const baseAddress = routeWalletAddress();
+  let baseUsdc: number | null = null;
+  if (baseAddress) baseUsdc = await getOnChainBalance("USDC", "BASE", baseAddress).catch(() => null);
+  return {
+    providers: { oneclick: isOneClickConfigured(), aurora: isAuroraConfigured() },
+    movementRoute: {
+      configured: isMovementRouteConfigured(),
+      movementAddress: env.SWAP_MOVEMENT_ADDRESS || null,
+      baseAddress,
+      baseUsdc,
+    },
+  };
+}
+
 router.get("/swap/settings", requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {
   try {
-    return res.json({ configured: isAuroraConfigured(), settings: await auroraSettings(), limits: AURORA_LIMITS });
+    return res.json({ configured: isSwapConfigured(), settings: await auroraSettings(), limits: AURORA_LIMITS, ...(await swapWiring()) });
   } catch (err) {
     next(err);
   }
@@ -2360,7 +2378,7 @@ router.get("/swap/settings", requireAdmin, async (_req: Request, res: Response, 
 router.put("/swap/settings", requireAdmin, async (req: Request, res: Response) => {
   try {
     const settings = await updateAuroraSettings(req.body ?? {}, (req as any).admin?.email);
-    return res.json({ configured: isAuroraConfigured(), settings, limits: AURORA_LIMITS });
+    return res.json({ configured: isSwapConfigured(), settings, limits: AURORA_LIMITS, ...(await swapWiring()) });
   } catch (err: any) {
     return res.status(400).json({ error: err?.message || "Could not change that." });
   }

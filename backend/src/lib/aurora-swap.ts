@@ -11,9 +11,12 @@ import {
   submitSolanaWithdrawal,
   prepareEvmWithdrawal,
   submitEvmWithdrawal,
+  prepareMovementWithdrawal,
+  submitMovementWithdrawal,
 } from "./gas-sponsor";
 import {
-  isAuroraConfigured,
+  isSwapConfigured,
+  swapAssetById,
   liveSwapAssets,
   requestQuote,
   swapStatus,
@@ -24,7 +27,7 @@ import {
   type QuoteRequest,
   type StatusResponse,
 } from "./aurora";
-import { auroraSettings } from "./aurora-settings";
+import { auroraSettings, type SwapProvider } from "./aurora-settings";
 
 /**
  * A swap: the person's own coins, from their own wallet on one chain, into
@@ -99,11 +102,13 @@ export type SwapPlan = {
   usd: number;
   originAddress: string;
   recipientAddress: string;
+  /** A routed swap's refund address: the person's own wallet on the chain it routes through. */
+  routeRefundAddress?: string;
 };
 
 /** Everything checked before Aurora is asked anything. */
 export async function planSwap(userId: string, fromId: string, toId: string, amount: number): Promise<SwapPlan> {
-  if (!isAuroraConfigured()) throw new SwapError("Swaps are not available right now.", 503);
+  if (!isSwapConfigured()) throw new SwapError("Swaps are not available right now.", 503);
   const settings = (await auroraSettings()).swap;
   if (!settings.enabled) throw new SwapError("Swaps are paused right now. Please try again later.", 503);
 
@@ -120,6 +125,9 @@ export async function planSwap(userId: string, fromId: string, toId: string, amo
   const usd = isStable(from) ? amount : amount * from.price;
   if (usd + 1e-9 < settings.minUsd) {
     throw new SwapError(`The smallest swap is $${settings.minUsd}.`);
+  }
+  if (usd > settings.maxUsd + 1e-9) {
+    throw new SwapError(`The largest swap right now is $${settings.maxUsd}.`);
   }
 
   // A swap paid from Solana also carries a flat fee: it sends to a new deposit
@@ -139,7 +147,13 @@ export async function planSwap(userId: string, fromId: string, toId: string, amo
   if (!originAddress) throw new SwapError(`No wallet found on ${from.chain}.`);
   if (!recipientAddress) throw new SwapError(`No wallet found on ${to.chain}.`);
 
-  return { from, to, amount, fee, feeBps: settings.feeBps, feeFlat: flat, net, usd, originAddress, recipientAddress };
+  let routeRefundAddress: string | undefined;
+  if (from.via) {
+    routeRefundAddress = (await ownAddressOn(userId, from.via)) ?? undefined;
+    if (!routeRefundAddress) throw new SwapError("Set up your Base wallet first.");
+  }
+
+  return { from, to, amount, fee, feeBps: settings.feeBps, feeFlat: flat, net, usd, originAddress, recipientAddress, routeRefundAddress };
 }
 
 /**
@@ -157,18 +171,21 @@ function sentUnits(chain: SwapChain, net: number, decimals: number): string {
 }
 
 function quoteBody(plan: SwapPlan, dry: boolean, slippageBps: number): QuoteRequest {
+  // Routed: our wallet sends USDC on Base onward, so that is what is quoted,
+  // and a refund lands in the person's own Base wallet.
+  const routed = !!plan.from.via;
   return {
     dry,
     swapType: "EXACT_INPUT",
     depositType: "ORIGIN_CHAIN",
     depositMode: "SIMPLE",
-    amount: sentUnits(plan.from.chain, plan.net, plan.from.decimals),
-    originAsset: plan.from.assetId,
+    amount: routed ? sentUnits("BASE", plan.net, 6) : sentUnits(plan.from.chain, plan.net, plan.from.decimals),
+    originAsset: routed ? ROUTE_USDC.assetId : plan.from.assetId,
     destinationAsset: plan.to.assetId,
     slippageTolerance: slippageBps,
     // Both ends are the person's own wallet: a failed swap goes back to the
     // address it came from, and a finished one lands in theirs.
-    refundTo: plan.originAddress,
+    refundTo: routed ? plan.routeRefundAddress! : plan.originAddress,
     refundType: "ORIGIN_CHAIN",
     recipient: plan.recipientAddress,
     recipientType: "DESTINATION_CHAIN",
@@ -214,6 +231,10 @@ function viewOf(plan: SwapPlan, quote: { amountOut: string; minAmountOut: string
 export async function previewSwap(userId: string, fromId: string, toId: string, amount: number): Promise<QuoteView> {
   const plan = await planSwap(userId, fromId, toId, amount);
   const settings = (await auroraSettings()).swap;
+  if (plan.from.via) {
+    await assertRouteCovers(plan.net);
+    return routedView(plan, settings);
+  }
   const r = await requestQuote(quoteBody(plan, true, settings.slippageBps));
   if (!r.ok || !r.data?.quote) throw new SwapError(quoteError(r.status, r.error), r.status === 429 ? 429 : 502);
   return viewOf(plan, r.data.quote, settings.minUsd);
@@ -269,6 +290,8 @@ export async function prepareSwap(userId: string, fromId: string, toId: string, 
   }
   if (onChain + 1e-9 < plan.amount) throw new SwapError("Not enough balance for this swap.");
 
+  if (plan.from.via) return prepareRoutedSwap(userId, plan, settings);
+
   const r = await requestQuote(quoteBody(plan, false, settings.slippageBps));
   const q = r.data?.quote;
   if (!r.ok || !q?.depositAddress) throw new SwapError(quoteError(r.status, r.error), r.status === 429 ? 429 : 502);
@@ -304,6 +327,8 @@ export async function prepareSwap(userId: string, fromId: string, toId: string, 
         },
         depositAddress: q.depositAddress,
         ...(q.depositMemo ? { depositMemo: q.depositMemo } : {}),
+        // Its status is asked of whoever quoted it, whatever the console says later.
+        provider: r.provider,
         deadline: q.deadline ?? null,
         timeEstimate: q.timeEstimate,
         slippageBps: settings.slippageBps,
@@ -386,6 +411,7 @@ export async function submitSwap(
   const tx = await prisma.transaction.findUniqueOrThrow({ where: { id: swapId } });
   const m = meta(tx);
   if (m.kind !== "swap") throw new SwapError("Swap not found.", 404);
+  if (m.route === ROUTE) return submitRoutedSwap(userId, swapId, m, sig);
 
   let txHash: string;
   try {
@@ -416,7 +442,7 @@ export async function submitSwap(
   await debit(userId, m.from.asset, m.from.chain, m.from.chain === "SOL" ? m.from.net + (solFeeCollected ? m.fee.amount : 0) : m.from.net);
 
   // Optional, only ever faster. Never waited on.
-  submitDepositTx(txHash, m.depositAddress, m.depositMemo).catch(() => {});
+  submitDepositTx(txHash, m.depositAddress, m.depositMemo, m.provider ?? "aurora").catch(() => {});
 
   // The EVM fee: a second transfer, built now that the deposit is in the
   // mempool so its nonce comes after the deposit's.
@@ -497,9 +523,21 @@ export async function refreshSwap(swapId: string) {
   if (!tx) return null;
   const m = meta(tx);
   if (m.kind !== "swap" || tx.status !== "PROCESSING" || !m.originTxHash) return tx;
+  if (m.route === ROUTE) {
+    if (m.swapStatus === "ROUTING") {
+      await routeOnward(swapId);
+      return prisma.transaction.findUnique({ where: { id: swapId } });
+    }
+    // A payout claimed and never written down: whether it went is unknown, so a person looks.
+    if (m.swapStatus === "PAYING") {
+      if (Date.now() - Date.parse(m.payingAt ?? "") > 10 * 60_000) await holdRouted(swapId, m, "payout never confirmed");
+      return prisma.transaction.findUnique({ where: { id: swapId } });
+    }
+    if (m.swapStatus === "HELD" || !m.depositAddress) return tx;
+  }
   if (m.statusCheckedAt && Date.now() - Date.parse(m.statusCheckedAt) < MIN_CHECK_GAP_MS) return tx;
 
-  const r = await swapStatus(m.depositAddress, m.depositMemo);
+  const r = await swapStatus(m.depositAddress, m.depositMemo, m.provider ?? "aurora");
   if (!r.ok || !r.data) {
     await prisma.transaction.update({ where: { id: swapId }, data: { metadata: { ...m, statusCheckedAt: new Date().toISOString() } } }).catch(() => {});
     return tx;
@@ -556,7 +594,9 @@ async function finish(userId: string, swapId: string, status: "COMPLETED" | "REF
     status === "COMPLETED"
       ? `${(amountOut ?? m.to.expected).toFixed(2)} ${toLabel} is in your wallet.`
       : status === "REFUNDED"
-        ? `Your swap didn't go through. ${m.refundedAmount ?? m.from.net} ${m.from.symbol} went back to your wallet.`
+        ? m.route === ROUTE
+          ? `Your swap didn't go through. ${m.refundedAmount ?? m.from.net} USDC was returned to your Base wallet.`
+          : `Your swap didn't go through. ${m.refundedAmount ?? m.from.net} ${m.from.symbol} went back to your wallet.`
         : "Your swap didn't go through. If anything left your wallet, it is being returned.";
   await sendNotification({
     userId,
@@ -566,13 +606,13 @@ async function finish(userId: string, swapId: string, status: "COMPLETED" | "REF
   }).catch(() => {});
 }
 
-const CHAIN_NAME: Record<string, string> = { SOL: "Solana", BASE: "Base", BEP20: "BNB Chain", MONAD: "Monad", TON: "TON" };
+const CHAIN_NAME: Record<string, string> = { SOL: "Solana", BASE: "Base", BEP20: "BNB Chain", MONAD: "Monad", TON: "TON", MOVE: "Movement" };
 
 let refreshing = false;
 
 /** Finish swaps nobody is watching, so the row and the notification do not wait for the app. */
 export async function refreshInFlightSwaps(): Promise<void> {
-  if (refreshing || !isAuroraConfigured()) return;
+  if (refreshing || !isSwapConfigured()) return;
   refreshing = true;
   try {
     const rows = await prisma.transaction.findMany({
@@ -607,8 +647,285 @@ export function swapView(tx: { id: string; status: string; amount: unknown; crea
     originExplorerUrl: m.originExplorerUrl ?? null,
     destinationExplorerUrl: m.destinationExplorerUrl ?? null,
     refundedAmount: m.refundedAmount ?? null,
+    // Taken, and being finished by hand: the app says so rather than "failed".
+    held: m.swapStatus === "HELD",
     timeEstimate: m.timeEstimate ?? null,
     createdAt: tx.createdAt,
     completedAt: m.completedAt ?? null,
   };
+}
+
+/* ─── Out of Movement, through our own wallets ─────────────────────── */
+
+/**
+ * Movement has no liquidity on the network, so its USDCx is routed:
+ *
+ *   1. The person sends USDCx to our Movement swap wallet (SWAP_MOVEMENT_ADDRESS),
+ *      signed in the app with the gas sponsored. Our fee is kept there.
+ *   2. Once that transfer is confirmed on chain, our Base swap wallet
+ *      (SWAP_EVM_PRIVATE_KEY) pays: straight to their Base wallet if Base USDC
+ *      is what they asked for, otherwise to a fresh quote's deposit address,
+ *      which swaps it on to the chain and coin they chose. A refund of that
+ *      onward leg goes to their own Base wallet.
+ *   3. From there it is followed like any other swap.
+ *
+ * Base, because a send there costs a fraction of a cent and opens no account,
+ * so the person pays our percentage and nothing else.
+ *
+ * The states, in metadata.swapStatus: ROUTING (their USDCx is in, nothing paid
+ * yet) -> PAYING (claimed, the payout is being sent) -> PENDING_DEPOSIT and on
+ * as usual, or SUCCESS straight away for Base. HELD means their coins are in
+ * and the payout needs a person: it is never retried automatically, because a
+ * retry that was wrong about the first send would pay twice.
+ */
+const ROUTE = "via-base";
+const ROUTE_USDC = swapAssetById("BASE:USDC")!;
+const BASE_USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+
+/** The Base swap wallet's address, worked out from its key. Null when unset. */
+export function routeWalletAddress(): string | null {
+  if (!env.SWAP_EVM_PRIVATE_KEY) return null;
+  try {
+    return new ethers.Wallet(env.SWAP_EVM_PRIVATE_KEY).address;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * What the Base swap wallet can still promise: its live USDC, less what routed
+ * swaps already in flight have been promised and not yet paid. A live read,
+ * never a stored balance.
+ */
+async function routeHeadroom(): Promise<number> {
+  const address = routeWalletAddress();
+  if (!address) return 0;
+  let live: number;
+  try {
+    live = await getOnChainBalance("USDC", "BASE", address);
+  } catch {
+    return 0;
+  }
+  const open = await prisma.transaction.findMany({
+    where: {
+      type: "SWEEP",
+      status: { in: ["PENDING", "PROCESSING"] },
+      AND: [{ metadata: { path: ["route"], equals: ROUTE } }],
+      createdAt: { gte: new Date(Date.now() - 24 * 60 * 60_000) },
+    },
+    select: { metadata: true },
+  });
+  const promised = open
+    .map((r) => meta(r))
+    .filter((m) => !m.payoutTxHash && m.swapStatus !== "HELD")
+    .reduce((n, m) => n + Number(m.from?.net || 0), 0);
+  return live - promised;
+}
+
+async function assertRouteCovers(net: number) {
+  if ((await routeHeadroom()) + 1e-9 < net) {
+    throw new SwapError("Swaps from Movement aren't available right now. Please try again later.", 503);
+  }
+}
+
+/** The price to show for a routed swap: Base is one to one, anything else is quoted onward. */
+async function routedView(plan: SwapPlan, settings: { slippageBps: number; minUsd: number }): Promise<QuoteView> {
+  if (plan.to.id === ROUTE_USDC.id) {
+    return {
+      from: plan.from.id,
+      to: plan.to.id,
+      amount: plan.amount,
+      fee: plan.fee,
+      feeBps: plan.feeBps,
+      feeFlat: plan.feeFlat,
+      net: plan.net,
+      amountOut: plan.net,
+      minAmountOut: plan.net,
+      amountOutUsd: plan.net,
+      rate: 1,
+      timeEstimate: 20,
+      minUsd: settings.minUsd,
+    };
+  }
+  const r = await requestQuote(quoteBody(plan, true, settings.slippageBps));
+  if (!r.ok || !r.data?.quote) throw new SwapError(quoteError(r.status, r.error), r.status === 429 ? 429 : 502);
+  return viewOf(plan, r.data.quote, settings.minUsd);
+}
+
+async function prepareRoutedSwap(
+  userId: string,
+  plan: SwapPlan,
+  settings: { slippageBps: number; minUsd: number },
+): Promise<PreparedSwap> {
+  await assertRouteCovers(plan.net);
+  const view = await routedView(plan, settings);
+
+  const tx = await prisma.transaction.create({
+    data: {
+      userId,
+      type: "SWEEP",
+      asset: plan.to.asset as any,
+      chain: plan.to.chain as Chain,
+      amount: view.amountOut,
+      fee: 0,
+      status: "PENDING",
+      reference: `SWP-${Date.now().toString(36)}-${crypto.randomBytes(3).toString("hex")}`,
+      metadata: {
+        kind: "swap",
+        route: ROUTE,
+        from: { id: plan.from.id, asset: plan.from.asset, chain: plan.from.chain, symbol: plan.from.symbol, amount: plan.amount, net: plan.net, address: plan.originAddress },
+        to: { id: plan.to.id, asset: plan.to.asset, chain: plan.to.chain, symbol: plan.to.symbol, assetId: plan.to.assetId, expected: view.amountOut, minimum: view.minAmountOut, address: plan.recipientAddress },
+        // Kept: they send the whole amount to our Movement wallet and we pay out the rest.
+        fee: { amount: plan.fee, symbol: plan.from.symbol, bps: plan.feeBps, flat: 0, via: "kept", collected: false },
+        receiveAddress: env.SWAP_MOVEMENT_ADDRESS,
+        refundAddress: plan.routeRefundAddress,
+        timeEstimate: view.timeEstimate,
+        slippageBps: settings.slippageBps,
+        swapStatus: "AWAITING_SIGNATURE",
+      },
+    },
+  });
+
+  try {
+    const { signingMessage } = await prepareMovementWithdrawal(tx.id, plan.originAddress, env.SWAP_MOVEMENT_ADDRESS, plan.amount, "USDCx");
+    return { swapId: tx.id, chain: "MOVE", signingMessage, feeLegFollows: false, quote: { ...view, deadline: null } };
+  } catch (err: any) {
+    await prisma.transaction
+      .update({ where: { id: tx.id }, data: { status: "CANCELLED", metadata: { ...(tx.metadata as any), chainError: err?.message || "Could not build the transfer" } } })
+      .catch(() => {});
+    throw new SwapError("Couldn't prepare this swap. Please try again.", 500);
+  }
+}
+
+async function submitRoutedSwap(
+  userId: string,
+  swapId: string,
+  m: any,
+  sig: { signature: string; publicKey: string },
+): Promise<SubmitResult> {
+  let txHash: string;
+  try {
+    // Confirmed on chain before it returns: nothing is paid out against a transfer that might not land.
+    txHash = await submitMovementWithdrawal(swapId, sig.signature, sig.publicKey);
+  } catch (err: any) {
+    await prisma.transaction.update({
+      where: { id: swapId },
+      data: {
+        status: "FAILED",
+        metadata: { ...m, swapStatus: "SEND_FAILED", chainError: err?.message || "On-chain submit failed", ...(err?.txHash ? { originTxHash: err.txHash } : {}) },
+      },
+    });
+    const expired = /expired or not found/i.test(err?.message || "");
+    throw new SwapError(expired ? "This swap took too long to confirm. Nothing was sent. Please start again." : "The transfer couldn't be sent. Nothing left your wallet.", 500);
+  }
+
+  await prisma.transaction.update({
+    where: { id: swapId },
+    data: { metadata: { ...m, originTxHash: txHash, swapStatus: "ROUTING", fee: { ...m.fee, collected: true, txHash } } },
+  });
+  await debit(userId, m.from.asset, m.from.chain, m.from.amount);
+
+  // The payout runs on its own; the app follows it by polling, and the
+  // background job picks it up if this process stops first.
+  routeOnward(swapId).catch((e: any) => console.error(`[SWAP] route ${swapId}:`, e?.message));
+  return { status: "PROCESSING", txHash };
+}
+
+async function holdRouted(swapId: string, m: any, reason: string) {
+  console.error(`[SWAP] ⚠️ ${swapId}: USDCx received, payout HELD for a person: ${reason}`);
+  await prisma.transaction.update({ where: { id: swapId }, data: { metadata: { ...m, swapStatus: "HELD", heldReason: reason, heldAt: new Date().toISOString() } } });
+  const fresh = await prisma.transaction.findUnique({ where: { id: swapId }, select: { userId: true } });
+  if (fresh) {
+    await sendNotification({
+      userId: fresh.userId,
+      type: "transaction",
+      title: "Swap being finished",
+      body: "Your USDCx reached us safely. This swap is taking a little longer and is being finished for you.",
+    }).catch(() => {});
+  }
+}
+
+async function sendRouteUsdc(to: string, amount: number): Promise<string> {
+  const wallet = new ethers.Wallet(env.SWAP_EVM_PRIVATE_KEY, new ethers.JsonRpcProvider(env.BASE_RPC_URL));
+  const usdc = new ethers.Contract(BASE_USDC_CONTRACT, ["function transfer(address to, uint256 amount) returns (bool)"], wallet);
+  const sent = await usdc.transfer(to, ethers.parseUnits(amount.toFixed(6), 6));
+  const receipt = await sent.wait(1, 90_000);
+  if (!receipt || receipt.status !== 1) throw Object.assign(new Error("Base transfer did not confirm"), { txHash: sent.hash });
+  return receipt.hash;
+}
+
+/** Pay a routed swap out, once. Claimed first, so the app and the background job cannot both pay. */
+async function routeOnward(swapId: string): Promise<void> {
+  const tx = await prisma.transaction.findUnique({ where: { id: swapId } });
+  if (!tx || tx.status !== "PROCESSING") return;
+  const m = meta(tx);
+  if (m.route !== ROUTE || m.swapStatus !== "ROUTING") return;
+
+  const paying = { ...m, swapStatus: "PAYING", payingAt: new Date().toISOString() };
+  const claimed = await prisma.transaction.updateMany({
+    where: { id: swapId, status: "PROCESSING", metadata: { path: ["swapStatus"], equals: "ROUTING" } },
+    data: { metadata: paying },
+  });
+  if (claimed.count !== 1) return;
+
+  const net = Number(m.from.net);
+  try {
+    if ((await routeHeadroom()) + net + 1e-9 < net) {
+      // Headroom already counts this swap as promised; less than nothing left means short.
+      return holdRouted(swapId, paying, "Base swap wallet short");
+    }
+
+    // Base USDC asked for: pay their own Base wallet, done.
+    if (m.to.id === ROUTE_USDC.id) {
+      const hash = await sendRouteUsdc(m.to.address, net);
+      const done = { ...paying, swapStatus: "SUCCESS", payoutTxHash: hash, txHash: hash, completedAt: new Date().toISOString() };
+      const { count } = await prisma.transaction.updateMany({
+        where: { id: swapId, status: "PROCESSING" },
+        data: { status: "COMPLETED", amount: net, metadata: done },
+      });
+      if (count === 1) await finish(tx.userId, swapId, "COMPLETED", done, net);
+      return;
+    }
+
+    // Anything else: a fresh quote from USDC on Base to what they chose.
+    const r = await requestQuote({
+      dry: false,
+      swapType: "EXACT_INPUT",
+      depositType: "ORIGIN_CHAIN",
+      depositMode: "SIMPLE",
+      amount: sentUnits("BASE", net, 6),
+      originAsset: ROUTE_USDC.assetId,
+      destinationAsset: m.to.assetId,
+      slippageTolerance: m.slippageBps ?? 100,
+      refundTo: m.refundAddress,
+      refundType: "ORIGIN_CHAIN",
+      recipient: m.to.address,
+      recipientType: "DESTINATION_CHAIN",
+    });
+    const q = r.data?.quote;
+    if (!r.ok || !q?.depositAddress) return holdRouted(swapId, paying, `no onward quote: ${r.error ?? r.status}`);
+
+    const toDecimals = (await liveSwapAssets()).find((a) => a.id === m.to.id)?.decimals ?? 6;
+    // Written before the send, so a stop after it still knows where the money went.
+    const quoted = {
+      ...paying,
+      depositAddress: q.depositAddress,
+      provider: r.provider,
+      quoteCorrelationId: r.data?.correlationId ?? null,
+      deadline: q.deadline ?? null,
+      to: { ...m.to, expected: fromBaseUnits(q.amountOut, toDecimals), minimum: fromBaseUnits(q.minAmountOut, toDecimals) },
+    };
+    await prisma.transaction.update({ where: { id: swapId }, data: { metadata: quoted } });
+
+    let hash: string;
+    try {
+      hash = await sendRouteUsdc(q.depositAddress, net);
+    } catch (err: any) {
+      return holdRouted(swapId, { ...quoted, ...(err?.txHash ? { payoutTxHash: err.txHash } : {}) }, `onward send failed: ${err?.message}`);
+    }
+    await prisma.transaction.update({ where: { id: swapId }, data: { metadata: { ...quoted, payoutTxHash: hash, swapStatus: "PENDING_DEPOSIT" } } });
+    submitDepositTx(hash, q.depositAddress, undefined, (r.provider ?? "aurora") as SwapProvider).catch(() => {});
+  } catch (err: any) {
+    await holdRouted(swapId, paying, err?.message || "payout failed");
+  }
 }

@@ -22,7 +22,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { CoinMark } from "@/components/SwapRoute";
 import { Keypad } from "@/components/Keypad";
-import { signSolanaTransaction, signEvmTransaction } from "@/services/wallet-core";
+import { signSolanaTransaction, signEvmTransaction, signMovementTransaction } from "@/services/wallet-core";
 import {
   getSwapConfig,
   cachedSwapConfig,
@@ -153,14 +153,15 @@ export default function SwapScreen() {
   const amount = Number(amountText.replace(/,/g, ""));
   const fromBalance = balanceOf(from);
   // Dollar coins at face value, as the server counts them: 2 USDC meets a $2 minimum.
-  const usd = from && amount > 0 ? (from.asset === "USDC" || from.asset === "USDT" ? amount : amount * from.price) : 0;
+  const usd = from && amount > 0 ? (from.asset === "USDC" || from.asset === "USDT" || from.asset === "USDCx" ? amount : amount * from.price) : 0;
   const belowMin = !!config && amount > 0 && usd < config.minUsd;
+  const overMax = !!config?.maxUsd && amount > 0 && usd > config.maxUsd + 1e-9;
   const overBalance = amount > 0 && amount > fromBalance + 1e-9;
 
   /* ── Quote: debounced while typing, refreshed while it sits ── */
   const quoteSeq = useRef(0);
   const fetchQuote = useCallback(async () => {
-    if (!from || !to || !(amount > 0) || belowMin) {
+    if (!from || !to || !(amount > 0) || belowMin || overMax) {
       setQuote(null);
       setQuoteError("");
       return;
@@ -179,7 +180,7 @@ export default function SwapScreen() {
     } finally {
       if (seq === quoteSeq.current) setQuoting(false);
     }
-  }, [from, to, amount, belowMin]);
+  }, [from, to, amount, belowMin, overMax]);
 
   // The review keeps its own clock, so the background refresh only runs while choosing.
   const stepRef = useRef<Step>(step);
@@ -310,6 +311,11 @@ export default function SwapScreen() {
       const { signature, publicKey } = await signSolanaTransaction(signingMessage);
       return { signature, publicKey };
     }
+    // Out of Movement: their USDCx goes to our wallet, with the gas sponsored.
+    if (chain === "MOVE") {
+      const { signature, publicKey } = await signMovementTransaction(signingMessage);
+      return { signature, publicKey };
+    }
     // An MPC wallet signs the whole transaction and returns it raw.
     return signEvmTransaction(signingMessage, txRequest);
   };
@@ -401,6 +407,8 @@ export default function SwapScreen() {
     const fromName = SWAP_CHAIN_NAME[swap.from.chain];
     const tookS = swap.completedAt ? Math.max(1, Math.round((Date.parse(swap.completedAt) - Date.parse(swap.createdAt)) / 1000)) : null;
     const swapping = swap.swapStatus === "PROCESSING" || swap.swapStatus === "KNOWN_DEPOSIT_TX";
+    // A swap out of Movement is refunded on Base, the chain it routes through.
+    const refundName = swap.from.chain === "MOVE" ? "Base" : fromName;
     const link = (done ? swap.destinationExplorerUrl : null) || swap.originExplorerUrl;
 
     if (step === "done") {
@@ -414,11 +422,13 @@ export default function SwapScreen() {
               {done
                 ? `${fmtCoin(swap.amountOut, swap.to.symbol)} ${swap.to.symbol}`
                 : refunded
-                  ? `${fmtCoin(swap.refundedAmount ?? swap.from.net ?? 0, swap.from.symbol)} ${swap.from.symbol}`
+                  ? swap.from.chain === "MOVE"
+                    ? `${fmtCoin(swap.refundedAmount ?? swap.from.net ?? 0, "USDC")} USDC`
+                    : `${fmtCoin(swap.refundedAmount ?? swap.from.net ?? 0, swap.from.symbol)} ${swap.from.symbol}`
                   : "Not completed"}
             </Text>
             <Text style={[s.doneSub, { color: colors.mutedForeground }]}>
-              {done ? `In your ${toName} wallet` : refunded ? `Returned to your ${fromName} wallet` : "Anything sent is on its way back"}
+              {done ? `In your ${toName} wallet` : refunded ? `Returned to your ${refundName} wallet` : "Anything sent is on its way back"}
             </Text>
 
             <View style={[s.card, { backgroundColor: colors.card, marginTop: 32, alignSelf: "stretch" }]}>
@@ -465,7 +475,19 @@ export default function SwapScreen() {
 
           <View style={[s.card, { backgroundColor: colors.card, paddingVertical: 18 }]}>
             <TrackStep state="done" title="Sent" colors={colors} />
-            <TrackStep state="active" title={swap.swapStatus === "INCOMPLETE_DEPOSIT" ? "Waiting for the rest" : swapping ? "Swapping" : "Confirming"} colors={colors} />
+            <TrackStep
+              state="active"
+              title={
+                swap.held
+                  ? "Being finished for you"
+                  : swap.swapStatus === "INCOMPLETE_DEPOSIT"
+                    ? "Waiting for the rest"
+                    : swapping
+                      ? "Swapping"
+                      : "Confirming"
+              }
+              colors={colors}
+            />
             <TrackStep state="todo" title={`In your ${toName} wallet`} colors={colors} last />
           </View>
         </ScrollView>
@@ -548,14 +570,16 @@ export default function SwapScreen() {
   }
 
   /* Edit */
-  const canReview = !!from && !!to && amount > 0 && !belowMin && !overBalance && !!quote && !quoting;
+  const canReview = !!from && !!to && amount > 0 && !belowMin && !overMax && !overBalance && !!quote && !quoting;
   const hint = !from || !to
     ? ""
     : belowMin
       ? `Minimum swap is $${config!.minUsd}`
-      : overBalance
-        ? "More than your balance"
-        : quoteError;
+      : overMax
+        ? `Maximum swap is $${config!.maxUsd}`
+        : overBalance
+          ? "More than your balance"
+          : quoteError;
 
   return (
     <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
@@ -648,7 +672,7 @@ export default function SwapScreen() {
             </View>
           ) : null}
 
-          {!!hint && <Text style={[s.hint, { color: belowMin || overBalance ? colors.warning : colors.destructive }]}>{hint}</Text>}
+          {!!hint && <Text style={[s.hint, { color: belowMin || overMax || overBalance ? colors.warning : colors.destructive }]}>{hint}</Text>}
         </ScrollView>
       </View>
       <View style={[s.footerCol, { marginBottom: kbHeight, paddingBottom: kbHeight > 0 ? 12 : bottomPad + 16 }]}>

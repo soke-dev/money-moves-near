@@ -16,7 +16,7 @@ import {
   syncInFlightRoutedDeposits,
   discoverRoutedDeposits,
 } from "./lib/stableyard-ledger";
-import { isAuroraConfigured } from "./lib/aurora";
+import { isAuroraConfigured, isSwapConfigured } from "./lib/aurora";
 import { syncInFlightAuroraDeposits, discoverAuroraDeposits, watchAuroraAddresses } from "./lib/aurora-deposits";
 import { refreshInFlightSwaps } from "./lib/aurora-swap";
 import swapRoutes from "./routes/swap";
@@ -383,10 +383,13 @@ async function main() {
      * minutes; finding new ones walks every address on file, so it runs every
      * ten, well inside their hourly limit for the endpoint.
      */
-    if (isAuroraConfigured()) {
+    // Swaps run on whichever provider has a key; deposits are Aurora's alone.
+    if (isSwapConfigured()) {
       setInterval(() => {
         refreshInFlightSwaps().catch(() => {});
       }, 60_000);
+    }
+    if (isAuroraConfigured()) {
       setInterval(() => {
         syncInFlightAuroraDeposits().catch(() => {});
       }, 2 * 60_000);

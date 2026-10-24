@@ -13,14 +13,14 @@ import { api } from "./api";
  * preview of that.
  */
 
-export type SwapChain = "SOL" | "BASE" | "BEP20" | "MONAD" | "TON";
+export type SwapChain = "SOL" | "BASE" | "BEP20" | "MONAD" | "TON" | "MOVE";
 
 export interface SwapAsset {
   /** "SOL:USDC" - the id the server knows it by. */
   id: string;
   chain: SwapChain;
   /** Our asset key, for balances and logos. Monad's USDT0 is "USDT". */
-  asset: "USDC" | "USDT" | "SOL";
+  asset: "USDC" | "USDT" | "SOL" | "USDCx";
   /** What to print. */
   symbol: string;
   from: boolean;
@@ -35,6 +35,8 @@ export interface SwapConfig {
   /** Extra flat fee, in dollars, on swaps paid from Solana. */
   solanaFlatUsd?: number;
   minUsd: number;
+  /** The largest single swap, in dollars. */
+  maxUsd?: number;
   slippageBps: number;
   assets: SwapAsset[];
   /** A line to show when something on the route is slow. */
@@ -93,6 +95,8 @@ export interface SwapState {
   originExplorerUrl: string | null;
   destinationExplorerUrl: string | null;
   refundedAmount: number | null;
+  /** Their coins reached us and the payout is being finished by hand. */
+  held?: boolean;
   timeEstimate: number | null;
   createdAt: string;
   completedAt: string | null;
@@ -107,6 +111,7 @@ export const SWAP_CHAIN_NAME: Record<SwapChain, string> = {
   BEP20: "BNB Chain",
   MONAD: "Monad",
   TON: "TON",
+  MOVE: "Movement",
 };
 
 /**

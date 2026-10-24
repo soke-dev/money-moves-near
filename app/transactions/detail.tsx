@@ -361,7 +361,7 @@ export default function TransactionDetailScreen() {
           { label: "You paid", value: `${fmtAsset(meta.from.amount, meta.from.asset)} ${meta.from.symbol}` },
           {
             label: "From",
-            value: ({ SOL: "Solana", BASE: "Base", BEP20: "BNB Chain", MONAD: "Monad", TON: "TON" } as Record<string, string>)[meta.from.chain] || meta.from.chain,
+            value: ({ SOL: "Solana", BASE: "Base", BEP20: "BNB Chain", MONAD: "Monad", TON: "TON", MOVE: "Movement" } as Record<string, string>)[meta.from.chain] || meta.from.chain,
           },
           ...(meta.fee?.amount > 0 ? [{ label: `Fee (${(meta.fee.bps ?? 0) / 100}%)`, value: `${fmtAsset(meta.fee.amount, meta.from.asset)} ${meta.fee.symbol}` }] : []),
           ...(tx.status === "REFUNDED" && meta.refundedAmount

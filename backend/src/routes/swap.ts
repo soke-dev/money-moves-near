@@ -4,7 +4,7 @@ import { prisma } from "../lib/prisma";
 import { requireAuth, requireActiveSession } from "../middleware/auth";
 import { requireDynamicWallet } from "../middleware/wallet-kind";
 import { validate } from "../middleware/validate";
-import { isAuroraConfigured, liveSwapAssets, auroraIncidents } from "../lib/aurora";
+import { isSwapConfigured, liveSwapAssets, auroraIncidents } from "../lib/aurora";
 import { auroraSettings } from "../lib/aurora-settings";
 import {
   SwapError,
@@ -44,7 +44,7 @@ function fail(res: Response, err: any, label: string) {
 router.get("/config", requireAuth, requireActiveSession, async (_req: Request, res: Response) => {
   try {
     const settings = (await auroraSettings()).swap;
-    const configured = isAuroraConfigured();
+    const configured = isSwapConfigured();
     const assets = configured ? await liveSwapAssets() : [];
     const incidents = configured ? await auroraIncidents() : null;
     res.json({
@@ -52,6 +52,7 @@ router.get("/config", requireAuth, requireActiveSession, async (_req: Request, r
       feeBps: settings.feeBps,
       solanaFlatUsd: settings.solanaFlatUsd,
       minUsd: settings.minUsd,
+      maxUsd: settings.maxUsd,
       slippageBps: settings.slippageBps,
       assets: assets.map((a) => ({
         id: a.id,

@@ -15,7 +15,21 @@ const API = import.meta.env.VITE_API_URL || ''
 type DepositState = 'visible' | 'unavailable' | 'hidden'
 type Settings = {
   deposits: Record<'btc' | 'tron', { state: DepositState; minUsd: number }>
-  swap: { enabled: boolean; feeBps: number; solanaFlatUsd: number; minUsd: number; slippageBps: number; perDay: number; sweepMaxUsd?: number }
+  swap: {
+    enabled: boolean
+    feeBps: number
+    solanaFlatUsd: number
+    minUsd: number
+    slippageBps: number
+    perDay: number
+    sweepMaxUsd?: number
+    maxUsd?: number
+    provider?: 'oneclick' | 'aurora'
+  }
+}
+type Wiring = {
+  providers?: { oneclick: boolean; aurora: boolean }
+  movementRoute?: { configured: boolean; movementAddress: string | null; baseAddress: string | null; baseUsdc: number | null }
 }
 type RecentSwap = {
   id: string
@@ -48,7 +62,8 @@ function authed(init?: RequestInit): RequestInit {
 export function SwapSettings() {
   const [configured, setConfigured] = useState(true)
   const [settings, setSettings] = useState<Settings | null>(null)
-  const [draft, setDraft] = useState({ fee: '', solFlat: '', min: '', slippage: '', perDay: '', sweepMax: '', btcMin: '', tronMin: '' })
+  const [draft, setDraft] = useState({ fee: '', solFlat: '', min: '', max: '', slippage: '', perDay: '', sweepMax: '', btcMin: '', tronMin: '' })
+  const [wiring, setWiring] = useState<Wiring>({})
   const [recent, setRecent] = useState<RecentSwap[] | null>(null)
   const [error, setError] = useState('')
   const [saved, setSaved] = useState('')
@@ -60,6 +75,7 @@ export function SwapSettings() {
       fee: String(s.swap.feeBps / 100),
       solFlat: String(s.swap.solanaFlatUsd),
       min: String(s.swap.minUsd),
+      max: s.swap.maxUsd == null ? '' : String(s.swap.maxUsd),
       slippage: String(s.swap.slippageBps / 100),
       perDay: String(s.swap.perDay),
       // Absent until the API that knows about it is deployed.
@@ -79,6 +95,7 @@ export function SwapSettings() {
       if (!a.ok) throw new Error(a.status === 404 ? 'The API doesn’t have this page yet. It arrives with the next deploy.' : `Couldn’t read the settings (${a.status}).`)
       const d = await a.json()
       setConfigured(!!d.configured)
+      setWiring({ providers: d.providers, movementRoute: d.movementRoute })
       take(d.settings)
       if (b.ok) setRecent((await b.json()).swaps)
     } catch (e) {
@@ -97,6 +114,7 @@ export function SwapSettings() {
       const r = await fetch(`${API}/api/admin/swap/settings`, authed({ method: 'PUT', body: JSON.stringify(patch) }))
       const d = await r.json().catch(() => ({}))
       if (!r.ok) throw new Error(d.error || `Couldn’t save (${r.status}).`)
+      if (d.providers) setWiring({ providers: d.providers, movementRoute: d.movementRoute })
       take(d.settings)
       setSaved(label)
     } catch (e) {
@@ -113,6 +131,7 @@ export function SwapSettings() {
           feeBps: Math.round(Number(draft.fee) * 100),
           solanaFlatUsd: Number(draft.solFlat),
           minUsd: Number(draft.min),
+          ...(draft.max.trim() ? { maxUsd: Number(draft.max) } : {}),
           slippageBps: Math.round(Number(draft.slippage) * 100),
           perDay: Math.round(Number(draft.perDay)),
           ...(draft.sweepMax.trim() ? { sweepMaxUsd: Number(draft.sweepMax) } : {}),
@@ -157,6 +176,9 @@ export function SwapSettings() {
               <Field label="Smallest swap ($)">
                 <Input inputMode="decimal" value={draft.min} onChange={(e) => setDraft({ ...draft, min: e.target.value })} />
               </Field>
+              <Field label="Largest swap ($)" hint="Per swap, on every chain and coin.">
+                <Input inputMode="decimal" value={draft.max} onChange={(e) => setDraft({ ...draft, max: e.target.value })} />
+              </Field>
               <Field label="Price protection (%)" hint="How far the price may move before it refunds.">
                 <Input inputMode="decimal" value={draft.slippage} onChange={(e) => setDraft({ ...draft, slippage: e.target.value })} />
               </Field>
@@ -173,6 +195,57 @@ export function SwapSettings() {
               </Button>
             </div>
           </Panel>
+
+          {settings.swap.provider && (
+            <Panel
+              title="Who quotes swaps"
+              sub="Switching takes effect on the next quote. A swap already under way finishes with the one that quoted it. Bitcoin and Tron deposits stay on Aurora either way."
+              action={
+                <Segmented
+                  value={settings.swap.provider}
+                  onChange={(v) => save({ swap: { provider: v } }, v === 'oneclick' ? 'Swaps now quote on 1Click' : 'Swaps now quote on Aurora')}
+                  items={[
+                    ['oneclick', '1Click'],
+                    ['aurora', 'Aurora'],
+                  ]}
+                />
+              }
+            >
+              <div className="text-[13px]" style={{ color: C.muted }}>
+                {wiring.providers
+                  ? `Keys set: 1Click ${wiring.providers.oneclick ? 'yes' : 'no'}, Aurora ${wiring.providers.aurora ? 'yes' : 'no'}. If the chosen one has no key, swaps use the other.`
+                  : ' '}
+              </div>
+            </Panel>
+          )}
+
+          {wiring.movementRoute && (
+            <Panel
+              title="Swaps out of Movement"
+              sub="USDCx is received in the Movement wallet, and the Base wallet pays out USDC or funds the onward swap. When the Base wallet cannot cover a swap, the app says it is not available right now."
+            >
+              {wiring.movementRoute.configured ? (
+                <div className="grid gap-3 text-[13px] md:grid-cols-3">
+                  <div>
+                    <div style={{ color: C.muted }}>Receives USDCx (Movement)</div>
+                    <div className="break-all" style={{ fontFamily: MONO }}>{wiring.movementRoute.movementAddress}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: C.muted }}>Pays out (Base)</div>
+                    <div className="break-all" style={{ fontFamily: MONO }}>{wiring.movementRoute.baseAddress}</div>
+                  </div>
+                  <div>
+                    <div style={{ color: C.muted }}>Base wallet USDC</div>
+                    <div style={{ fontFamily: MONO }}>{wiring.movementRoute.baseUsdc == null ? 'Could not read' : wiring.movementRoute.baseUsdc.toFixed(2)}</div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-[13px]" style={{ color: C.muted }}>
+                  Off until SWAP_MOVEMENT_ADDRESS and SWAP_EVM_PRIVATE_KEY are both set on the backend. Movement stays out of the app until then.
+                </div>
+              )}
+            </Panel>
+          )}
 
           <Panel title="Deposits that arrive as USDC on Solana" sub="Paused keeps the row in the app, named and greyed out. Hidden removes it." flush>
             <div>
