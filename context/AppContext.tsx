@@ -555,7 +555,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const dynAddr = await loadDynamicAddresses();
       if (dynAddr) {
         try { await initializeWallets(); } catch {}
-        try { await saveWalletAddresses(formatAddressesForSave(dynAddr)); } catch {}
+        // In the background: it waits for the email wallet's session to come
+        // back after launch, and the app must not wait with it.
+        void saveWalletAddresses(formatAddressesForSave(dynAddr), { waitForToken: true }).catch((e: any) =>
+          console.warn("[wallet] address save failed:", e?.response?.data?.code || e?.message || e),
+        );
         setHasWallet(true);
         setWalletReady(true);
         return;
@@ -574,7 +578,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               await saveDynamicAddresses(addr);
               await setLocalWalletType("EMBEDDED");
               try { await initializeWallets(); } catch {}
-              try { await saveWalletAddresses(formatAddressesForSave(addr)); } catch {}
+              try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
               try { await saveWalletType("EMBEDDED"); } catch {}
               setUser((prev) => (prev ? { ...prev, walletType: "EMBEDDED" } : prev));
               setHasWallet(true);
@@ -755,7 +759,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await saveDynamicAddresses(addr, userId);
       await setLocalWalletType("EMBEDDED", userId);
       try { await initializeWallets(); } catch {}
-      try { await saveWalletAddresses(formatAddressesForSave(addr)); } catch {}
+      try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
       try { await saveWalletType("EMBEDDED"); } catch {}
       setUser((prev) => (prev ? { ...prev, walletType: "EMBEDDED" } : prev));
       setWalletError(null);
@@ -793,7 +797,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await saveDynamicAddresses(addr);
       await setLocalWalletType("EMBEDDED");
       try { await initializeWallets(); } catch {}
-      try { await saveWalletAddresses(formatAddressesForSave(addr)); } catch {}
+      try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
       try { await saveWalletType("EMBEDDED"); } catch {}
       setUser((prev) => (prev ? { ...prev, walletType: "EMBEDDED" } : prev));
       setWalletReady(true);

@@ -61,18 +61,49 @@ export async function initializeWallets(): Promise<{ message: string; wallets: W
  * a refusal gets one refresh of the token and one more try.
  */
 export async function saveWalletAddresses(
-  addresses: { chain: string; address: string }[]
+  addresses: { chain: string; address: string }[],
+  opts: { waitForToken?: boolean } = {},
 ): Promise<{ message: string }> {
-  const send = () => api.post("/wallet/addresses", { addresses, dynamicToken: getDynamicToken() ?? undefined });
+  /**
+   * The email wallet restores its session in the background after launch, so
+   * a save sent straight away carried no token, was refused, and every launch
+   * did the same again - the account's wallet was never recorded on the
+   * server. Email-wallet callers wait for the token first. Others (a 12-word
+   * wallet, which never has one) send at once, as before.
+   */
+  const token = async () => (opts.waitForToken ? await tokenWithin(20_000) : getDynamicToken());
+  const send = async () => api.post("/wallet/addresses", { addresses, dynamicToken: (await token()) ?? undefined });
   try {
     return (await send()).data;
   } catch (e: any) {
-    if (e?.response?.data?.code !== "ADDRESS_NOT_PROVEN" || !isDynamicAuthenticated()) throw e;
-    try {
-      await (dynamicClient.auth as any).refreshUser();
-    } catch {}
-    return (await send()).data;
+    if (e?.response?.data?.code !== "ADDRESS_NOT_PROVEN" || !(opts.waitForToken || isDynamicAuthenticated())) throw e;
+    // A wallet made moments ago may not be in the token yet: refresh it, give it a moment, try again.
+    let last = e;
+    for (const pause of [1_500, 5_000]) {
+      try {
+        await (dynamicClient.auth as any).refreshUser();
+      } catch {}
+      await new Promise((r) => setTimeout(r, pause));
+      try {
+        return (await send()).data;
+      } catch (e2: any) {
+        if (e2?.response?.data?.code !== "ADDRESS_NOT_PROVEN") throw e2;
+        last = e2;
+      }
+    }
+    throw last;
   }
+}
+
+/** The email wallet's token, waiting up to `ms` for its session to come back after launch. */
+async function tokenWithin(ms: number): Promise<string | null> {
+  const end = Date.now() + ms;
+  let t = getDynamicToken();
+  while (!t && Date.now() < end) {
+    await new Promise((r) => setTimeout(r, 500));
+    t = getDynamicToken();
+  }
+  return t;
 }
 
 // ─── Record the chosen wallet kind (MNEMONIC | EMBEDDED) ─────
