@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { sendNotification } from "./push";
+import { alertIfLargeDeposit, networkName } from "./deposit-alerts";
 import {
   isAuroraConfigured,
   auroraTokens,
@@ -367,6 +368,16 @@ async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Pr
       createdAt: Date.parse(p.received.created_at) ? new Date(p.received.created_at) : undefined,
     },
   });
+  void alertIfLargeDeposit({
+    userId,
+    reference,
+    amount: Number(sentAmount),
+    symbol: chain.symbol,
+    network: networkName(chain.chainId),
+    kind: settled ? "converted to USDC" : "converting to USDC",
+    converting: true,
+    txHash: p.received.tx_hash,
+  });
   if (settled) {
     await removeWatcherDuplicate(userId, amount, p.payout!, row.id);
     await announceArrived(userId, sentAmount, chain.symbol, amount);
@@ -633,6 +644,16 @@ async function watchAddress(userId: string, chain: AuroraDepositChain, address: 
       },
     });
     console.log(`[AU-DEP] watching ${chain.kind} ${inc.txHash} for ${userId} (${inc.confirmed ? "confirmed" : "unconfirmed"})`);
+    void alertIfLargeDeposit({
+      userId,
+      reference,
+      amount: inc.amount,
+      symbol: chain.symbol,
+      network: networkName(chain.chainId),
+      kind: inc.confirmed ? "converting to USDC" : "converting to USDC, not yet confirmed",
+      converting: true,
+      txHash: inc.txHash,
+    });
     await sendNotification({
       userId,
       type: "transaction",

@@ -1251,3 +1251,52 @@ export async function sendVoucherEmail(
     }),
   });
 }
+
+/**
+ * A large deposit coming in, for the team.
+ *
+ * Sent at the first sighting - the chain transfer for a wallet deposit, the
+ * moment a converting deposit is seen - so somebody can look before it lands
+ * rather than after.
+ */
+export async function sendLargeDepositAlert(
+  to: string[],
+  params: {
+    usd: number;
+    amount: string;
+    symbol: string;
+    network: string;
+    kind: string;
+    userEmail: string;
+    username: string | null;
+    userId: string;
+    txHash?: string | null;
+    reference: string;
+    date: string;
+  },
+): Promise<void> {
+  const usd = `$${params.usd.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
+  const who = params.username ? `@${params.username}` : params.userEmail;
+  const html = shell({
+    label: "DEPOSIT",
+    preheader: `${usd} in ${params.symbol} on ${params.network} for ${who}.`,
+    body: `
+      ${heading(`${usd} deposit coming in`, `${params.amount} ${params.symbol} on ${params.network}, ${params.kind}.`)}
+      ${ledger([
+        { k: "Value", v: usd, strong: true },
+        { k: "Amount", v: `${params.amount} ${params.symbol}` },
+        { k: "Network", v: params.network },
+        { k: "Kind", v: params.kind },
+        { k: "Account", v: who },
+        { k: "Email", v: params.userEmail, mono: true },
+        { k: "User id", v: params.userId, mono: true },
+        ...(params.txHash ? [{ k: "Transaction", v: params.txHash, mono: true }] : []),
+      ])}
+      ${stub(params.reference, params.date)}
+      ${fine("Open the admin console, then People, to look at this account.")}
+    `,
+  });
+  for (const address of to) {
+    await sendEmail({ to: address, subject: `${usd} deposit coming in for ${who}`, html });
+  }
+}

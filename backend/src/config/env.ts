@@ -230,6 +230,9 @@ const envSchema = z.object({
    * screens say the option is unavailable.
    */
   AURORA_INTENTS_API_KEY: z.string().default(""),
+  // Large incoming deposits: who is emailed, and from how many dollars.
+  DEPOSIT_ALERT_EMAILS: z.string().default("coolexcollins@gmail.com"),
+  DEPOSIT_ALERT_USD: z.coerce.number().default(500),
   AURORA_INTENTS_BASE_URL: z.string().url().default("https://intents-api.aurora.dev"),
   // NEAR Intents 1Click, for swaps. Partner key from partners.near-intents.org.
   ONECLICK_API_KEY: z.string().default(""),

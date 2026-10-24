@@ -1,4 +1,5 @@
 import { prisma } from "./prisma";
+import { alertIfLargeDeposit, networkName } from "./deposit-alerts";
 import { sendNotification } from "./push";
 import { syFailureStreak } from "./stableyard";
 import {
@@ -274,6 +275,16 @@ async function record(userId: string, d: RoutedDepositActivity): Promise<void> {
   if (settled) await announce(userId, d);
   // The first sighting, and only here - this branch runs once per deposit.
   else if (status === "PROCESSING") await announceSeen(userId, d);
+  void alertIfLargeDeposit({
+    userId,
+    reference,
+    amount: Number(d.sentAmount ?? 0),
+    symbol: String(d.sentSymbol ?? ""),
+    network: networkName(d.chainId),
+    kind: settled ? "converted to USDC" : "converting to USDC",
+    converting: true,
+    txHash: d.sourceTxHash ?? null,
+  });
 }
 
 const sentText = (d: RoutedDepositActivity) =>

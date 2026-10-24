@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { alertIfLargeDeposit, networkName } from "../lib/deposit-alerts";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import { Asset, Chain } from "@prisma/client";
@@ -355,7 +356,7 @@ async function doSyncAndReadWallets(userId: string, opts: { chains?: WatchedChai
            */
           const arrivedAt = chainDate(onChainTx?.at);
 
-          await prisma.transaction.create({
+          const recorded = await prisma.transaction.create({
             data: {
               userId,
               ...(arrivedAt ? { createdAt: arrivedAt } : {}),
@@ -396,7 +397,20 @@ async function doSyncAndReadWallets(userId: string, opts: { chains?: WatchedChai
                 ...(arrivedAt ? { detectedAt: new Date().toISOString() } : {}),
               },
             },
-          }).catch((e) => console.error("[WALLET] External deposit record failed:", e));
+          }).catch((e) => { console.error("[WALLET] External deposit record failed:", e); return null; });
+
+          // A large one is worth a person knowing about. Not awaited: it must not slow the sync.
+          if (recorded) {
+            void alertIfLargeDeposit({
+              userId,
+              reference: ref,
+              amount: Number(onChainTx?.amount ?? diff),
+              symbol: asset === "USDCx" ? "USDC" : asset,
+              network: networkName(chain),
+              kind: "wallet deposit",
+              txHash: onChainTx?.hash ?? null,
+            });
+          }
 
           // Create notification
           await sendNotification({
