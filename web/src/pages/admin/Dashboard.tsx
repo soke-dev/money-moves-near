@@ -1477,7 +1477,7 @@ const TX_WORD: Record<string, string> = {
   UNLOCK: 'Unlocked',
   SAVINGS_LOCK: 'Saved',
   SAVINGS_WITHDRAW: 'Savings withdrawn',
-  SWEEP: 'Swept to USDC',
+  SWEEP: 'Sweep',
 }
 const txWord = (type: string) => TX_WORD[type] ?? type.charAt(0) + type.slice(1).toLowerCase().replace(/_/g, ' ')
 
@@ -1508,6 +1508,12 @@ function txLabel(tx: any): string {
   }
   // A business's checkout paid from the wallet, and a business's money settled into it:
   // named for the business, not as a withdrawal or a deposit from nowhere.
+  // A swap shares the SWEEP type but names both ends. The chain matters most,
+  // since a swap is often USDC to USDC across two networks.
+  if (tx?.type === 'SWEEP' && m.kind === 'swap' && m.from?.symbol) {
+    const end = (e: any) => `${e?.symbol ?? '?'} on ${CHAIN_NAMES[e?.chain] ?? e?.chain ?? '?'}`
+    return `Swap \u00b7 ${end(m.from)} to ${end(m.to)}`
+  }
   if (tx?.type === 'WITHDRAW' && m.payee) return `Paid a business \u00b7 ${m.payee}`
   if (m.source === 'business_settlement') return `Settlement from ${m.businessName ?? 'a business'}`
   return `${txWord(tx.type)} \u00b7 ${tx.asset}`
