@@ -19,7 +19,7 @@ import {
   setAllRoutedAssetStates,
   type RoutedState,
 } from "../lib/stableyard-visibility";
-import { enrolledAccounts, routedActivityReadOnly } from "../lib/stableyard-account";
+import { enrolledAccounts, routedActivityReadOnly, routedAddressesReadOnly } from "../lib/stableyard-account";
 import { isSwapConfigured, isAuroraConfigured, isOneClickConfigured, isMovementRouteConfigured } from "../lib/aurora";
 import { routeWalletAddress } from "../lib/aurora-swap";
 import { getOnChainBalance } from "../lib/balances";
@@ -1621,6 +1621,55 @@ router.get(
       });
 
       return res.json({ user, wallets });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── GET /admin/users/:id/deposit-addresses — where they can send other coins ──
+//
+// Bitcoin and Tron (one permanent address each, paying USDC into their Solana
+// wallet) and the converted-deposit addresses (paying USDCx on Movement). Read
+// only: nothing is created for somebody who never opened these screens.
+router.get(
+  "/users/:id/deposit-addresses",
+  requireAdmin,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const userId = req.params.id as string;
+      const NAMES: Record<number, string> = {
+        1: "Ethereum", 56: "BNB Chain", 137: "Polygon", 4663: "Robinhood Chain",
+        10001: "Bitcoin", 10103: "Solana", 42161: "Arbitrum", 728126428: "Tron",
+      };
+      const out: { chainId: number; name: string; assets: string[]; address: string; settles: string }[] = [];
+
+      const au = await prisma.serviceStatus.findMany({
+        where: { key: { in: ["auaddr:btc:" + userId, "auaddr:tron:" + userId] } },
+        select: { key: true, value: true },
+      });
+      for (const row of au) {
+        try {
+          const v = JSON.parse(row.value ?? "");
+          if (!v?.address) continue;
+          const btc = row.key.startsWith("auaddr:btc:");
+          out.push({ chainId: btc ? 10001 : 728126428, name: btc ? "Bitcoin" : "Tron", assets: [btc ? "BTC" : "USDT"], address: v.address, settles: "USDC on Solana" });
+        } catch {}
+      }
+
+      let convertedError: string | null = null;
+      try {
+        const routed = await routedAddressesReadOnly(userId);
+        // Bitcoin and Tron are no longer offered from here, so their old addresses are left out.
+        for (const a of routed.filter((r) => r.chainId !== 10001 && r.chainId !== 728126428)) {
+          out.push({ chainId: a.chainId, name: NAMES[a.chainId] ?? String(a.chainId), assets: a.assets.map((x) => x.symbol), address: a.address, settles: "USDCx on Movement" });
+        }
+      } catch (e: any) {
+        convertedError = "Could not read the converted-deposit addresses right now.";
+        console.warn("[ADMIN] deposit addresses:", e?.message);
+      }
+
+      return res.json({ addresses: out, convertedError });
     } catch (err) {
       next(err);
     }

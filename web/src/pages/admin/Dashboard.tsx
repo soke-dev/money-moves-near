@@ -2547,6 +2547,18 @@ function PersonPage({ user, from, onBack, onChanged }: { user: any; from: string
   const [txPage, setTxPage] = useState(1)
   const [openTx, setOpenTx] = useOpenPage<any>()
   const [copied, setCopied] = useState<string | null>(null)
+  // Bitcoin, Tron and converted-deposit addresses: read only when opened, since one of them asks the provider live.
+  const [showOther, setShowOther] = useState(false)
+  const [other, setOther] = useState<{ addresses: { chainId: number; name: string; assets: string[]; address: string; settles: string }[]; convertedError: string | null } | null>(null)
+  const toggleOther = () => {
+    const next = !showOther
+    setShowOther(next)
+    if (next && !other) {
+      void get<any>(`/users/${user.id}/deposit-addresses`, { addresses: [], convertedError: 'Could not read these right now.' }).then((d) =>
+        setOther({ addresses: d.addresses || [], convertedError: d.convertedError ?? null }),
+      )
+    }
+  }
   const [confirm, setConfirm] = useState('')
   const [closePw, setClosePw] = useState('')
   const [closeErr, setCloseErr] = useState('')
@@ -2731,6 +2743,53 @@ function PersonPage({ user, from, onBack, onChanged }: { user: any; from: string
                   </button>
                 ))
               )}
+
+              {/* Where they can send other coins: folded away until asked for. */}
+              <button
+                onClick={toggleOther}
+                className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-white/[0.025]"
+                style={{ borderTop: `1px solid ${C.lineSoft}` }}
+                aria-expanded={showOther}
+              >
+                <ChevronRight size={15} color={C.dim} style={{ transform: showOther ? 'rotate(90deg)' : 'none', transition: 'transform 150ms' }} />
+                <span className="text-[13px] font-medium" style={{ color: C.text }}>Other addresses</span>
+                <span className="text-[12px]" style={{ color: C.dim }}>Bitcoin, Tron and converted deposits</span>
+              </button>
+              {showOther &&
+                (other == null ? (
+                  <div className="px-4 py-4 text-[13px]" style={{ color: C.dim, borderTop: `1px solid ${C.lineSoft}` }}>Loading…</div>
+                ) : (
+                  <>
+                    {other.addresses.length === 0 && (
+                      <div className="px-4 py-4 text-[13px]" style={{ color: C.dim, borderTop: `1px solid ${C.lineSoft}` }}>
+                        None yet. These are made the first time they open a deposit for that coin.
+                      </div>
+                    )}
+                    {other.addresses.map((a) => (
+                      <button
+                        key={`${a.chainId}:${a.address}`}
+                        onClick={() => copy(a.address)}
+                        className="block w-full px-4 py-3 pl-10 text-left transition-colors hover:bg-white/[0.025]"
+                        style={{ borderTop: `1px solid ${C.lineSoft}` }}
+                        title="Copy"
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className="text-[13px] font-medium" style={{ color: C.text }}>{a.name}</span>
+                          <span className="text-[12px]" style={{ color: C.dim }}>{a.assets.join(', ')} · arrives as {a.settles}</span>
+                          <span className="ml-auto text-[12px]" style={{ color: copied === a.address ? C.lime : C.dim }}>
+                            {copied === a.address ? 'Copied' : 'Copy'}
+                          </span>
+                        </div>
+                        <div className="mt-1 text-[12px] leading-[1.45] break-all" style={{ fontFamily: MONO, color: C.muted }}>
+                          {a.address}
+                        </div>
+                      </button>
+                    ))}
+                    {other.convertedError && (
+                      <div className="px-4 py-3 text-[12.5px]" style={{ color: C.amber, borderTop: `1px solid ${C.lineSoft}` }}>{other.convertedError}</div>
+                    )}
+                  </>
+                ))}
             </Panel>
           </div>
 

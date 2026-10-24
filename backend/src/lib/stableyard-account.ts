@@ -403,3 +403,15 @@ async function activityFor(accountId: string | null): Promise<RoutedDepositActiv
     };
   });
 }
+
+/**
+ * This person's converted-deposit addresses, for the console, creating
+ * nothing: an account that was never enrolled simply has none. The account id
+ * comes from our own marker when we have it, so the usual case is one call.
+ */
+export async function routedAddressesReadOnly(userId: string): Promise<RoutedAddress[]> {
+  const marker = await prisma.serviceStatus.findUnique({ where: { key: ACCT_KEY(userId) }, select: { value: true } });
+  const accountId = marker?.value || (await accountIdOnly(userId));
+  if (!accountId) return [];
+  return readAddresses(accountId);
+}
