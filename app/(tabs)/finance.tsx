@@ -14,7 +14,6 @@ import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { BlurView } from "expo-blur";
-import Reanimated, { SlideInDown, SlideOutDown } from "react-native-reanimated";
 import Svg, { Circle, Path } from "react-native-svg";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
@@ -187,7 +186,9 @@ export default function FinanceScreen() {
       </View>
 
       {/* Money Moves Business, as a card floating clear of the edges, the same
-          way Home's sheets do it. */}
+          way Home's sheets do it. It fades in with the modal rather than
+          sliding: a Reanimated layout animation inside a Modal is the suspected
+          cause of the October Android crash, so none is used here. */}
       {showBusiness && (
         <Modal transparent animationType="fade" visible statusBarTranslucent onRequestClose={() => setShowBusiness(false)}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowBusiness(false)}>
@@ -199,9 +200,7 @@ export default function FinanceScreen() {
           </Pressable>
 
           <View style={s.sheetDock} pointerEvents="box-none">
-            <Reanimated.View
-              entering={SlideInDown.duration(260)}
-              exiting={SlideOutDown.duration(200)}
+            <View
               style={[
                 s.sheet,
                 { backgroundColor: colors.card, borderColor: colors.border, marginBottom: (insets.bottom || 12) + 10 },
@@ -254,7 +253,7 @@ export default function FinanceScreen() {
                 <Text style={[s.ctaText, { color: colors.primaryForeground }]}>Visit website</Text>
                 <Feather name="arrow-up-right" size={17} color={colors.primaryForeground} />
               </TouchableOpacity>
-            </Reanimated.View>
+            </View>
           </View>
         </Modal>
       )}
