@@ -11,7 +11,7 @@ import { api } from "./api";
 
 export interface SweepBalance {
   asset: "USDC" | "USDT";
-  chain: "SOL" | "BASE" | "BEP20" | "ARC" | "TON" | "MONAD";
+  chain: "SOL" | "BASE" | "BEP20" | "ARC" | "TON" | "MONAD" | "STELLAR";
   amount: number;
   address: string | null;
 }
@@ -39,7 +39,7 @@ export interface SweepQuote {
 
 export interface PreparedLeg {
   asset: "USDC" | "USDT";
-  chain: "SOL" | "BASE" | "BEP20" | "ARC" | "TON" | "MONAD";
+  chain: "SOL" | "BASE" | "BEP20" | "ARC" | "TON" | "MONAD" | "STELLAR";
   amount: number;
   signingMessage: string;
   txRequest?: Record<string, string | number>;

@@ -36,7 +36,8 @@ import { pauseGuard } from "./service-status";
 
 export const SWEEP_ASSETS = ["USDC", "USDT"] as const;
 // Monad is EVM: its legs take the same builder and sell address as Base and BNB Chain.
-export const SWEEP_CHAINS = ["SOL", "BASE", "BEP20", "ARC", "TON", "MONAD"] as const;
+// Stellar legs are a payment to the sell address, with the treasury paying the fee.
+export const SWEEP_CHAINS = ["SOL", "BASE", "BEP20", "ARC", "TON", "MONAD", "STELLAR"] as const;
 
 /**
  * What a swap leaves behind, on the two chains that pay their own way.

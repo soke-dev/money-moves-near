@@ -24,6 +24,7 @@ import { useTheme } from "@/context/ThemeContext";
 import { useApp } from "@/context/AppContext";
 import { StageTrack, STAGE_DONE, STAGE_PENDING, STAGE_FAILED } from "@/components/StageTrack";
 import { signSolanaTransaction, signTonTransaction, signEvmTransaction } from "@/services/wallet-core";
+import { signStellarTransaction } from "@/services/stellar";
 import { assetLabel } from "@/constants/transfer";
 import {
   getSweepQuote,
@@ -57,6 +58,7 @@ const CHAIN_NAME: Record<string, string> = {
   ARC: "Arc",
   TON: "TON",
   MONAD: "Monad",
+  STELLAR: "Stellar",
 };
 
 // Token over network, the way every wallet draws it - the token is what you
@@ -97,6 +99,7 @@ const CHAIN_ART: Record<string, any> = {
   ARC: require("@/assets/images/ARC.jpg"),
   TON: require("@/assets/images/toncoin.png"),
   MONAD: require("@/assets/images/monad.png"),
+  STELLAR: require("@/assets/images/stellar.jpg"),
 };
 
 /**
@@ -523,6 +526,9 @@ export default function SweepSheet() {
           // Ed25519, same key as Solana. The hash is of a cell rather than a
           // transaction message, which changes nothing on this side.
           ({ signature, publicKey } = await signTonTransaction(leg.signingMessage));
+        } else if (leg.chain === "STELLAR") {
+          // Ed25519 again, over the transaction hash. The treasury pays the fee, so no XLM is needed.
+          ({ signature, publicKey } = await signStellarTransaction(leg.signingMessage));
         } else {
           ({ signature, publicKey, signedRaw } = await signEvmTransaction(
             leg.signingMessage,
@@ -690,7 +696,7 @@ export default function SweepSheet() {
           <Text style={[s.emptyText, { color: colors.mutedForeground }]}>
             {quote?.paused
               ? quote.paused
-              : `Nothing to sweep. Sweep gathers USDC or USDT balances of $${quote?.ceiling ?? 5} or less on Solana, Base, BNB Chain, Monad, Arc or TON. Use Swap for bigger ones.`}
+              : `Nothing to sweep. Sweep gathers USDC or USDT balances of $${quote?.ceiling ?? 5} or less on Solana, Base, BNB Chain, Monad, Arc, TON or Stellar. Use Swap for bigger ones.`}
           </Text>
         </View>
       );
