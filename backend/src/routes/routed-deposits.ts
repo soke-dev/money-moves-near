@@ -58,8 +58,14 @@ router.get(
        * one last week can see it is off rather than assume they imagined it.
        * Only `hidden` is absent from this list.
        */
+      /**
+       * Bitcoin and Tron never come from Stableyard again, whatever else is
+       * true. They used to fall back to it whenever the Aurora key was absent,
+       * which would put the old addresses back in front of people the moment a
+       * key went missing. With no Aurora, those two are simply not offered.
+       */
       const offered = isStableyardConfigured()
-        ? (await offeredRoutedAssetStates()).filter((a) => !auroraOn || !AURORA_CHAIN_IDS.includes(a.chainId))
+        ? (await offeredRoutedAssetStates()).filter((a) => !AURORA_CHAIN_IDS.includes(a.chainId))
         : [];
 
       let stableyardAssets: any[] = [];
