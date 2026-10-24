@@ -148,7 +148,7 @@ export default function FinanceScreen() {
                 status: "MONEY MOVES",
                 statusColor: colors.mutedForeground,
                 title: "Business",
-                sub: "Get paid by your customers",
+                sub: "Accept payments, settle instantly",
                 live: true,
               })}
             </View>
@@ -210,7 +210,7 @@ export default function FinanceScreen() {
               <View style={s.sheetHead}>
                 <View style={{ flex: 1 }}>
                   <Text style={[s.sheetEyebrow, { color: colors.primary }]}>MONEY MOVES BUSINESS</Text>
-                  <Text style={[s.sheetTitle, { color: colors.foreground }]}>Take payments from customers</Text>
+                  <Text style={[s.sheetTitle, { color: colors.foreground }]}>Accept payments. Settle instantly.</Text>
                 </View>
                 <TouchableOpacity
                   style={[s.sheetClose, { backgroundColor: colors.background }]}
@@ -222,15 +222,16 @@ export default function FinanceScreen() {
               </View>
 
               <Text style={[s.sheetBody, { color: colors.mutedForeground }]}>
-                Customers pay in stablecoins or local fiat, and every payment settles instantly to a wallet only you
-                control.
+                The payments platform for businesses and freelancers. Accept stablecoins and local fiat from your
+                customers, with every payment settled instantly to your self custody wallet or your bank account.
               </Text>
 
               <View style={[s.points, { borderColor: colors.border }]}>
                 {[
-                  "Payment links, invoices and checkout",
-                  "Settle in stablecoins or to your bank",
-                  "For freelancers and registered businesses",
+                  "Checkout, payment links and invoices",
+                  "Instant settlement in stablecoins or local fiat",
+                  "Self custody, so your funds stay under your control",
+                  "Developer API and plugins for your website",
                 ].map((line, i) => (
                   <View
                     key={line}
