@@ -20,9 +20,8 @@ import * as Haptics from "expo-haptics";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { TokenLogo } from "@/components/TokenLogo";
+import { CoinMark } from "@/components/SwapRoute";
 import { Keypad } from "@/components/Keypad";
-import { CHAIN_MARKS } from "@/constants/transfer";
 import { signSolanaTransaction, signEvmTransaction } from "@/services/wallet-core";
 import {
   getSwapConfig,
@@ -453,9 +452,9 @@ export default function SwapScreen() {
         {header("Swapping", false)}
         <ScrollView contentContainerStyle={[s.body, { paddingBottom: bottomPad + 24 }]}>
           <View style={s.pairHero}>
-            <CoinMark asset={swap.from.asset} chain={swap.from.chain} size={56} colors={colors} />
+            <CoinMark asset={swap.from.asset} chain={swap.from.chain} size={56} ring={colors.card} />
             <Feather name="arrow-right" size={18} color={colors.mutedForeground} />
-            <CoinMark asset={swap.to.asset} chain={swap.to.chain} size={56} colors={colors} />
+            <CoinMark asset={swap.to.asset} chain={swap.to.chain} size={56} ring={colors.card} />
           </View>
           <Text style={[s.watchTitle, { color: colors.foreground }]}>
             {fmtCoin(swap.from.amount ?? 0, swap.from.symbol)} {swap.from.symbol}
@@ -490,7 +489,7 @@ export default function SwapScreen() {
         <ScrollView contentContainerStyle={[s.body, { paddingBottom: 24 }]}>
           <View style={[s.card, { backgroundColor: colors.card, paddingVertical: 20, gap: 16 }]}>
             <View style={s.reviewLine}>
-              <CoinMark asset={from.asset} chain={from.chain} size={40} colors={colors} />
+              <CoinMark asset={from.asset} chain={from.chain} size={40} ring={colors.card} />
               <View style={s.flex1}>
                 <Text style={[s.reviewFig, { color: colors.foreground }]}>
                   {fmtCoin(amount, from.symbol)} {from.symbol}
@@ -504,7 +503,7 @@ export default function SwapScreen() {
               </View>
             </View>
             <View style={s.reviewLine}>
-              <CoinMark asset={to.asset} chain={to.chain} size={40} colors={colors} />
+              <CoinMark asset={to.asset} chain={to.chain} size={40} ring={colors.card} />
               <View style={s.flex1}>
                 <Text style={[s.reviewFig, { color: colors.foreground }]}>
                   {quote ? `${fmtCoin(quote.amountOut, to.symbol)} ${to.symbol}` : "…"}
@@ -720,37 +719,12 @@ export default function SwapScreen() {
 
 /* ─── Pieces ───────────────────────────────────────────────────────── */
 
-function CoinMark({ asset, chain, size, colors }: { asset: string; chain: string; size: number; colors: any }) {
-  // Big enough to tell the chains apart at a glance, even on the small coin in the chip.
-  const badge = Math.max(15, Math.round(size * 0.56));
-  return (
-    <View style={{ width: size, height: size }}>
-      <TokenLogo symbol={asset} size={size} />
-      {CHAIN_MARKS[chain] && (
-        <Image
-          source={CHAIN_MARKS[chain]}
-          style={{
-            position: "absolute",
-            right: -4,
-            bottom: -4,
-            width: badge,
-            height: badge,
-            borderRadius: badge / 2,
-            borderWidth: 2,
-            borderColor: colors.card,
-          }}
-        />
-      )}
-    </View>
-  );
-}
-
 function AssetChip({ asset, colors, onPress }: { asset: SwapAsset | null; colors: any; onPress: () => void }) {
   return (
     <TouchableOpacity style={[s.chip, { backgroundColor: colors.background }]} onPress={onPress} activeOpacity={0.8}>
       {asset ? (
         <>
-          <CoinMark asset={asset.asset} chain={asset.chain} size={28} colors={colors} />
+          <CoinMark asset={asset.asset} chain={asset.chain} size={28} ring={colors.card} />
           <Text style={[s.chipSym, { color: colors.foreground }]}>{asset.symbol}</Text>
         </>
       ) : (
@@ -879,7 +853,7 @@ function Picker({
                   onPress={() => onPick(a)}
                   activeOpacity={0.75}
                 >
-                  <CoinMark asset={a.asset} chain={a.chain} size={36} colors={colors} />
+                  <CoinMark asset={a.asset} chain={a.chain} size={36} ring={colors.card} />
                   <View style={s.flex1}>
                     <Text style={[s.pickSym, { color: colors.foreground }]}>{a.symbol}</Text>
                     <Text style={[s.quiet, { color: colors.mutedForeground }]}>{SWAP_CHAIN_NAME[a.chain]}</Text>

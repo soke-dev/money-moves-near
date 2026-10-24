@@ -25,7 +25,8 @@ import { AppStoreBadge, GooglePlayBadge } from "@/components/StoreBadges";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { getTransaction } from "@/services/transactions";
-import { assetLabel, SELL_FEE_RATE, splitSellFee } from "@/constants/transfer";
+import { assetLabel, SELL_FEE_RATE, splitSellFee, fmtAsset } from "@/constants/transfer";
+import { SwapRoute, SWAP_CHAIN_LABEL } from "@/components/SwapRoute";
 
 const fmtNaira = (n: number) =>
   "₦" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -158,6 +159,7 @@ export default function ReceiptScreen() {
   const explorerUrl = txHash ? getExplorerUrl(txHash, tx.chain) : null;
 
   const isInternalTransfer = tx.type === "TRANSFER_OUT" || tx.type === "TRANSFER_IN";
+  const isSwap = tx.type === "SWEEP" && meta.kind === "swap" && !!meta.from?.chain && !!meta.to?.chain;
   const transferUsername = meta.recipientUsername || meta.senderUsername || null;
 
   const getTypeLabel = () => {
@@ -174,6 +176,7 @@ export default function ReceiptScreen() {
       case "TRANSFER_OUT": return "Sent to User";
       case "TRANSFER_IN": return "Received from User";
       case "AIRTIME": return meta.billType === "electricity" ? "Electricity Purchase" : meta.billType === "betting" ? "Betting Top-up" : meta.billType === "data" ? "Data Purchase" : "Airtime Purchase";
+      case "SWEEP": return meta.kind === "swap" ? "Swap" : "Sweep";
       default: return tx.type;
     }
   };
@@ -220,6 +223,15 @@ export default function ReceiptScreen() {
   type ReceiptRow = { label: string; value: string };
   const rows: ReceiptRow[] = [
     { label: "Type", value: getTypeLabel() },
+    // A swap's two ends in words, under the picture of them.
+    ...(isSwap
+      ? [
+          { label: "You paid", value: `${fmtAsset(meta.from.amount, meta.from.asset)} ${meta.from.symbol ?? meta.from.asset}` },
+          { label: "From", value: SWAP_CHAIN_LABEL[meta.from.chain] ?? meta.from.chain },
+          { label: "To", value: SWAP_CHAIN_LABEL[meta.to.chain] ?? meta.to.chain },
+          ...(meta.fee?.amount > 0 ? [{ label: "Fee", value: `${fmtAsset(meta.fee.amount, meta.from.asset)} ${meta.fee.symbol ?? meta.from.symbol}` }] : []),
+        ]
+      : []),
     ...(transferUsername ? [{ label: tx.type === "TRANSFER_OUT" ? "Sent to" : "Received from", value: `@${transferUsername}` }] : []),
     ...(meta.phone ? [{ label: meta.billType === "electricity" ? "Meter Number" : meta.billType === "betting" ? "Account ID" : "Phone Number", value: meta.phone }] : []),
     ...((meta.billType === "electricity" || meta.billType === "betting") && meta.customerName ? [{ label: meta.billType === "betting" ? "Account Name" : "Customer Name", value: meta.customerName }] : []),
@@ -414,6 +426,19 @@ export default function ReceiptScreen() {
               {/* When it happened, read together with how much. */}
               <Text style={[s.receiptDate, { color: INK_MUTED }]}>{stampedAt}</Text>
 
+              {isSwap && (
+                <View style={s.swapRouteWrap}>
+                  <SwapRoute
+                    from={{ asset: meta.from.asset, chain: meta.from.chain, symbol: meta.from.symbol, amount: fmtAsset(meta.from.amount, meta.from.asset) }}
+                    to={{ asset: meta.to.asset, chain: meta.to.chain, symbol: meta.to.symbol, amount: fmtAsset(tx.amount, tx.asset) }}
+                    ink={INK}
+                    muted={INK_MUTED}
+                    surface="#f5f5f7"
+                    line={HAIRLINE}
+                  />
+                </View>
+              )}
+
               {rows.map((row, i) => (
                 <View key={i} style={[s.paperRow, { borderTopColor: HAIRLINE }, i === 0 && s.paperRowFirst]}>
                   <Text style={[s.paperLabel, { color: INK_MUTED }]}>{row.label}</Text>
@@ -577,6 +602,7 @@ const s = StyleSheet.create({
   receiptAmount: { fontSize: 36, fontFamily: "Inter_700Bold", letterSpacing: -0.5 },
 
   dashedBorder: { borderTopWidth: 1, borderStyle: "dashed" },
+  swapRouteWrap: { marginTop: 18, marginBottom: 6 },
   receiptDate: {
     fontSize: 12.5,
     lineHeight: 17,

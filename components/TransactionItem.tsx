@@ -343,6 +343,61 @@ export function TransactionItem({
     );
   }
 
+  /**
+   * A swap, named by its chains.
+   *
+   * It fell to the catch-all row at the bottom, which titled it "Swapped USDC
+   * to USDC", put a badge on it even when it had finished and left out the one
+   * thing that changed: the network. So the chains are the mark, one over the
+   * other in the order the money went, and the subtitle says them in words.
+   * The coin is only in the title when it changed.
+   */
+  const isSwap = type === "SWEEP" && metadata?.kind === "swap" && !!metadata?.from?.chain && !!metadata?.to?.chain;
+  if (isSwap) {
+    const fromSym: string = metadata.from.symbol ?? metadata.from.asset;
+    const toSym: string = metadata.to.symbol ?? label;
+    const fromChain: string = metadata.from.chain;
+    const toChain: string = metadata.to.chain;
+    return (
+      <Wrapper {...wrapperProps} style={styles.container}>
+        <View style={styles.markSlot}>
+          {CHAIN_LOGOS[fromChain] && <Image source={CHAIN_LOGOS[fromChain]} style={[styles.pairBack]} />}
+          {CHAIN_LOGOS[toChain] && (
+            <Image source={CHAIN_LOGOS[toChain]} style={[styles.pairFront, { borderColor: colors.background }]} />
+          )}
+        </View>
+
+        <View style={styles.info}>
+          <Text style={[styles.payee, { color: colors.foreground }]} numberOfLines={1}>
+            {fromSym === toSym ? `Swapped ${toSym}` : `Swapped ${fromSym} to ${toSym}`}
+          </Text>
+          <Text style={[styles.meta, { color: colors.mutedForeground }]} numberOfLines={1}>
+            {`${CHAIN_NAMES[fromChain] || fromChain} to ${CHAIN_NAMES[toChain] || toChain} · ${whenStr}`}
+          </Text>
+        </View>
+
+        <View style={styles.right}>
+          <Text
+            style={[
+              styles.payeeAmount,
+              { color: status === "COMPLETED" ? AMOUNT_IN : colors.foreground },
+              (status === "FAILED" || status === "REFUNDED") && styles.struck,
+            ]}
+          >
+            {status === "COMPLETED" ? "+" : ""}
+            {tokenAmount}
+            <Text style={[styles.unit, { color: colors.mutedForeground }]}> {label}</Text>
+          </Text>
+          {status !== "COMPLETED" && (
+            <View style={[styles.statusBadge, { backgroundColor: getStatusColor() + "22" }]}>
+              <Text style={[styles.statusText, { color: getStatusColor() }]}>{statusLabel}</Text>
+            </View>
+          )}
+        </View>
+      </Wrapper>
+    );
+  }
+
   if (isCryptoMove) {
     /**
      * The mark says what happened, not which coin - the asset is already named
@@ -695,6 +750,9 @@ const styles = StyleSheet.create({
   // The slot keeps the leading column the width of a token logo, so rows with
   // a mark and rows with a logo still line up down the page.
   markSlot: { width: 36, height: 36, alignItems: "center", justifyContent: "center" },
+  // A swap's two chains: where it left from behind, where it landed in front.
+  pairBack: { position: "absolute", top: 0, left: 0, width: 24, height: 24, borderRadius: 12 },
+  pairFront: { position: "absolute", right: -2, bottom: -2, width: 26, height: 26, borderRadius: 13, borderWidth: 2 },
   billGlyph: { width: 21, height: 21, resizeMode: "contain" },
   boltGlyph: { width: 23, height: 23 },
   bankLogoDisc: { backgroundColor: "#ffffff", overflow: "hidden" },

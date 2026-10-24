@@ -24,6 +24,7 @@ import { getTransaction, checkSellStatus } from "@/services/transactions";
 import { PROVIDER_LOGOS } from "@/constants/bills";
 import { StageTrack, STAGE_DONE, STAGE_PENDING, STAGE_FAILED } from "@/components/StageTrack";
 import { Confetti } from "@/components/Confetti";
+import { SwapRoute } from "@/components/SwapRoute";
 import { assetLabel, SELL_FEE_RATE, splitSellFee, fmtAsset, FONT_SCALE } from "@/constants/transfer";
 
 const fmtNaira = (n: number) => "₦" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -687,6 +688,21 @@ export default function TransactionDetailScreen() {
           </Text>
         </View>
 
+        {/* A swap, drawn: the coin it left as on its chain, the coin it
+            arrived as on its chain. */}
+        {tx.type === "SWEEP" && meta.kind === "swap" && meta.from?.chain && meta.to?.chain && (
+          <View style={s.swapRouteWrap}>
+            <SwapRoute
+              from={{ asset: meta.from.asset, chain: meta.from.chain, symbol: meta.from.symbol, amount: fmtAsset(meta.from.amount, meta.from.asset) }}
+              to={{ asset: meta.to.asset, chain: meta.to.chain, symbol: meta.to.symbol, amount: fmtAsset(tx.amount, tx.asset) }}
+              ink={colors.foreground}
+              muted={colors.mutedForeground}
+              surface={colors.card}
+              line={colors.border}
+            />
+          </View>
+        )}
+
         {/* What they said it was for, said the way they said it.
             Buried in the table between Type and NGN Value, a line somebody
             wrote by hand read as another machine field - and it is the line
@@ -928,6 +944,7 @@ const s = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
   noteWrap: { alignSelf: "center", alignItems: "center", maxWidth: "86%", marginTop: 20 },
+  swapRouteWrap: { alignSelf: "stretch", marginTop: 20 },
   /**
    * The mark is pulled up under itself, not spaced away from the words.
    *
