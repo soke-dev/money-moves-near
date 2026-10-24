@@ -39,6 +39,12 @@ const inOtherCrypto = (a: { chainId: number; symbol: string }) =>
 const BTC_CHAIN = 10001;
 const TRON_CHAIN = 728126428;
 
+/**
+ * The converting networks each coin's deposit dropdown adds (see CONVERTED_NETS
+ * in app/deposit.tsx), counted only when the server offers them.
+ */
+const CONVERTED_IN: Record<string, number[]> = { USDT: [TRON_CHAIN, 1, 42161], USDC: [1, 42161] };
+
 const DIRECT = [
   { symbol: "USDC", name: "USD Coin" },
   { symbol: "USDT", name: "Tether" },
@@ -61,6 +67,11 @@ export default function SelectCryptoScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [converted, setConverted] = useState<RoutedGroup[] | null>(null);
+  // Every converting address, before the Other crypto filter: it counts the extra networks USDC and USDT offer.
+  const [routedAll, setRoutedAll] = useState<{ chainId: number; symbol: string }[]>([]);
+  const networkCount = (symbol: string) =>
+    (TOKEN_NETWORKS[symbol as TokenSymbol]?.length ?? 0) +
+    (CONVERTED_IN[symbol] ?? []).filter((id) => routedAll.some((a) => a.chainId === id && a.symbol === symbol)).length;
   // Bitcoin is drawn in the main list and Tron USDT inside USDT's network list,
   // so "Other crypto" holds everything else.
   const btc = converted?.find((g) => g.chainId === BTC_CHAIN);
@@ -78,7 +89,10 @@ export default function SelectCryptoScreen() {
     getRoutedDeposits()
       // Grouped by address: Ethereum USDC and USDT are one place to send to,
       // and two rows said there were two.
-      .then((d) => setConverted(groupRouted((d.assets ?? []).filter(inOtherCrypto))))
+      .then((d) => {
+        setRoutedAll(d.assets ?? []);
+        setConverted(groupRouted((d.assets ?? []).filter(inOtherCrypto)));
+      })
       .catch((e) => {
         // Quiet for the person, loud for us. Hiding the section on failure is
         // right in production and invisible while building it - the first run
@@ -143,7 +157,9 @@ export default function SelectCryptoScreen() {
               <TokenLogo symbol={c.symbol} size={34} />
               <View style={{ flex: 1, minWidth: 0 }}>
                 <Text style={[styles.rowTitle, { color: colors.foreground }]}>{c.symbol}</Text>
-                <Text style={[styles.rowNote, { color: colors.mutedForeground }]}>{c.name}</Text>
+                <Text style={[styles.rowNote, { color: colors.mutedForeground }]}>
+                  {CONVERTED_IN[c.symbol] ? `${c.name} · ${networkCount(c.symbol)} networks` : c.name}
+                </Text>
               </View>
               <Feather name="chevron-right" size={17} color={colors.mutedForeground} />
             </TouchableOpacity>
