@@ -101,7 +101,7 @@ export default function RoutedDepositScreen() {
             {group ? group.label : "Deposit"}
           </Text>
           <Text style={[s.titleSub, { color: colors.mutedForeground }]}>
-            {group ? `Arrives as USDC on ${group.settlesOn}` : "Loading"}
+            {group ? "Settles as USDC" : "Loading"}
           </Text>
         </View>
       </View>
@@ -142,7 +142,7 @@ export default function RoutedDepositScreen() {
               <View style={s.convertsFill} />
               <Feather name="arrow-right" size={14} color={colors.mutedForeground} />
               <View style={s.convertsFill} />
-              <Text style={[s.convertsName, { color: colors.foreground }]}>USDC on {group.settlesOn}</Text>
+              <Text style={[s.convertsName, { color: colors.foreground }]}>USDC</Text>
               <TokenLogo symbol="USDC" size={20} />
             </View>
 
