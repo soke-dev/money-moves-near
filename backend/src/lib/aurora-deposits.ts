@@ -294,6 +294,17 @@ async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Pr
    * That row becomes this one rather than sitting beside it, whatever hash
    * Aurora reports; the chain's own hash is kept so the watcher still knows it.
    */
+  // Already settled from the wallet: the same payout, so the same row.
+  if (!existing && settled && looksLikeSolanaTx(p.payout!.tx_hash)) {
+    const byPayout = await prisma.transaction.findFirst({
+      where: { userId, reference: { startsWith: "AUDEP-" }, metadata: { path: ["payoutTxHash"], equals: p.payout!.tx_hash } },
+      select: { id: true, status: true, amount: true, metadata: true },
+    });
+    if (byPayout) {
+      await prisma.transaction.update({ where: { id: byPayout.id }, data: { reference } });
+      existing = byPayout;
+    }
+  }
   if (!existing) {
     // Same person, same coin, and the amount that was sent. Aurora's address
     // and hash formats are not guaranteed to match the chain's, so neither is
@@ -430,6 +441,8 @@ export async function syncInFlightAuroraDeposits(): Promise<void> {
       distinct: ["userId"],
     });
     for (const r of rows) await syncAuroraLedger(r.userId).catch(() => {});
+    // Whatever the feed did not settle, the wallet may already have.
+    await settleFromWallet().catch((e: any) => console.error("[AU-DEP] settle from wallet:", e?.message));
   } finally {
     inFlightRunning = false;
   }
@@ -631,5 +644,89 @@ export async function watchAuroraAddresses(): Promise<void> {
     }
   } finally {
     watchRunning = false;
+  }
+}
+
+/* ─── Settling from the wallet itself ──────────────────────────────── */
+
+/**
+ * The converter's status feed is not the only witness: the USDC lands in the
+ * person's own Solana wallet, and the general deposit watcher writes that down
+ * as an ordinary "Received USDC". When that happens after a pending BTC or
+ * Tron row, for about what the coin was worth, it is that deposit arriving -
+ * so the pending row settles for the amount that landed and the ordinary row,
+ * which is the same money, goes.
+ *
+ * Fifteen percent either way covers the converter's fees and the price moving
+ * while Bitcoin confirms, and is tight enough that an unrelated USDC transfer
+ * of a different size is never mistaken for it. Only USDC that arrived after
+ * the deposit was sent, and within a day of it, is considered.
+ */
+async function settleFromWallet(): Promise<void> {
+  const pending = await prisma.transaction.findMany({
+    where: {
+      reference: { startsWith: "AUDEP-" },
+      status: { in: ["PENDING", "PROCESSING"] },
+    },
+    select: { id: true, userId: true, createdAt: true, metadata: true },
+    orderBy: { createdAt: "asc" },
+  });
+  if (!pending.length) return;
+
+  const tokens = await auroraTokens().catch(() => null);
+  const claimed = new Set<string>();
+
+  for (const row of pending) {
+    const m = (row.metadata ?? {}) as any;
+    const chain = AURORA_DEPOSIT_CHAINS.find((c) => c.chainId === Number(m.chainId));
+    if (!chain) continue;
+    const price = chain.symbol === "USDT" ? 1 : tokens?.get(chain.assetId)?.price;
+    const sent = Number(m.sentAmount);
+    if (!price || !(sent > 0)) continue;
+    const expected = sent * price;
+
+    const landed = await prisma.transaction.findMany({
+      where: {
+        userId: row.userId,
+        id: { notIn: [...claimed] },
+        type: "DEPOSIT",
+        chain: "SOL",
+        asset: "USDC",
+        status: "COMPLETED",
+        reference: { not: { startsWith: "AUDEP-" } },
+        metadata: { path: ["source"], equals: "external_deposit" },
+        createdAt: { gte: row.createdAt, lte: new Date(row.createdAt.getTime() + 24 * 60 * 60_000) },
+      },
+      select: { id: true, amount: true, metadata: true, createdAt: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const match = landed.find((l) => {
+      const a = Number(l.amount);
+      return a >= expected * 0.85 && a <= expected * 1.15;
+    });
+    if (!match) continue;
+    claimed.add(match.id);
+
+    const amount = Number(match.amount);
+    const payoutHash: string | undefined = (match.metadata as any)?.txHash;
+    const { watched: _w, ...rest } = m;
+    await prisma.transaction.update({
+      where: { id: row.id },
+      data: {
+        status: "COMPLETED",
+        amount,
+        metadata: {
+          ...rest,
+          routedStatus: "settled",
+          ...(m.watched ? { chainTxHash: m.sourceTxHash } : {}),
+          ...(payoutHash ? { payoutTxHash: payoutHash, ...(looksLikeSolanaTx(payoutHash) ? { txHash: payoutHash } : {}) } : {}),
+          settledAt: match.createdAt.toISOString(),
+          settledBy: "wallet",
+        },
+      },
+    });
+    await prisma.transaction.delete({ where: { id: match.id } }).catch(() => {});
+    console.log(`[AU-DEP] ${chain.kind} row ${row.id} settled from the wallet: ${amount} USDC (row ${match.id} merged)`);
+    await announceArrived(row.userId, String(m.sentAmount), chain.symbol, amount);
   }
 }
