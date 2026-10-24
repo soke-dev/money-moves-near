@@ -295,20 +295,30 @@ async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Pr
    * Aurora reports; the chain's own hash is kept so the watcher still knows it.
    */
   if (!existing) {
-    const watched = await prisma.transaction.findFirst({
+    // Same person, same coin, and the amount that was sent. Aurora's address
+    // and hash formats are not guaranteed to match the chain's, so neither is
+    // required; the amount picks between candidates, else the oldest wins.
+    const candidates = await prisma.transaction.findMany({
       where: {
         userId,
         status: "PENDING",
         reference: { startsWith: "AUDEP-" },
         AND: [
           { metadata: { path: ["watched"], equals: true } },
-          { metadata: { path: ["depositAddress"], equals: p.received.deposit_address } },
+          { metadata: { path: ["chainId"], equals: chain.chainId } },
         ],
       },
       orderBy: { createdAt: "asc" },
       select: { id: true, status: true, amount: true, metadata: true },
     });
+    const sentNum = Number(sentAmount);
+    const watched =
+      candidates.find((c) => Math.abs(Number((c.metadata as any)?.sentAmount) - sentNum) < 1e-9) ??
+      candidates.find((c) => (c.metadata as any)?.depositAddress === p.received.deposit_address) ??
+      candidates[0] ??
+      null;
     if (watched) {
+      console.log(`[AU-DEP] ${chain.kind} ${p.received.tx_hash} takes over watched row ${watched.id}`);
       await prisma.transaction.update({ where: { id: watched.id }, data: { reference } });
       existing = watched;
     }
@@ -371,14 +381,22 @@ function announceArrived(userId: string, sentAmount: string, symbol: string, usd
 /** Read one address from Aurora and write what it says. Returns false if Aurora did not answer. */
 async function syncAddress(userId: string, chain: AuroraDepositChain, address: string): Promise<boolean> {
   const received = await persistentDeposits(address, "received", { limit: 100 });
-  if (!received.ok) return false;
+  if (!received.ok) {
+    console.warn(`[AU-DEP] ${chain.kind} status read failed (${received.status}) for ${userId}`);
+    return false;
+  }
   const deposits = received.data?.deposits ?? [];
-  if (!deposits.length) return true;
 
   const [success, failed] = await Promise.all([
     persistentDeposits(address, "success"),
     persistentDeposits(address, "failed"),
   ]);
+  // What Aurora says for this address, so a row that will not settle can be read rather than guessed at.
+  console.log(
+    `[AU-DEP] sync ${chain.kind} ${userId}: received ${deposits.length} [${deposits.map((d) => d.tx_hash.slice(0, 12)).join(",")}]` +
+      ` success ${success.data?.deposits?.length ?? `err ${success.status}`} failed ${failed.data?.deposits?.length ?? `err ${failed.status}`}`,
+  );
+  if (!deposits.length) return true;
   if (!success.ok) return false;
 
   for (const p of pair(deposits, success.data?.deposits ?? [], failed.ok ? failed.data?.deposits ?? [] : [])) {
