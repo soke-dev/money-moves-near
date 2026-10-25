@@ -38,6 +38,9 @@ export interface DynamicSignIn {
   email: string;
   evmAddress: string | null;
   solanaAddress: string | null;
+  /** Every wallet the sign-in proves, by chain: an owner with several businesses holds one wallet each. */
+  evmAddresses: string[];
+  solanaAddresses: string[];
 }
 
 /** A Dynamic token, checked - or a 401 the dashboard shows as "sign in to your wallet again". */
@@ -68,8 +71,10 @@ export async function checkDynamicToken(token: string): Promise<DynamicSignIn> {
   const creds: { address?: string; chain?: string; format?: string; email?: string }[] = Array.isArray(claims.verified_credentials) ? claims.verified_credentials : [];
   const wallets = creds.filter((c) => c.format === "blockchain" && c.address);
   const email = String(claims.email ?? creds.find((c) => c.format === "email")?.email ?? "").trim().toLowerCase();
-  const evm = wallets.find((c) => /^(eip155|evm)$/i.test(String(c.chain)))?.address ?? null;
-  const sol = wallets.find((c) => /^(solana|sol)$/i.test(String(c.chain)))?.address ?? null;
+  const evmAddresses = wallets.filter((c) => /^(eip155|evm)$/i.test(String(c.chain))).map((c) => String(c.address));
+  const solanaAddresses = wallets.filter((c) => /^(solana|sol)$/i.test(String(c.chain))).map((c) => String(c.address));
+  const evm = evmAddresses[0] ?? null;
+  const sol = solanaAddresses[0] ?? null;
   if (!claims.sub || !email) throw bad();
-  return { userId: String(claims.sub), email, evmAddress: evm, solanaAddress: sol };
+  return { userId: String(claims.sub), email, evmAddress: evm, solanaAddress: sol, evmAddresses, solanaAddresses };
 }

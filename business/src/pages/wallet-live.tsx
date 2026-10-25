@@ -12,9 +12,9 @@
  *
  * Nothing on this page is a sample: until the wallet exists, it says so.
  */
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { DynamicContextProvider, getAuthToken, useConnectWithOtp, useDynamicContext, useEmbeddedReveal, useIsLoggedIn, useStepUpAuthentication, useUserWallets } from '@dynamic-labs/sdk-react-core'
+import { ChainEnum, DynamicContextProvider, getAuthToken, useConnectWithOtp, useDynamicContext, useDynamicWaas, useEmbeddedReveal, useIsLoggedIn, useRefreshUser, useStepUpAuthentication, useUserWallets } from '@dynamic-labs/sdk-react-core'
 import { EthereumWalletConnectors, isEthereumWallet } from '@dynamic-labs/ethereum'
 import { SolanaWalletConnectors, isSolanaWallet } from '@dynamic-labs/solana'
 import { api, ApiError, type ApiRefund } from '@/lib/api'
@@ -39,6 +39,25 @@ export interface ApiWallet {
   locked: boolean
   createdAt: string
 }
+/**
+ * This business's wallet. One owner can hold several businesses, each with its
+ * own wallet under the same email sign-in, so everything that signs picks the
+ * wallet by this business's address rather than taking the sign-in's first.
+ */
+const ThisWallet = createContext<ApiWallet | null>(null)
+
+function useOwnWallets() {
+  const mine = useContext(ThisWallet)
+  const wallets = useUserWallets()
+  return {
+    mine,
+    evm: () => wallets.find((x) => isEthereumWallet(x) && !!mine?.evmAddress && x.address.toLowerCase() === mine.evmAddress.toLowerCase()),
+    solana: () => wallets.find((x) => isSolanaWallet(x) && !!mine?.solanaAddress && x.address === mine.solanaAddress),
+  }
+}
+
+const NOT_ON_SIGNIN = 'This business’s wallet isn’t on this sign-in. Sign out of the wallet, sign in again with the owner’s email, and retry.'
+
 interface WalletState {
   wallet: ApiWallet | null
   exists?: boolean
@@ -110,7 +129,7 @@ function WalletPage() {
       <Shell><Empty title="No business wallet yet." sub="The owner creates it, once the business is verified. Until then, payments settle to the bank account or Money Moves account they’re set to." actions={<Link to="/balances/settlements"><Button>Settlements</Button></Link>} /></Shell>
     )
   }
-  if (!state.isOwner && state.wallet) return <WalletView wallet={state.wallet} owner={false} onChanged={() => void reload()} />
+  if (!state.isOwner && state.wallet) return <ThisWallet.Provider value={state.wallet}><WalletView wallet={state.wallet} owner={false} onChanged={() => void reload()} /></ThisWallet.Provider>
   if (!state.wallet) {
     if (!state.verified) {
       return (
@@ -127,7 +146,7 @@ function WalletPage() {
   }
 
   // The owner sees the wallet at once, from our own records and the chain, and signs in to it only for what needs its key.
-  return <WalletView wallet={state.wallet} owner onChanged={() => void reload()} />
+  return <ThisWallet.Provider value={state.wallet}><WalletView wallet={state.wallet} owner onChanged={() => void reload()} /></ThisWallet.Provider>
 }
 
 function Shell({ children }: { children: ReactNode }) {
@@ -259,6 +278,8 @@ function PinFields({ pin, again, setPin, setAgain, label = 'Transfer PIN' }: { p
 function CreateWallet({ ownerEmail, onDone }: { ownerEmail: string; onDone: () => void }) {
   const { business } = useSession()
   const s = useWalletSignIn(ownerEmail)
+  const waas = useDynamicWaas()
+  const refreshUser = useRefreshUser()
   const [pin, setPin] = useState('')
   const [again, setAgain] = useState('')
   const [busy, setBusy] = useState(false)
@@ -273,7 +294,30 @@ function CreateWallet({ ownerEmail, onDone }: { ownerEmail: string; onDone: () =
     try {
       const token = getAuthToken()
       if (!token) throw new ApiError(401, 'Your wallet sign-in has expired. Sign in again.')
-      await api('POST', `/businesses/${business!.id}/wallet`, { token, pin })
+      try {
+        await api('POST', `/businesses/${business!.id}/wallet`, { token, pin })
+      } catch (e) {
+        // The owner's wallet already belongs to another of their businesses: make this one its own.
+        if (!(e instanceof ApiError) || e.code !== 'wallet_needs_new') throw e
+        const made = ((await waas.createWalletAccount([ChainEnum.Evm, ChainEnum.Sol])) ?? []) as {
+          accountAddress?: string
+          address?: string
+          chainName?: string
+          chain?: string
+        }[]
+        const addressOf = (re: RegExp) => {
+          const m = made.find((x) => re.test(String(x.chainName ?? x.chain ?? '')))
+          return m?.accountAddress ?? m?.address
+        }
+        const evmAddress = addressOf(/^(evm|eth|eip155)/i)
+        const solanaAddress = addressOf(/^(sol|svm|solana)/i)
+        if (!evmAddress || !solanaAddress) throw new ApiError(0, 'We couldn’t make a new wallet for this business. Try again.')
+        // The sign-in has to name the new wallet before the server will take it.
+        await refreshUser()
+        const fresh = getAuthToken()
+        if (!fresh) throw new ApiError(401, 'Your wallet sign-in has expired. Sign in again.')
+        await api('POST', `/businesses/${business!.id}/wallet`, { token: fresh, pin, evmAddress, solanaAddress })
+      }
       onDone()
     } catch (e) {
       setError(e instanceof ApiError ? e.message : 'We couldn’t create your wallet. Try again.')
@@ -674,10 +718,10 @@ const naira = (n: number | null) => '₦' + (n ?? 0).toLocaleString()
  * a chain missing from it (Monad, Arc) stops it before it signs.
  */
 function useSignEvm() {
-  const wallets = useUserWallets()
+  const own = useOwnWallets()
   return async (tx: UnsignedTx) => {
-    const w = wallets.find((x) => isEthereumWallet(x))
-    if (!w || !isEthereumWallet(w)) throw new ApiError(0, 'Your wallet isn’t ready on this browser. Sign in to it again.')
+    const w = own.evm()
+    if (!w || !isEthereumWallet(w)) throw new ApiError(0, NOT_ON_SIGNIN)
     const connector = w.connector as unknown as { getViemAccount?: (o: { accountAddress: string }) => Promise<{ signTransaction?: (t: Record<string, unknown>) => Promise<string> }> }
     const account = connector.getViemAccount ? await connector.getViemAccount({ accountAddress: w.address }) : null
     if (account?.signTransaction) {
@@ -717,10 +761,10 @@ function useSignEvm() {
  * base58, as the wallet gives it.
  */
 function useSignSolanaHash() {
-  const wallets = useUserWallets()
+  const own = useOwnWallets()
   return async (hashHex: string) => {
-    const w = wallets.find((x) => isSolanaWallet(x))
-    if (!w || !isSolanaWallet(w)) throw new ApiError(0, 'Your wallet isn’t ready on this browser. Sign in to it again.')
+    const w = own.solana()
+    if (!w || !isSolanaWallet(w)) throw new ApiError(0, NOT_ON_SIGNIN)
     const signature = await w.signMessage(hashHex)
     if (!signature) throw new ApiError(0, 'Your wallet didn’t sign. Try again.')
     return signature
@@ -791,7 +835,6 @@ function StellarStrip({ owner, onOpened, guard }: { owner: boolean; onOpened: ()
  */
 function ExportModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { business } = useSession()
-  const wallets = useUserWallets()
   const { initExportProcess } = useEmbeddedReveal()
   const stepUp = useStepUpAuthentication()
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
@@ -813,7 +856,8 @@ function ExportModal({ open, onClose }: { open: boolean; onClose: () => void }) 
   }, [open])
   if (!open || !business) return null
   const say = (e: unknown, fallback: string) => setError(e instanceof ApiError ? e.message : e instanceof Error && e.message ? e.message.replace(/dynamic/gi, 'wallet') : fallback)
-  const wallet = () => wallets.find((x) => (which === 'evm' ? isEthereumWallet(x) : isSolanaWallet(x)))
+  const own = useOwnWallets()
+  const wallet = () => (which === 'evm' ? own.evm() : own.solana())
   // The PIN, checked by us; then a code to their email, which the wallet asks for before it shows a key.
   const checkPin = async () => {
     setBusy(true)

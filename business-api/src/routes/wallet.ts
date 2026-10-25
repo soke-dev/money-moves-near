@@ -159,7 +159,16 @@ router.get("/deposits", requireMember(...VIEWERS), limited(30), async (req, res)
 /** Created with the owner's Dynamic sign-in and the PIN they chose. */
 router.post("/", requireMember("OWNER"), careful, async (req, res) => {
   const businessId = req.member!.businessId;
-  const b = body(z.object({ token: z.string().min(20), pin: pinSchema }), req);
+  const b = body(
+    z.object({
+      token: z.string().min(20),
+      pin: pinSchema,
+      // Which of the owner's wallets this business takes. Left out, the first one no other business uses.
+      evmAddress: z.string().min(20).max(80).optional(),
+      solanaAddress: z.string().min(20).max(80).optional(),
+    }),
+    req,
+  );
   const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { status: true } });
   if (business.status !== "VERIFIED") throw new HttpError(403, "Your business wallet opens once your business is verified.", "not_verified");
   if (await walletOf(businessId)) throw new HttpError(409, "This business already has its wallet.", "wallet_exists");
@@ -171,15 +180,65 @@ router.post("/", requireMember("OWNER"), careful, async (req, res) => {
   }
   if (!signIn.evmAddress && !signIn.solanaAddress) throw new HttpError(409, "Your wallet is still being set up. Wait a moment and try again.", "wallet_pending");
 
+  /**
+   * One wallet per business, never shared.
+   *
+   * The wallet is the owner's own, and one email signs in to it - so an owner
+   * with two businesses used to get the same addresses for both, and the two
+   * businesses' money sat in one wallet. Each business now takes a wallet no
+   * other business holds: the one the dashboard names, or else the first free
+   * one the sign-in proves. With none free, the dashboard makes the owner a
+   * new wallet and asks again.
+   */
+  const sameEvm = (a: string, b2: string) => a.toLowerCase() === b2.toLowerCase();
+  const taken = await prisma.businessWallet.findMany({
+    where: { OR: [{ evmAddress: { in: signIn.evmAddresses, mode: "insensitive" } }, { solanaAddress: { in: signIn.solanaAddresses } }] },
+    select: { evmAddress: true, solanaAddress: true, business: { select: { name: true } } },
+  });
+  const evmTaken = (a: string) => taken.some((t) => t.evmAddress && sameEvm(t.evmAddress, a));
+  const solTaken = (a: string) => taken.some((t) => t.solanaAddress === a);
+  const takenBy = (pred: (t: (typeof taken)[number]) => boolean) => taken.find(pred)?.business?.name ?? "another business";
+
+  let evmAddress: string | null;
+  let solanaAddress: string | null;
+  if (b.evmAddress || b.solanaAddress) {
+    // Named by the dashboard: it has to be a wallet this sign-in proves, and free.
+    if (b.evmAddress && !signIn.evmAddresses.some((a) => sameEvm(a, b.evmAddress!))) {
+      throw new HttpError(403, "That wallet isn't one of yours. Sign in to your wallet again and retry.", "wallet_not_yours");
+    }
+    if (b.solanaAddress && !signIn.solanaAddresses.includes(b.solanaAddress)) {
+      throw new HttpError(403, "That wallet isn't one of yours. Sign in to your wallet again and retry.", "wallet_not_yours");
+    }
+    if (b.evmAddress && evmTaken(b.evmAddress)) {
+      throw new HttpError(409, `That wallet already belongs to ${takenBy((t) => !!t.evmAddress && sameEvm(t.evmAddress, b.evmAddress!))}.`, "wallet_in_use");
+    }
+    if (b.solanaAddress && solTaken(b.solanaAddress)) {
+      throw new HttpError(409, `That wallet already belongs to ${takenBy((t) => t.solanaAddress === b.solanaAddress)}.`, "wallet_in_use");
+    }
+    evmAddress = b.evmAddress ?? null;
+    solanaAddress = b.solanaAddress ?? null;
+  } else {
+    evmAddress = signIn.evmAddresses.find((a) => !evmTaken(a)) ?? null;
+    solanaAddress = signIn.solanaAddresses.find((a) => !solTaken(a)) ?? null;
+  }
+  // Both halves of one wallet, or none: a business needs its own EVM and Solana addresses.
+  if (!evmAddress || !solanaAddress) {
+    throw new HttpError(
+      409,
+      `Your wallet already belongs to ${taken[0]?.business?.name ?? "another business"}. Each business gets its own wallet, so a new one will be made for this business.`,
+      "wallet_needs_new",
+    );
+  }
+
   const wallet = await prisma.businessWallet.create({
     data: {
       businessId,
       ownerUserId: req.auth!.userId,
       dynamicUserId: signIn.userId,
       email: signIn.email,
-      evmAddress: signIn.evmAddress,
-      solanaAddress: signIn.solanaAddress,
-      movementAddress: signIn.solanaAddress ? movementAddressFromSolana(signIn.solanaAddress) : null,
+      evmAddress,
+      solanaAddress,
+      movementAddress: movementAddressFromSolana(solanaAddress),
       pinHash: await bcrypt.hash(b.pin, 12),
       pinSetAt: new Date(),
     },

@@ -1320,8 +1320,9 @@ model BusinessWallet {
   dynamicUserId   String    @map("dynamic_user_id")
   email           String
   /// Base, BNB Chain, Arc, Monad and the other EVM chains share one address.
-  evmAddress      String?   @map("evm_address")
-  solanaAddress   String?   @map("solana_address")
+  /// Unique: a wallet belongs to one business, even when one owner has several.
+  evmAddress      String?   @unique @map("evm_address")
+  solanaAddress   String?   @unique @map("solana_address")
   /// Movement, from the Solana key - the way the app does it.
   movementAddress String?   @map("movement_address")
   /// The transfer PIN: a slow hash, never the PIN.
