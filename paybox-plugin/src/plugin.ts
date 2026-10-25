@@ -153,7 +153,7 @@ function createServer() {
     {
       name: "money-moves",
       title: "Money Moves",
-      version: "1.0.1",
+      version: "1.0.2",
       websiteUrl: "https://usemoneymoves.xyz",
       icons: [
         { src: LOGO_URL, mimeType: "image/png", sizes: ["180x180"] },
