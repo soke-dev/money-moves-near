@@ -12,7 +12,11 @@ import {
   Animated,
   Easing,
   InteractionManager,
+  Modal,
+  Platform,
 } from "react-native";
+import { WebView } from "react-native-webview";
+import { useCameraPermissions } from "expo-camera";
 import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -140,6 +144,23 @@ export default function KYCScreen() {
   const [err, setErr] = useState<string | null>(null);
 
   /**
+   * Android runs the check inside the app, not in a browser tab.
+   *
+   * In a Chrome tab, choosing the ID handed off to the camera or file picker,
+   * and coming back from it tore the tab down: the person landed on this
+   * screen again, every time, and could never finish. Inside our own view the
+   * page asks for the camera itself and nothing leaves the app. iOS keeps its
+   * in-app browser, which never had the problem.
+   */
+  const [webUrl, setWebUrl] = useState<string | null>(null);
+  const [camPerm, requestCamPerm] = useCameraPermissions();
+  const finishWeb = useCallback(() => {
+    setWebUrl(null);
+    setBusy(false);
+    refresh(false);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
    * The slide, done here rather than by the navigator.
    *
    * This route is a transparentModal, so a navigator animation moves the
@@ -257,6 +278,12 @@ export default function KYCScreen() {
     setErr(null);
     try {
       const session = await startDiditVerification();
+      if (Platform.OS === "android") {
+        // The page needs the camera; asked for here so the check does not stall on it.
+        if (!camPerm?.granted) await requestCamPerm().catch(() => null);
+        setWebUrl(session.url);
+        return;
+      }
       // openBrowserAsync, NOT openAuthSessionAsync. The latter is built on
       // ASWebAuthenticationSession, which iOS guards with a system consent alert
       // ("MoneyMoves wants to use verify.didit.me to Sign In") that cannot be
@@ -532,6 +559,45 @@ export default function KYCScreen() {
           </>
         )}
       </Animated.View>
+
+      {/* Android: Didit inside the app. It comes back here by sending the
+          browser to RETURN_URL, which is caught and never loaded. */}
+      {webUrl && (
+        <Modal visible animationType="slide" presentationStyle="fullScreen" onRequestClose={finishWeb}>
+          <View style={[styles.webWrap, { backgroundColor: colors.background, paddingTop: insets.top }]}>
+            <View style={[styles.webBar, { borderBottomColor: colors.border }]}>
+              <Text style={[styles.webTitle, { color: colors.foreground }]}>Verify your identity</Text>
+              <TouchableOpacity onPress={finishWeb} hitSlop={12} accessibilityLabel="Close">
+                <Feather name="x" size={22} color={colors.foreground} />
+              </TouchableOpacity>
+            </View>
+            <WebView
+              source={{ uri: webUrl }}
+              style={{ flex: 1 }}
+              originWhitelist={["*"]}
+              javaScriptEnabled
+              domStorageEnabled
+              allowsInlineMediaPlayback
+              mediaPlaybackRequiresUserAction={false}
+              mediaCapturePermissionGrantType="grant"
+              allowFileAccess
+              startInLoadingState
+              renderLoading={() => (
+                <View style={styles.webLoading}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
+              )}
+              onShouldStartLoadWithRequest={(req) => {
+                if (req.url.startsWith(RETURN_URL)) {
+                  finishWeb();
+                  return false;
+                }
+                return true;
+              }}
+            />
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -622,6 +688,10 @@ function Stage({
 }
 
 const styles = StyleSheet.create({
+  webWrap: { flex: 1 },
+  webBar: { height: 52, flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 18, borderBottomWidth: StyleSheet.hairlineWidth },
+  webTitle: { fontSize: 16, fontFamily: "Inter_700Bold", letterSpacing: -0.2 },
+  webLoading: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
   root: { flex: 1, justifyContent: "flex-end" },
   backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
   sheet: {
