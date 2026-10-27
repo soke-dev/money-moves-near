@@ -995,12 +995,12 @@ const BIZ_NETWORKS = ['Movement', 'Solana', 'Base', 'BNB Chain', 'Arbitrum', 'Op
 const SETTLE_CHAINS = ['Solana', 'Stellar', 'Movement', 'Arc', 'Monad']
 
 const BIZ_WHO: { t: string; b: string; uses: string[] }[] = [
-  { t: 'Online stores', b: 'Take stablecoins at checkout from customers anywhere, and get paid out in local fiat the moment an order is paid.', uses: ['WooCommerce', 'Payment links', 'API'] },
-  { t: 'SaaS and apps', b: 'Charge in dollars without card rails. Create checkouts from your backend and hear back by signed webhook.', uses: ['API and SDKs', 'Webhooks', 'Invoices'] },
-  { t: 'Freelancers and creators', b: 'Send a link or an invoice, or take payments on your own site through the API, and get paid in USDC by clients at home or abroad. Open an account as yourself.', uses: ['Payment links', 'Invoices', 'API'] },
-  { t: 'Agencies and B2B', b: 'Bill clients with itemised invoices that repeat on their own, with a team that has the right access.', uses: ['Invoices', 'Team roles', 'Statements'] },
-  { t: 'Shops and restaurants', b: 'A code on every till. Customers pay from their wallet or the Money Moves app, and the counter sees it land.', uses: ['Store QR', 'Money Moves app'] },
-  { t: 'Paid from abroad', b: 'Clients overseas pay in USDC on the network they already use. You keep dollars, or settle to your bank.', uses: ['Stablecoins', 'Self custody wallet'] },
+  { t: 'Online stores', b: 'Accept payments through your online store and receive settlement as soon as each order is paid.', uses: ['WooCommerce', 'Payment links', 'API'] },
+  { t: 'SaaS and apps', b: 'Integrate payments into your product with flexible checkout options and real-time payment updates.', uses: ['API and SDKs', 'Webhooks', 'Invoices'] },
+  { t: 'Freelancers and creators', b: 'Send professional payment links or invoices and receive payments from clients locally or internationally.', uses: ['Payment links', 'Invoices', 'API'] },
+  { t: 'Agencies and B2B', b: 'Simplify client billing with itemised invoices, recurring payments, and the right tools for your team.', uses: ['Invoices', 'Team roles', 'Statements'] },
+  { t: 'Shops and restaurants', b: 'Accept in-person payments with a simple QR code and keep track of completed transactions at the counter.', uses: ['Store QR', 'Money Moves app'] },
+  { t: 'Paid from abroad', b: 'Receive international payments in stablecoins and choose whether to hold your funds or transfer them to your bank.', uses: ['Stablecoins', 'Self custody wallet'] },
 ]
 
 const BIZ_CHANNELS: [string, string][] = [
@@ -1125,8 +1125,7 @@ function Business() {
               className="mt-7 max-w-[48ch] text-[17px] leading-[1.6]"
               style={{ fontFamily: TEXT, color: T.body }}
             >
-              USDC and USDT on ten networks, the Money Moves app and bank transfers, all in one checkout. Keep what you earn in
-              a business wallet only you control, or have every payment paid straight to your bank.
+              Make every payment simple. Track what comes in, manage it all in one place, and choose where your money goes, with tools that keep your business moving.
             </motion.p>
             <motion.div
               initial={{ opacity: 0, y: 14 }}
@@ -1155,7 +1154,7 @@ function Business() {
         <SectionHead
           eyebrow="Who it's for"
           title="Built for the way you sell"
-          sub="From one freelancer with a link to a team running stores, apps and invoices. Registered businesses and freelancers both open in minutes."
+          sub="Whether you run an online store, build digital products, serve clients, or welcome customers in person, Money Moves adapts to the way you do business."
         />
         <div className="mx-auto max-w-[1200px] px-5 pb-20">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
