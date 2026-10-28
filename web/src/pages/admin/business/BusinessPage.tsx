@@ -606,29 +606,50 @@ function EditDetails({ b, onClose }: { b: Biz; onClose: () => void }) {
   )
 }
 
+/** One way to pay: the rate that applies, whether it is this business's own, and who pays it. */
+function FeeLine({ label, rate, cap, own, payer }: { label: string; rate: number; cap: string; own: boolean; payer?: 'BUSINESS' | 'CUSTOMER' }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3 py-2.5">
+      <div className="min-w-0">
+        <div className="text-[13px]" style={{ color: C.muted }}>
+          {label}
+        </div>
+        {payer && (
+          <div className="mt-0.5 text-[12px]" style={{ color: C.dim }}>
+            {payer === 'CUSTOMER' ? 'Added on top, the customer pays it' : 'Taken from the settlement'}
+          </div>
+        )}
+      </div>
+      <div className="shrink-0 text-right">
+        <div className="text-[17px] font-semibold tabular-nums" style={{ color: C.text }}>
+          {rate / 100}% <span className="text-[13px] font-normal" style={{ color: C.muted }}>up to {cap}</span>
+        </div>
+        {own && (
+          <div className="mt-0.5 text-[12px]" style={{ color: C.lime }}>
+            Set for this business
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function FeePanel({ b }: { b: Biz }) {
   const f = b.fee
   const [editing, setEditing] = useState(false)
-  const custom = f.rateBps != null || f.capNgn != null
+  const ownNaira = f.rateBps != null || f.capNgn != null
+  const ownCrypto = f.cryptoRateBps != null || f.cryptoCapUsd != null
   return (
-    <Panel title="Naira fee" action={!editing && <TextButton onClick={() => setEditing(true)}>Change</TextButton>}>
+    <Panel title="Fees" action={!editing && <TextButton onClick={() => setEditing(true)}>Change</TextButton>}>
       {editing ? (
         <EditFee b={b} onClose={() => setEditing(false)} />
       ) : (
-        <div>
-          <div className="text-[22px] font-semibold tracking-[-0.02em] tabular-nums" style={{ color: C.text }}>
-            {(f.rateBps ?? f.defaultRateBps) / 100}%
-          </div>
-          <div className="mt-0.5 text-[13px]" style={{ color: C.muted }}>
-            of each payment, at most {naira(f.capNgn ?? f.defaultCapNgn)}
-          </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Tag tone={custom ? 'info' : undefined}>{custom ? 'Set for this business' : 'Platform default'}</Tag>
-            {custom && (
-              <span className="text-[12px]" style={{ color: C.dim }}>
-                Default {f.defaultRateBps / 100}% up to {naira(f.defaultCapNgn)}
-              </span>
-            )}
+        <div className="divide-y" style={{ borderColor: C.line }}>
+          <FeeLine label="Naira transfer" rate={f.rateBps ?? f.defaultRateBps} cap={naira(f.capNgn ?? f.defaultCapNgn)} own={ownNaira} payer={f.payer?.naira} />
+          <FeeLine label="Stablecoins" rate={f.cryptoRateBps ?? f.defaultCryptoRateBps} cap={`$${(f.cryptoCapUsd ?? f.defaultCryptoCapUsd).toLocaleString()}`} own={ownCrypto} payer={f.payer?.crypto} />
+          <FeeLine label="Money Moves app" rate={0} cap="free" own={false} />
+          <div className="pt-2.5 text-[12px]" style={{ color: C.dim }}>
+            Default {f.defaultRateBps / 100}% up to {naira(f.defaultCapNgn)} on naira, {f.defaultCryptoRateBps / 100}% up to ${f.defaultCryptoCapUsd} on stablecoins. The business chooses who pays.
           </div>
         </div>
       )}
@@ -638,29 +659,57 @@ function FeePanel({ b }: { b: Biz }) {
 
 function EditFee({ b, onClose }: { b: Biz; onClose: () => void }) {
   const f = b.fee
-  const [rate, setRate] = useState(f.rateBps != null ? String(f.rateBps / 100) : '')
-  const [cap, setCap] = useState(f.capNgn != null ? String(f.capNgn) : '')
+  const start = (n: number | null) => (n != null ? String(n) : '')
+  const [rate, setRate] = useState(start(f.rateBps != null ? f.rateBps / 100 : null))
+  const [cap, setCap] = useState(start(f.capNgn))
+  const [cRate, setCRate] = useState(start(f.cryptoRateBps != null ? f.cryptoRateBps / 100 : null))
+  const [cCap, setCCap] = useState(start(f.cryptoCapUsd))
   const [password, setPassword] = useState('')
   const { busy, said, run } = useAction()
-  const custom = f.rateBps != null || f.capNgn != null
-  const save = async (useDefault: boolean) => {
-    const body = useDefault
-      ? { feeRateBps: null, feeCapNgn: null, password }
-      : { feeRateBps: rate.trim() === '' ? null : Math.round(Number(rate) * 100), feeCapNgn: cap.trim() === '' ? null : Number(cap), password }
+  const custom = f.rateBps != null || f.capNgn != null || f.cryptoRateBps != null || f.cryptoCapUsd != null
+  const num = (s: string) => (s.trim() === '' ? null : Number(s))
+  const save = async (useDefaults: boolean) => {
+    const body = useDefaults
+      ? { feeRateBps: null, feeCapNgn: null, cryptoRateBps: null, cryptoCapUsd: null, password }
+      : {
+          feeRateBps: rate.trim() === '' ? null : Math.round(Number(rate) * 100),
+          feeCapNgn: num(cap),
+          cryptoRateBps: cRate.trim() === '' ? null : Math.round(Number(cRate) * 100),
+          cryptoCapUsd: num(cCap),
+          password,
+        }
     if (await run(() => biz(`/businesses/${b.id}`, { method: 'PATCH', body }), 'Saved.')) onClose()
   }
   return (
     <div className="space-y-3">
       <p className="text-[12.5px] leading-relaxed" style={{ color: C.muted }}>
-        For payments from now on. Leave a box empty for the platform default ({f.defaultRateBps / 100}%, at most {naira(f.defaultCapNgn)}).
+        For payments from now on. Leave a box empty for the platform default. Money Moves app payments are free whatever you set here.
       </p>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Rate, %">
-          <Input value={rate} onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ''))} placeholder={String(f.defaultRateBps / 100)} inputMode="decimal" />
-        </Field>
-        <Field label="Cap, ₦">
-          <Input value={cap} onChange={(e) => setCap(e.target.value.replace(/[^0-9]/g, ''))} placeholder={String(f.defaultCapNgn)} inputMode="numeric" />
-        </Field>
+      <div>
+        <p className="mb-1.5 text-[12px] font-medium" style={{ color: C.muted }}>
+          Naira transfer
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Rate, %">
+            <Input value={rate} onChange={(e) => setRate(e.target.value.replace(/[^0-9.]/g, ''))} placeholder={String(f.defaultRateBps / 100)} inputMode="decimal" />
+          </Field>
+          <Field label="Cap, ₦">
+            <Input value={cap} onChange={(e) => setCap(e.target.value.replace(/[^0-9]/g, ''))} placeholder={String(f.defaultCapNgn)} inputMode="numeric" />
+          </Field>
+        </div>
+      </div>
+      <div>
+        <p className="mb-1.5 text-[12px] font-medium" style={{ color: C.muted }}>
+          Stablecoins
+        </p>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Rate, %">
+            <Input value={cRate} onChange={(e) => setCRate(e.target.value.replace(/[^0-9.]/g, ''))} placeholder={String(f.defaultCryptoRateBps / 100)} inputMode="decimal" />
+          </Field>
+          <Field label="Cap, $">
+            <Input value={cCap} onChange={(e) => setCCap(e.target.value.replace(/[^0-9.]/g, ''))} placeholder={String(f.defaultCryptoCapUsd)} inputMode="decimal" />
+          </Field>
+        </div>
       </div>
       <PasswordInput full value={password} onChange={setPassword} />
       <div className="flex flex-wrap justify-end gap-2">
@@ -669,11 +718,11 @@ function EditFee({ b, onClose }: { b: Biz; onClose: () => void }) {
         </Button>
         {custom && (
           <Button small disabled={busy || !password} onClick={() => void save(true)}>
-            Use default
+            Use defaults
           </Button>
         )}
         <Button small tone="primary" disabled={busy || !password} onClick={() => void save(false)}>
-          {busy ? 'Saving…' : 'Save fee'}
+          {busy ? 'Saving…' : 'Save fees'}
         </Button>
       </div>
       {said && !said.ok && <Said {...said} />}

@@ -12,7 +12,7 @@ import { randomBytes, randomInt } from "crypto";
  * than ₦1,000. Settling is free. The admin will be able to set this per
  * business; this is the default.
  */
-export const NAIRA_FEE = { rate: 0.005, capKobo: 1_000 * 100 } as const;
+export const NAIRA_FEE = { rate: 0.02, capKobo: 4_000 * 100 } as const;
 
 export const nairaFeeKobo = (receivedKobo: number) => Math.min(Math.round(receivedKobo * NAIRA_FEE.rate), NAIRA_FEE.capKobo);
 
@@ -28,6 +28,22 @@ export function nairaFeeFor(
   const rate = (b.feeRateBps ?? defaults.rateBps) / 10_000;
   const cap = b.feeCapKobo ?? defaults.capKobo;
   return Math.min(Math.round(receivedKobo * rate), cap);
+}
+
+/**
+ * The fee on a stablecoin payment, in kobo: the business's own rate and cap
+ * where our team set them, else the platform's. The cap is in dollars, so it
+ * is turned into naira at the payment's own rate, never today's.
+ */
+export function cryptoFeeFor(
+  receivedKobo: number,
+  ngnPerUsd: number,
+  b: { cryptoRateBps: number | null; cryptoCapCents: number | null },
+  defaults: { rateBps: number; capCents: number },
+) {
+  const rate = (b.cryptoRateBps ?? defaults.rateBps) / 10_000;
+  const capKobo = Math.round(((b.cryptoCapCents ?? defaults.capCents) / 100) * ngnPerUsd * 100);
+  return Math.min(Math.round(receivedKobo * rate), capKobo);
 }
 
 /**

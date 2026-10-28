@@ -218,11 +218,11 @@ export function Services() {
       )}
 
       {tab === 'fees' && (
-      <Group title="Default fees" sub="What a business pays unless the team has set its own on the business. Applies to payments from the moment it's saved.">
+      <Group title="Default fees" sub="What a business pays unless the team has set its own on the business page. Naira and stablecoin fees are set for each business there too. Applies to payments from the moment it's saved.">
         <NumberRow label="Naira payments" sub="Percent of what arrives" unit="%" value={draft.fees.nairaRateBps / 100} onChange={(v) => set('fees', 'nairaRateBps', Math.round(v * 100))} changed={diff.has('fees.nairaRateBps')} />
         <NumberRow label="Naira cap" sub="The most one naira payment pays" unit="₦" value={draft.fees.nairaCapNgn} onChange={(v) => set('fees', 'nairaCapNgn', v)} changed={diff.has('fees.nairaCapNgn')} />
-        <NumberRow label="Crypto payments" unit="%" value={draft.fees.cryptoRateBps / 100} onChange={(v) => set('fees', 'cryptoRateBps', Math.round(v * 100))} changed={diff.has('fees.cryptoRateBps')} />
-        <NumberRow label="Crypto cap" unit="$" value={draft.fees.cryptoCapUsd} onChange={(v) => set('fees', 'cryptoCapUsd', v)} changed={diff.has('fees.cryptoCapUsd')} />
+        <NumberRow label="Crypto payments" sub="Percent of what arrives" unit="%" value={draft.fees.cryptoRateBps / 100} onChange={(v) => set('fees', 'cryptoRateBps', Math.round(v * 100))} changed={diff.has('fees.cryptoRateBps')} />
+        <NumberRow label="Crypto cap" sub="The most one stablecoin payment pays" unit="$" value={draft.fees.cryptoCapUsd} onChange={(v) => set('fees', 'cryptoCapUsd', v)} changed={diff.has('fees.cryptoCapUsd')} />
         <NumberRow label="Money Moves app payments" unit="%" value={draft.fees.appRateBps / 100} onChange={(v) => set('fees', 'appRateBps', Math.round(v * 100))} changed={diff.has('fees.appRateBps')} />
         <NumberRow label="Bank payout from the wallet" sub="Per transfer" unit="₦" value={draft.fees.payoutNgn} onChange={(v) => set('fees', 'payoutNgn', v)} changed={diff.has('fees.payoutNgn')} />
       </Group>

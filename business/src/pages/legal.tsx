@@ -263,12 +263,13 @@ const TERMS: Section[] = [
       'Our fees are shown in your dashboard. Unless your dashboard shows a different rate agreed for your business, they are currently:',
       {
         list: [
-          'Bank transfer payments: 0.5% of the amount, capped at ₦1,000 per payment.',
-          'Stablecoin payments: 0.5% of the amount, capped at $1 per payment.',
+          'Bank transfer payments: 2% of the amount, capped at ₦4,000 per payment.',
+          'Stablecoin payments: 0.3% of the amount, capped at $1 per payment.',
           'Payments made in the Money Moves app: free.',
           'Payouts from your business wallet to a bank: ₦100 each.',
         ],
       },
+      'You choose, for bank transfers and for stablecoins separately, whether you pay our fee or it is added on top for your customer. Your choice is in Settings, and a payment link, invoice or store code can override it.',
       'Fees are taken before a payment is settled and are not refunded when you refund a customer, unless we say otherwise. We may change our fees by telling you in advance; a change applies to payments made after it takes effect.',
     ],
   },

@@ -125,22 +125,26 @@ enum CodePurpose {
 model Business {
   // Never deleted - deactivated (SUSPENDED) instead. The database refuses to delete a
   // business or anything it owns (migration 20261011160000_keep_everything).
-  id          String         @id @default(cuid())
-  name        String
-  kind        BusinessKind
+  id             String         @id @default(cuid())
+  name           String
+  kind           BusinessKind
   /// Short, public, safe to show: in API keys and on receipts.
-  merchantId  String         @unique @map("merchant_id")
-  status      BusinessStatus @default(UNVERIFIED)
-  country     String         @default("NG")
+  merchantId     String         @unique @map("merchant_id")
+  status         BusinessStatus @default(UNVERIFIED)
+  country        String         @default("NG")
   /// Crypto always settles as USDC, on the one chain the business picks - whatever the
   /// customer paid with. Payments land in our treasury; the equivalent leaves from our
   /// USDC float on this chain, to the business wallet or a linked Money Moves account.
-  settleChain SettleChain    @default(MOVEMENT) @map("settle_chain")
+  settleChain    SettleChain    @default(MOVEMENT) @map("settle_chain")
   /// Who pays the processing fee: the business (out of what it receives) or the customer (added on top at checkout).
-  feePayer    FeePayer       @default(BUSINESS) @map("fee_payer")
+  /// Who pays our fee on a naira transfer, and on a stablecoin payment. Each
+  /// way to pay is chosen on its own, because they cost the customer
+  /// differently. Money Moves app payments are free, so nobody pays for those.
+  feePayer       FeePayer       @default(BUSINESS) @map("fee_payer")
+  feePayerCrypto FeePayer       @default(BUSINESS) @map("fee_payer_crypto")
   /// Its look on checkouts: the logo (an Image id), and { surface, accent, success }.
-  logoId      String?        @map("logo_id")
-  brand       Json?
+  logoId         String?        @map("logo_id")
+  brand          Json?
 
   // ─── Set by our team, never shown to the business ───
   /// Why the status is what it is - written when our team verifies, pauses or reopens a business.
@@ -151,22 +155,25 @@ model Business {
   /// The naira fee for this business when it isn't the default: basis points (50 = 0.5%) and a cap in kobo.
   feeRateBps      Int?      @map("fee_rate_bps")
   feeCapKobo      Int?      @map("fee_cap_kobo")
+  /// The same for stablecoin payments: basis points, and a cap in cents.
+  cryptoRateBps   Int?      @map("crypto_rate_bps")
+  cryptoCapCents  Int?      @map("crypto_cap_cents")
 
   /// The owner's rule: everyone on the team signs in with an authenticator app.
-  requireAppTwoStep Boolean      @default(false) @map("require_app_two_step")
+  requireAppTwoStep    Boolean      @default(false) @map("require_app_two_step")
   /// How much it can take in live in a day before its settlements wait for our team. Null: the platform's default for its age.
-  dailyLimitNgn     Int?         @map("daily_limit_ngn")
+  dailyLimitNgn        Int?         @map("daily_limit_ngn")
   /// Its own least and most for one live checkout, in naira, per way to pay: {"naira":{"minNgn":..,"maxNgn":..},"crypto":{..},"app":{..}}. Missing: the platform's for its kind.
-  ownCheckout       Json?        @map("own_checkout")
+  ownCheckout          Json?        @map("own_checkout")
   /// Live payouts above these wait for our team: naira to a bank, and crypto in dollars. Null: the platform's.
-  reviewNairaAboveNgn  Int?      @map("review_naira_above_ngn")
-  reviewCryptoAboveUsd Float?    @map("review_crypto_above_usd")
+  reviewNairaAboveNgn  Int?         @map("review_naira_above_ngn")
+  reviewCryptoAboveUsd Float?       @map("review_crypto_above_usd")
   /// Where payments made through the API settle when a checkout doesn't say. Null: a checked bank account, then a linked Money Moves account, then the business wallet.
-  apiSettleTo       Destination? @map("api_settle_to")
+  apiSettleTo          Destination? @map("api_settle_to")
   /// The bank account API payments settle to, when it's a bank.
-  apiBankAccountId  String?      @map("api_bank_account_id")
+  apiBankAccountId     String?      @map("api_bank_account_id")
   /// Ways to pay the business has switched off on every checkout. The rest are on wherever their money has somewhere to go.
-  methodsOff        PayMethod[]  @default([]) @map("methods_off")
+  methodsOff           PayMethod[]  @default([]) @map("methods_off")
 
   /// Its own code for inviting other businesses, made the first time it's asked for.
   referralCode String? @unique @map("referral_code")

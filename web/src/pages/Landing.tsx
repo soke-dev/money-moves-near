@@ -985,9 +985,9 @@ const BIZ_DOCS = 'https://docs.usemoneymoves.xyz'
  * bank transfer comes last.
  */
 const BIZ_FEES = [
-  { what: 'Stablecoins', how: 'USDC or USDT on any supported network', fee: '0.25%', note: 'capped at $1 a payment' },
+  { what: 'Stablecoins', how: 'USDC or USDT on any supported network', fee: '0.3%', note: 'capped at $1 a payment' },
   { what: 'Money Moves app', how: 'Approved in the app, or scanned', fee: 'Free', note: 'no fee on either side' },
-  { what: 'Bank transfer', how: 'Local fiat to a one-time account', fee: '0.25%', note: 'capped at ₦1,000 a payment' },
+  { what: 'Bank transfer', how: 'Local fiat to a one-time account', fee: '2%', note: 'capped at ₦4,000 a payment' },
   { what: 'Bank payout', how: 'From your business wallet to your bank', fee: '₦100', note: 'flat, per transfer' },
 ]
 
@@ -1048,7 +1048,7 @@ const BIZ_FAQ = [
   },
   {
     q: 'What does it cost?',
-    a: 'Stablecoin payments are 0.25%, capped at $1 a payment. Payments from the Money Moves app are free. Bank transfers are 0.25%, capped at ₦1,000. Sending from your business wallet to a bank is ₦100. Every fee is shown on the payment and on your statement.',
+    a: 'Stablecoin payments are 0.3%, capped at $1 a payment. Payments from the Money Moves app are free. Bank transfers are 2%, capped at ₦4,000. Sending from your business wallet to a bank is ₦100. You decide for each one whether you pay the fee or your customer does. Every fee is shown on the payment and on your statement.',
   },
 ]
 
@@ -1859,8 +1859,8 @@ function FeeCalc() {
   const [bank, setBank] = useState(150000)
   const isCoin = kind === 'coin'
   const amount = isCoin ? coin : bank
-  const cap = isCoin ? 1 : 1000
-  const fee = Math.min(amount * 0.0025, cap)
+  const cap = isCoin ? 1 : 4000
+  const fee = Math.min(amount * (isCoin ? 0.003 : 0.02), cap)
   const fmt = (n: number) =>
     isCoin
       ? `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`

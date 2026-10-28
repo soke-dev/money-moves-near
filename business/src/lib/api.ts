@@ -119,6 +119,7 @@ export interface ApiBusiness {
   logo?: string | null
   /** Who pays the processing fee. */
   feePayer?: "BUSINESS" | "CUSTOMER"
+  feePayerCrypto?: "BUSINESS" | "CUSTOMER"
 }
 
 /** A business's look on its checkouts. */
@@ -302,7 +303,14 @@ export interface PublicLink {
   /** Who pays the fee here; null follows the business. In a public checkout, already resolved. */
   feePayer?: 'BUSINESS' | 'CUSTOMER' | null
   }
-  business: { name: string; verified: boolean; brand?: ApiBrand; feePayer?: "BUSINESS" | "CUSTOMER" }
+  business: {
+    name: string
+    verified: boolean
+    brand?: ApiBrand
+    feePayer?: "BUSINESS" | "CUSTOMER"
+    /** Who pays our fee, for each way to pay. The link's own choice, when it has one, covers them all. */
+    feePayers?: Record<'naira' | 'crypto' | 'app', 'BUSINESS' | 'CUSTOMER'>
+  }
   /** Naira per dollar, or null while the rate can't be read. */
   rate: number | null
   limits: { minNgn: number; maxNgn: number }

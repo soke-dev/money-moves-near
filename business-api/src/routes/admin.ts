@@ -443,7 +443,18 @@ router.get("/businesses/:id", async (req, res) => {
       updatedAt: b.updatedAt,
       statusChangedBy: statusEntry ? byOf(statusEntry, people) : null,
       nameOnRecord: await nameOnRecord(id),
-      fee: { rateBps: b.feeRateBps, capNgn: naira(b.feeCapKobo), defaultRateBps: fees.rateBps, defaultCapNgn: fees.capKobo / 100 },
+      /** Its own rate and cap per way to pay, where we set one, and the platform's for the rest. */
+      fee: {
+        rateBps: b.feeRateBps,
+        capNgn: naira(b.feeCapKobo),
+        defaultRateBps: fees.rateBps,
+        defaultCapNgn: fees.capKobo / 100,
+        cryptoRateBps: b.cryptoRateBps,
+        cryptoCapUsd: b.cryptoCapCents != null ? b.cryptoCapCents / 100 : null,
+        defaultCryptoRateBps: p.fees.cryptoRateBps,
+        defaultCryptoCapUsd: p.fees.cryptoCapUsd,
+        payer: { naira: b.feePayer, crypto: b.feePayerCrypto },
+      },
     },
     money: { live: summary("LIVE"), test: summary("TEST") },
     application: b.application && {
@@ -511,6 +522,9 @@ const editInput = z.object({
   /** Basis points: 50 is 0.5%. Null puts the default back. */
   feeRateBps: z.number().int().min(0).max(1000, "Keep the rate at 10% or under.").nullish(),
   feeCapNgn: z.number().min(0).max(100_000, "Keep the cap at ₦100,000 or under.").nullish(),
+  /** The same for stablecoin payments: basis points, and a cap in dollars. Null puts the default back. */
+  cryptoRateBps: z.number().int().min(0).max(1000, "Keep the rate at 10% or under.").nullish(),
+  cryptoCapUsd: z.number().min(0).max(10_000, "Keep the cap at $10,000 or under.").nullish(),
   /** Its own daily limit in naira. Null puts the platform's default back. */
   dailyLimitNgn: z.number().int().min(0).max(10_000_000_000).nullish(),
   /** Its own least and most for one live checkout, and the payout sizes past which a person checks. Null puts the platform's back. */
@@ -527,7 +541,8 @@ router.patch("/businesses/:id", async (req, res) => {
   if (!before) throw new HttpError(404, "No business with that id.", "not_found");
   // A name decides whose bank accounts can be paid, and a fee is money: both take the password. A note doesn't.
   const ownLimits = b.ownCheckout !== undefined || b.reviewNairaAboveNgn !== undefined || b.reviewCryptoAboveUsd !== undefined;
-  const sensitive = b.name !== undefined || b.kind !== undefined || b.feeRateBps !== undefined || b.feeCapNgn !== undefined || b.dailyLimitNgn !== undefined || ownLimits;
+  const ownFees = b.feeRateBps !== undefined || b.feeCapNgn !== undefined || b.cryptoRateBps !== undefined || b.cryptoCapUsd !== undefined;
+  const sensitive = b.name !== undefined || b.kind !== undefined || b.dailyLimitNgn !== undefined || ownFees || ownLimits;
   if (sensitive) await needActionPassword(req, b.password, "edit_business");
   // The least has to stay under the most, counting the platform's for whichever isn't set here.
   if (b.ownCheckout !== undefined || b.kind !== undefined) {
@@ -547,6 +562,8 @@ router.patch("/businesses/:id", async (req, res) => {
   if (b.adminNote !== undefined) data.adminNote = b.adminNote || null;
   if (b.feeRateBps !== undefined) data.feeRateBps = b.feeRateBps;
   if (b.feeCapNgn !== undefined) data.feeCapKobo = b.feeCapNgn == null ? null : Math.round(b.feeCapNgn * 100);
+  if (b.cryptoRateBps !== undefined) data.cryptoRateBps = b.cryptoRateBps;
+  if (b.cryptoCapUsd !== undefined) data.cryptoCapCents = b.cryptoCapUsd == null ? null : Math.round(b.cryptoCapUsd * 100);
   if (b.dailyLimitNgn !== undefined) data.dailyLimitNgn = b.dailyLimitNgn;
   if (b.ownCheckout !== undefined) {
     // Only the boxes actually filled in are kept; an empty set puts the platform's back.

@@ -487,7 +487,18 @@ export type BusinessDetail = {
     updatedAt: string
     statusChangedBy: string | null
     nameOnRecord: string | null
-    fee: { rateBps: number | null; capNgn: number | null; defaultRateBps: number; defaultCapNgn: number }
+    fee: {
+      rateBps: number | null
+      capNgn: number | null
+      defaultRateBps: number
+      defaultCapNgn: number
+      cryptoRateBps: number | null
+      cryptoCapUsd: number | null
+      defaultCryptoRateBps: number
+      defaultCryptoCapUsd: number
+      /** Who pays our fee, as the business chose it, per way to pay. */
+      payer?: { naira: 'BUSINESS' | 'CUSTOMER'; crypto: 'BUSINESS' | 'CUSTOMER' }
+    }
   }
   money: { live: MoneySummary; test: MoneySummary }
   application: null | {

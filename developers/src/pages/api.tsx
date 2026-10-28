@@ -129,7 +129,7 @@ export function ApiCheckouts() {
           { name: 'metadata', type: 'object | null', children: 'Custom key-value data that you supplied.' },
           { name: 'methods', type: 'array', children: 'The payment methods available to the customer.', values: ['bank_transfer', 'app', 'crypto'] },
           { name: 'customer', type: 'object', children: <><C>email</C> and <C>name</C>, filled in for the customer on the page.</> },
-          { name: 'fee_payer', type: 'enum | null', children: 'Who pays the processing fee. If null, the business setting applies.', values: ['business', 'customer'] },
+          { name: 'fee_payer', type: 'enum | null', children: 'Who pays the processing fee on this checkout, whichever way the customer pays. If null, each way to pay follows your account setting.', values: ['business', 'customer'] },
           { name: 'redirect_url', type: 'string | null', children: 'The URL customers are sent to after payment.' },
           { name: 'payment', type: 'object | null', children: <>The associated <Link to="/api/payments">payment</Link>, once paid.</> },
           { name: 'expires_at', type: 'timestamp | null', children: 'When the checkout expires. Null means it has no expiry.' },
@@ -157,7 +157,7 @@ export function ApiCheckouts() {
             { name: 'customer', type: 'object', children: <><C>email</C> and <C>name</C>. Filled in for them on the page, and the email gets the receipt.</> },
             { name: 'metadata', type: 'object', children: 'Up to 20 custom keys, each up to 40 characters. Values can be strings (up to 500 characters), numbers or booleans.' },
             { name: 'expires_in', type: 'integer', children: <>Seconds until the checkout expires: 300 to 2,592,000 (30 days). Use <C>expires_at</C> with an ISO timestamp instead.</> },
-            { name: 'fee_payer', type: 'enum', children: 'Who pays the processing fee. If omitted, your business setting applies.', values: ['business', 'customer'] },
+            { name: 'fee_payer', type: 'enum', children: <>Who pays the processing fee on this checkout, whichever way the customer pays. If omitted, bank transfer and crypto each follow your account setting. See <Link to="/fees">Fees</Link>.</>, values: ['business', 'customer'] },
             { name: 'settle_to', type: 'enum', children: <>The settlement destination. If omitted, funds go where you chose for API payments in the dashboard, or on Automatic to a verified bank account, then a linked Money Moves account, then your business wallet. See <Link to="/settlement">Settlement</Link>.</>, values: ['bank', 'money_moves', 'wallet'] },
             { name: 'redirect_url', type: 'string', children: 'An HTTPS URL where the customer is sent after payment.' },
           ]}

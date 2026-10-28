@@ -12,7 +12,7 @@
  *     payout bigger than the review limit waits for a person first.
  */
 import { createHash } from "crypto";
-import { Prisma, type Business, type Currency, type Invoice, type Mode, type Outlet, type PayMethod, type Payment, type PaymentLink, type SettleChain, type Settlement } from "@prisma/client";
+import { Prisma, type Business, type Currency, type FeePayer, type Invoice, type Mode, type Outlet, type PayMethod, type Payment, type PaymentLink, type SettleChain, type Settlement } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { HttpError } from "../lib/http";
 import { log } from "../lib/log";
@@ -27,6 +27,7 @@ import {
   centsToKobo,
   formatMinor,
   koboToCents,
+  cryptoFeeFor,
   nairaFeeFor,
   newCheckoutToken,
   newPaymentRef,
@@ -35,7 +36,7 @@ import {
   toMinor,
 } from "../lib/money";
 import { canSimulate, railsFor } from "../rails";
-import { chainPaused, effectiveChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, reviewLimits, type Platform } from "../lib/platform";
+import { chainPaused, cryptoDefaults, effectiveChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, reviewLimits, type Platform } from "../lib/platform";
 import { floatSend, floatTxStatus, NotSent, type FloatChain, type Sent } from "../lib/float";
 import { stellarFromSolana } from "../lib/stellar";
 import { linkAddress } from "../lib/app-links";
@@ -87,20 +88,28 @@ export type Checkout = {
   /** Coins and networks for crypto, as kept; null is every one switched on. */
   accept: Prisma.JsonValue | null;
   active: boolean;
-  /** Who pays the processing fee here: this checkout's own choice, else the business's default. */
-  feePayer: "BUSINESS" | "CUSTOMER";
+  /**
+   * Who pays our fee here, per way to pay: this checkout's own choice when it
+   * has one (which covers every way), else the business's default for that
+   * way. The Money Moves app is free, so nobody pays for it.
+   */
+  feePayer: Record<PayMethod, "BUSINESS" | "CUSTOMER">;
 };
 
+/** A checkout's own choice covers every way to pay; without one, each way follows the business. */
+const payers = (own: FeePayer | null, b: Business): Record<PayMethod, FeePayer> =>
+  own ? { NAIRA: own, CRYPTO: own, APP: own } : { NAIRA: b.feePayer, CRYPTO: b.feePayerCrypto, APP: "BUSINESS" };
+
 export const fromLink = (l: PaymentLink & { business: Business }): Checkout => ({
-  kind: "link", id: l.id, business: l.business, mode: l.mode, currency: l.currency, amountMinor: l.amountMinor, minMinor: l.minMinor, methods: l.methods, accept: l.accept, active: l.active && !l.deletedAt && !(l.expiresAt && l.expiresAt.getTime() <= Date.now()), feePayer: l.feePayer ?? l.business.feePayer,
+  kind: "link", id: l.id, business: l.business, mode: l.mode, currency: l.currency, amountMinor: l.amountMinor, minMinor: l.minMinor, methods: l.methods, accept: l.accept, active: l.active && !l.deletedAt && !(l.expiresAt && l.expiresAt.getTime() <= Date.now()), feePayer: payers(l.feePayer, l.business),
 });
 /** An invoice takes one payment, for its total, while it's waiting to be paid. */
 export const fromInvoice = (i: Invoice & { business: Business }): Checkout => ({
-  kind: "invoice", id: i.id, business: i.business, mode: i.mode, currency: i.currency, amountMinor: i.amountMinor, minMinor: null, methods: i.methods, accept: i.accept, active: i.status === "OPEN", feePayer: i.feePayer ?? i.business.feePayer,
+  kind: "invoice", id: i.id, business: i.business, mode: i.mode, currency: i.currency, amountMinor: i.amountMinor, minMinor: null, methods: i.methods, accept: i.accept, active: i.status === "OPEN", feePayer: payers(i.feePayer, i.business),
 });
 /** An outlet: the customer types the amount. */
 export const fromOutlet = (o: Outlet & { business: Business }): Checkout => ({
-  kind: "outlet", id: o.id, business: o.business, mode: o.mode, currency: o.currency, amountMinor: null, minMinor: null, methods: o.methods, accept: o.accept, active: o.active && !o.deletedAt, feePayer: o.feePayer ?? o.business.feePayer,
+  kind: "outlet", id: o.id, business: o.business, mode: o.mode, currency: o.currency, amountMinor: null, minMinor: null, methods: o.methods, accept: o.accept, active: o.active && !o.deletedAt, feePayer: payers(o.feePayer, o.business),
 });
 
 const CHANNEL = { link: "links", invoice: "invoices", outlet: "outlets" } as const;
@@ -158,7 +167,7 @@ export async function admit(c: Checkout, method: PayMethod, input: OpenInput) {
   const rate = await ngnPerUsd();
   const price = priceFor(c, input, rate, limitsFor(p, c.business, c.mode, method));
   // The customer pays the fee: added on top, so the business receives its full price.
-  if (c.feePayer === "CUSTOMER") {
+  if (c.feePayer[method] === "CUSTOMER") {
     const fee = feeOn(method, price.amountKobo, rate, await platform(), c.business);
     if (fee > 0) return { p, rate, amountKobo: price.amountKobo + fee, amountCents: price.amountCents + koboToCents(fee, rate), customerFeeKobo: fee };
   }
@@ -313,17 +322,21 @@ export async function checkPayment(p: Payment): Promise<Payment> {
  * in dollars at the payment's rate; the Money Moves app at the app rate (free
  * for now).
  */
-/** Our fee on an amount, by how it's paid: the app's rate, crypto's capped in dollars, naira's (the business's own rate when it has one). */
-function feeOn(method: PayMethod, kobo: number, ngnPerUsd: number, plat: Awaited<ReturnType<typeof platform>>, pricing: { feeRateBps: number | null; feeCapKobo: number | null }): number {
+/** What a business's own rates look like, where our team has set any of them. */
+export type OwnFees = { feeRateBps: number | null; feeCapKobo: number | null; cryptoRateBps: number | null; cryptoCapCents: number | null };
+export const OWN_FEES = { feeRateBps: true, feeCapKobo: true, cryptoRateBps: true, cryptoCapCents: true } as const;
+
+/** Our fee on an amount, by how it's paid: the app's rate, crypto capped in dollars, naira capped in naira - each at the business's own rate when it has one. */
+function feeOn(method: PayMethod, kobo: number, ngnPerUsd: number, plat: Awaited<ReturnType<typeof platform>>, pricing: OwnFees): number {
   if (method === "APP") return Math.round((kobo * plat.fees.appRateBps) / 10_000);
-  if (method === "CRYPTO") return Math.min(Math.round((kobo * plat.fees.cryptoRateBps) / 10_000), Math.round(plat.fees.cryptoCapUsd * ngnPerUsd * 100));
+  if (method === "CRYPTO") return cryptoFeeFor(kobo, ngnPerUsd, pricing, cryptoDefaults(plat));
   return nairaFeeFor(kobo, pricing, nairaDefaults(plat));
 }
 
 async function feeFor(p: Payment, receivedKobo: number): Promise<number> {
   // The customer paid it on top: that's the fee, and the business keeps its full price.
   if (p.customerFeeKobo != null) return p.customerFeeKobo;
-  const pricing = await prisma.business.findUniqueOrThrow({ where: { id: p.businessId }, select: { feeRateBps: true, feeCapKobo: true } });
+  const pricing = await prisma.business.findUniqueOrThrow({ where: { id: p.businessId }, select: OWN_FEES });
   return feeOn(p.method, receivedKobo, p.ngnPerUsd, await platform(), pricing);
 }
 

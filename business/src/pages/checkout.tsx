@@ -469,8 +469,8 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
             ? P.currency === "USD"
               ? usd(P.customerFeeNgn / P.ngnPerUsd)
               : ngn(P.customerFeeNgn)
-            : (L?.link.feePayer ?? L?.business.feePayer) === "CUSTOMER" && !P
-              ? "Added when you pick how to pay"
+            : (L?.link.feePayer ?? L?.business.feePayers?.[method] ?? (method === 'naira' ? L?.business.feePayer : 'BUSINESS')) === "CUSTOMER" && !P
+              ? "Added on top when you pay"
               : "None"
         }
       />

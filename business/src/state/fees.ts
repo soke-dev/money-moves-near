@@ -17,6 +17,9 @@ export interface Fees {
 
 type ApiFees = { fees: { naira: { rateBps: number; capNgn: number }; crypto: { rateBps: number; capUsd: number }; app: { rateBps: number }; payoutNgn: number } }
 
+/** Who pays our fee, chosen for each way to pay. The app is free, so it never charges anyone. */
+export type Payers = { naira: 'BUSINESS' | 'CUSTOMER'; crypto: 'BUSINESS' | 'CUSTOMER' }
+
 export function useFees(): Fees {
   const { business } = useSession()
   const r = useApi<ApiFees>(LIVE && business ? `/businesses/${business.id}/fees` : null)

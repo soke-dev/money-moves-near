@@ -139,7 +139,7 @@ export function Checkout() {
           [<C>customer</C>, 'Their email and name, filled in on the page. The email gets the receipt.'],
           [<C>metadata</C>, 'Up to 20 keys of your own data. It comes back on the checkout, its payment and every event.'],
           [<><C>expires_in</C> or <C>expires_at</C></>, 'Close the checkout after 5 minutes to 30 days. Left out, it stays open until it’s paid or cancelled.'],
-          [<C>fee_payer</C>, <>Have the customer pay the processing fee on this checkout, or pay it yourself. See <Link to="/fees">Fees</Link>.</>],
+          [<C>fee_payer</C>, <>Have the customer pay the processing fee on this checkout, or pay it yourself, whichever way they pay. Left out, bank transfer and crypto each follow your Settings choice. See <Link to="/fees">Fees</Link>.</>],
           [<C>settle_to</C>, <>Send this checkout's money to your bank, a Money Moves account or your business wallet.</>],
           [<C>redirect_url</C>, 'Where the page sends the customer after they pay.'],
         ]}

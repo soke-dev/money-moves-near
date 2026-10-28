@@ -111,8 +111,9 @@ export interface Business {
   liveNoticeClosed?: boolean
   /** Live: its logo's address. */
   logo?: string | null
-  /** Live: who pays the processing fee. */
+  /** Live: who pays the processing fee, chosen for each way to pay. */
   feePayer?: "BUSINESS" | "CUSTOMER"
+  feePayerCrypto?: "BUSINESS" | "CUSTOMER"
 }
 
 export const BUSINESSES: Business[] = [
@@ -167,8 +168,8 @@ const RATE = 1352.46
  * business; the fee helpers below are where a business's own rates go in.
  */
 export const PRICING = {
-  naira: { rate: 0.005, capNgn: 1_000 },
-  crypto: { rate: 0.005, capUsd: 1 },
+  naira: { rate: 0.02, capNgn: 4_000 },
+  crypto: { rate: 0.003, capUsd: 1 },
   /** Money Moves app payments are free for now. */
   app: { rate: 0 },
   /** A bank transfer out of the business wallet, in naira. */

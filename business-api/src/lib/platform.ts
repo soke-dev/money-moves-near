@@ -109,7 +109,7 @@ export const PLATFORM_DEFAULTS: Platform = {
   settleChains: { MOVEMENT: true, ARC: true, MONAD: true, SOLANA: true, STELLAR: true },
   coins: { USDC: true, USDT: true },
   networks: Object.fromEntries(NETWORKS.map((n) => [n, true])) as Platform["networks"],
-  fees: { nairaRateBps: 50, nairaCapNgn: 1_000, cryptoRateBps: 50, cryptoCapUsd: 1, appRateBps: 0, payoutNgn: 100 },
+  fees: { nairaRateBps: 200, nairaCapNgn: 4_000, cryptoRateBps: 30, cryptoCapUsd: 1, appRateBps: 0, payoutNgn: 100 },
   limits: {
     businessMinNgn: 100, businessMaxNgn: 1_000_000, freelancerMinNgn: 100, freelancerMaxNgn: 500_000,
     cryptoBusinessMinNgn: 100, cryptoBusinessMaxNgn: 1_000_000, cryptoFreelancerMinNgn: 100, cryptoFreelancerMaxNgn: 500_000,
@@ -204,6 +204,7 @@ export const chainPaused = (chain: SettleChain, p: Platform) => !p.settleChains[
 
 /** The default naira fee as the fee helper takes it. */
 export const nairaDefaults = (p: Platform) => ({ rateBps: p.fees.nairaRateBps, capKobo: Math.round(p.fees.nairaCapNgn * 100) });
+export const cryptoDefaults = (p: Platform) => ({ rateBps: p.fees.cryptoRateBps, capCents: Math.round(p.fees.cryptoCapUsd * 100) });
 
 /**
  * Test mode has no business limits - only the most one amount can hold

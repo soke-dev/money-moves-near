@@ -18,7 +18,6 @@ import {
   Field,
   Input,
   Modal,
-  OptionCard,
   PageHeader,
   Radio,
   Segmented,
@@ -39,7 +38,7 @@ import { TokenPicker } from '@/components/TokenPicker'
 import { Loader2 } from '@/components/icons'
 import { ApiError, LIVE, api, applicationPath, type ApiApplication, type ApiBank, type ApiLiveMethods, type ApiPaymentSettings, type ApiPlatform, type SettleChain } from '@/lib/api'
 import { reload, useApi } from '@/lib/useApi'
-import { feeOn, useFees, type Fees } from '@/state/fees'
+import { feeOn, pct, useFees, type Fees, type Payers } from '@/state/fees'
 import { LogoControl } from '@/components/Pictures'
 import { useCan } from '@/state/roles'
 import { ApiSettleSetting } from '@/components/ApiSettleTo'
@@ -543,26 +542,93 @@ function PaymentMethods() {
   )
 }
 
+/**
+ * Who pays our fee on one way to pay. Naira and stablecoins are picked apart
+ * because they cost a customer differently: a shop can absorb the naira fee
+ * and still pass on the stablecoin one, or the other way round.
+ */
+function PayerChoice({
+  method,
+  title,
+  sub,
+  rate,
+  value,
+  onChange,
+  disabled,
+}: {
+  method: Method
+  title: string
+  sub: string
+  rate: string
+  value: 'BUSINESS' | 'CUSTOMER'
+  onChange: (v: 'BUSINESS' | 'CUSTOMER') => void
+  disabled?: boolean
+}) {
+  const options = [
+    { id: 'BUSINESS' as const, label: 'I pay it', sub: 'Taken from what you receive' },
+    { id: 'CUSTOMER' as const, label: 'My customer pays it', sub: 'Added on top at checkout' },
+  ]
+  return (
+    <div className="overflow-hidden rounded-[10px] border border-line bg-card">
+      <div className="flex items-center gap-3 border-b border-line px-4 py-3">
+        <MethodIcon method={method} size={28} />
+        <div className="min-w-0 flex-1">
+          <p className="text-[14px] font-semibold text-fg">{title}</p>
+          <p className="text-[12.5px] text-muted">{sub}</p>
+        </div>
+        <span className="tabular shrink-0 rounded-full bg-raise px-2.5 py-1 text-[12px] font-medium text-muted">{rate}</span>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2">
+        {options.map((o, i) => {
+          const on = value === o.id
+          return (
+            <button
+              key={o.id}
+              type="button"
+              disabled={disabled}
+              onClick={() => !disabled && onChange(o.id)}
+              className={cx(
+                'flex items-start gap-3 px-4 py-3.5 text-left transition',
+                i === 0 && 'sm:border-r sm:border-line',
+                i > 0 && 'border-t border-line sm:border-t-0',
+                disabled ? 'cursor-not-allowed opacity-55' : on ? 'bg-lime/10' : 'hover:bg-raise',
+              )}
+            >
+              <span className={cx('mt-0.5 flex size-[18px] shrink-0 items-center justify-center rounded-full border transition', on ? 'border-fg bg-lime' : 'border-[#C9C6BC]')}>
+                {on && <Check className="size-3 text-fg" strokeWidth={3.5} />}
+              </span>
+              <span className="min-w-0">
+                <span className="block text-[13.5px] font-semibold text-fg">{o.label}</span>
+                <span className="mt-0.5 block text-[12.5px] leading-relaxed text-muted">{o.sub}</span>
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function Fees() {
   const PR = useFees()
   const { business, updateBusiness } = useSession()
-  const [payer, setPayerState] = useState(business?.feePayer === "CUSTOMER" ? "customer" : "me")
+  const [payers, setPayers] = useState<Payers>({ naira: business?.feePayer ?? 'BUSINESS', crypto: business?.feePayerCrypto ?? business?.feePayer ?? 'BUSINESS' })
   const [feeBusy, setFeeBusy] = useState(false)
   const [feeProblem, setFeeProblem] = useState("")
   const canSetFee = !LIVE || ["OWNER", "ADMIN", "FINANCE"].includes(business?.role ?? "")
   // Live, saved the moment it's picked - it applies from the next payment.
-  const setPayer = async (next: string) => {
-    if (!LIVE || !business) return setPayerState(next)
-    if (next === payer || feeBusy) return
+  const setPayer = async (way: keyof Payers, next: 'BUSINESS' | 'CUSTOMER') => {
+    if (next === payers[way] || feeBusy) return
+    const before = payers
+    setPayers({ ...payers, [way]: next })
+    if (!LIVE || !business) return
     setFeeBusy(true)
     setFeeProblem("")
-    const before = payer
-    setPayerState(next)
     try {
-      await api("PATCH", `/businesses/${business.id}/fees`, { payer: next === "customer" ? "CUSTOMER" : "BUSINESS" })
-      updateBusiness(business.id, { feePayer: next === "customer" ? "CUSTOMER" : "BUSINESS" })
+      await api("PATCH", `/businesses/${business.id}/fees`, { [way]: next })
+      updateBusiness(business.id, way === 'naira' ? { feePayer: next } : { feePayerCrypto: next })
     } catch (e) {
-      setPayerState(before)
+      setPayers(before)
       setFeeProblem(e instanceof ApiError ? e.message : "Couldn't save that just now. Try again.")
     } finally {
       setFeeBusy(false)
@@ -573,19 +639,45 @@ function Fees() {
   const cryptoCapFrom = PR.crypto.capUsd / PR.crypto.rate
   return (
     <>
-      <Section title="Who pays the processing fee" sub={`Your default for every payment link, invoice and outlet, from the next payment on. Each link or outlet can choose its own.${PR.app.rate === 0 ? " Money Moves app payments are free either way." : ""}`}>
-        <div className="grid max-w-[720px] grid-cols-1 gap-2.5 sm:grid-cols-2">
-          <OptionCard selected={payer === 'me'} onClick={() => canSetFee && void setPayer('me')} title="Charge me" sub="Customers pay your price. The fee comes out of what you receive." />
-          <OptionCard selected={payer === 'customer'} onClick={() => canSetFee && void setPayer('customer')} title="Charge my customers" sub="The fee is added on top at checkout. You receive your full price." />
+      <Section title="Who pays the processing fee" sub="Choose for each way your customers pay. This is your default for every payment link, invoice and store code, from the next payment on, and a link can still choose its own.">
+        <div className="grid max-w-[720px] grid-cols-1 gap-3">
+          <PayerChoice
+            method="naira"
+            title="Naira transfer"
+            sub="From any bank app, to a one-time account"
+            rate={`${pct(PR.naira.rate)} up to ${ngn(PR.naira.capNgn).replace('.00', '')}`}
+            value={payers.naira}
+            onChange={(v) => void setPayer('naira', v)}
+            disabled={!canSetFee}
+          />
+          <PayerChoice
+            method="crypto"
+            title="Stablecoins"
+            sub="USDC or USDT, on any network you accept"
+            rate={`${pct(PR.crypto.rate)} up to ${usd(PR.crypto.capUsd).replace('.00', '')}`}
+            value={payers.crypto}
+            onChange={(v) => void setPayer('crypto', v)}
+            disabled={!canSetFee}
+          />
+          {PR.app.rate === 0 && (
+            <div className="flex items-center gap-3 rounded-[10px] border border-dashed border-line px-4 py-3">
+              <MethodIcon method="app" size={28} />
+              <div className="min-w-0 flex-1">
+                <p className="text-[14px] font-semibold text-fg">Money Moves app</p>
+                <p className="text-[12.5px] text-muted">Free for you and for your customer, so there is nothing to choose.</p>
+              </div>
+              <span className="shrink-0 rounded-full bg-[#E4F2E8] px-2.5 py-1 text-[12px] font-semibold text-good">Free</span>
+            </div>
+          )}
         </div>
         {feeProblem ? <p className="mt-2 text-[12.5px] text-red">{feeProblem}</p> : !canSetFee ? <p className="mt-2 text-[12.5px] text-dim">The owner, an admin or finance can change this.</p> : LIVE && !feeBusy ? <p className="mt-2 text-[12.5px] text-dim">Saved as soon as you pick.</p> : null}
       </Section>
 
       <Section
-        title={payer === 'customer' ? 'What your customer pays' : 'What you keep'}
-        sub={`Put in an amount. The fee stops growing at ${ngn(capFrom).replace('.00', '')} for naira and ${usd(cryptoCapFrom).replace('.00', '')} for crypto, so big sales cost less.`}
+        title="What a payment works out to"
+        sub={`Put in an amount. The fee stops growing at ${ngn(capFrom).replace('.00', '')} for naira and ${usd(cryptoCapFrom).replace('.00', '')} for stablecoins, so big sales cost less.`}
       >
-        <FeeCalculator payer={payer} fees={PR} />
+        <FeeCalculator payers={payers} fees={PR} />
       </Section>
       {!LIVE && <SaveBar />}
 
@@ -627,9 +719,9 @@ function FeeRow({ title, sub, rate, note }: { title: string; sub: string; rate: 
 const PRESETS: Record<Method, number[]> = { naira: [5_000, 100_000, 2_000_000], crypto: [20, 150, 5_000], app: [20, 250, 5_000] }
 
 /** Pick how the customer pays and an amount: the fee, what you keep, and what that works out to. */
-function FeeCalculator({ payer, fees: PR }: { payer: string; fees: Fees }) {
-  const onCustomer = payer === 'customer'
+function FeeCalculator({ payers, fees: PR }: { payers: Payers; fees: Fees }) {
   const [method, setMethod] = useState<Method>('crypto')
+  const onCustomer = method === 'naira' ? payers.naira === 'CUSTOMER' : method === 'crypto' ? payers.crypto === 'CUSTOMER' : false
   const [amt, setAmt] = useState('150')
   const naira = method === 'naira'
   const n = Number(amt) || 0

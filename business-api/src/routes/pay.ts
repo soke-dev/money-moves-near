@@ -140,7 +140,7 @@ export const limitsNgn = (p: Platform, b: OwnLimits, mode: Mode, way?: Way) => {
 };
 /** Each way to pay's own range, so the page can grey out a way the amount doesn't fit. */
 export const wayLimitsNgn = (p: Platform, b: OwnLimits, mode: Mode) => Object.fromEntries(WAYS.map((w) => [w, limitsNgn(p, b, mode, w)])) as Record<Way, { minNgn: number; maxNgn: number }>;
-const businessOf = (b: Business) => ({ name: b.name, verified: b.status === "VERIFIED", brand: brandOf(b), feePayer: b.feePayer });
+const businessOf = (b: Business) => ({ name: b.name, verified: b.status === "VERIFIED", brand: brandOf(b), feePayer: b.feePayer, feePayers: { naira: b.feePayer, crypto: b.feePayerCrypto, app: "BUSINESS" as const } });
 
 
 const customer = z.object({

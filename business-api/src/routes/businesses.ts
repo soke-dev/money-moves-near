@@ -25,7 +25,7 @@ import { defaultDestination } from "./v1";
 
 const router = Router();
 
-const summary = (b: Business) => ({ id: b.id, name: b.name, kind: b.kind, merchantId: b.merchantId, status: b.status, country: b.country, settleChain: b.settleChain, createdAt: b.createdAt, verifiedAt: verifiedAt(b), logo: imageUrl(b.logoId), feePayer: b.feePayer });
+const summary = (b: Business) => ({ id: b.id, name: b.name, kind: b.kind, merchantId: b.merchantId, status: b.status, country: b.country, settleChain: b.settleChain, createdAt: b.createdAt, verifiedAt: verifiedAt(b), logo: imageUrl(b.logoId), feePayer: b.feePayer, feePayerCrypto: b.feePayerCrypto });
 /** When our team approved it - for the dashboard's notification and its one-time "you're approved" notice. */
 const verifiedAt = (b: Business) => (b.status === "VERIFIED" ? (b.statusChangedAt ?? b.updatedAt) : null);
 const forMember = (m: Pick<Member, "role" | "liveNoticeClosedAt">) => ({ role: m.role, liveNoticeClosed: !!m.liveNoticeClosedAt });
@@ -76,24 +76,35 @@ router.get("/:businessId", requireMember(), async (req, res) => {
  * who pays them by default.
  */
 router.get("/:businessId/fees", requireMember(), async (req, res) => {
-  const b = await prisma.business.findUniqueOrThrow({ where: { id: req.member!.businessId }, select: { feeRateBps: true, feeCapKobo: true, feePayer: true } });
+  const b = await prisma.business.findUniqueOrThrow({
+    where: { id: req.member!.businessId },
+    select: { feeRateBps: true, feeCapKobo: true, cryptoRateBps: true, cryptoCapCents: true, feePayer: true, feePayerCrypto: true },
+  });
   const p = await platform();
   res.json({
     fees: {
       naira: { rateBps: b.feeRateBps ?? p.fees.nairaRateBps, capNgn: b.feeCapKobo != null ? b.feeCapKobo / 100 : p.fees.nairaCapNgn },
-      crypto: { rateBps: p.fees.cryptoRateBps, capUsd: p.fees.cryptoCapUsd },
+      crypto: { rateBps: b.cryptoRateBps ?? p.fees.cryptoRateBps, capUsd: b.cryptoCapCents != null ? b.cryptoCapCents / 100 : p.fees.cryptoCapUsd },
       app: { rateBps: p.fees.appRateBps },
       payoutNgn: p.fees.payoutNgn,
     },
+    /** Who pays, per way to pay. `payer` repeats the naira one for anything still reading the old field. */
     payer: b.feePayer,
+    payers: { naira: b.feePayer, crypto: b.feePayerCrypto },
   });
 });
 
-/** Who pays the processing fee - from the next payment on. Owners, admins and finance decide. */
+/**
+ * Who pays our fee, chosen per way to pay - from the next payment on. Owners,
+ * admins and finance decide. The old single `payer` sets both at once, so
+ * anything written against the earlier shape still works.
+ */
 router.patch("/:businessId/fees", requireMember("OWNER", "ADMIN", "FINANCE"), async (req, res) => {
-  const b = body(z.object({ payer: z.enum(["BUSINESS", "CUSTOMER"]) }), req);
-  const business = await prisma.business.update({ where: { id: req.member!.businessId }, data: { feePayer: b.payer } });
-  await audit(req, "fee_payer_changed", { businessId: business.id, detail: { payer: b.payer } });
+  const payer = z.enum(["BUSINESS", "CUSTOMER"]);
+  const b = body(z.object({ payer: payer.optional(), naira: payer.optional(), crypto: payer.optional() }).refine((v) => v.payer || v.naira || v.crypto, "Say who pays."), req);
+  const data = { ...(b.naira ?? b.payer ? { feePayer: b.naira ?? b.payer } : {}), ...(b.crypto ?? b.payer ? { feePayerCrypto: b.crypto ?? b.payer } : {}) };
+  const business = await prisma.business.update({ where: { id: req.member!.businessId }, data });
+  await audit(req, "fee_payer_changed", { businessId: business.id, detail: { naira: business.feePayer, crypto: business.feePayerCrypto } });
   res.json({ business: { ...summary(business), ...forMember(req.member!) } });
 });
 

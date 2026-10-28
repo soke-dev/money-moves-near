@@ -8,8 +8,8 @@ export function Fees() {
       <Table
         head={['', 'Fee']}
         rows={[
-          ['Bank transfer', '0.25% of the payment, at most ₦1,000'],
-          ['Crypto (USDC and USDT)', '0.25% of the payment, at most $1'],
+          ['Bank transfer', '2% of the payment, at most ₦4,000'],
+          ['Crypto (USDC and USDT)', '0.3% of the payment, at most $1'],
           ['Money Moves app', 'Free'],
           ['Sending from your business wallet to your bank', '₦100 a send'],
           ['Sending to a Money Moves account or a crypto address', 'Free'],
@@ -17,12 +17,31 @@ export function Fees() {
         ]}
       />
       <P>
-        We calculate the fee for each payment and deduct it from the settlement. For example, a ₦20,000 bank payment has a ₦50 fee and settles ₦19,950. A ₦1,000,000 bank payment reaches the fee cap of ₦1,000.
+        We calculate the fee for each payment and deduct it from the settlement. For example, a ₦20,000 bank payment has a ₦400 fee and settles ₦19,600. A ₦500,000 bank payment reaches the fee cap of ₦4,000. Your account may have its own rates, set by our team; the fee on every payment is shown on the payment itself.
       </P>
 
       <H2>Who pays the fee</H2>
       <P>
-        By default, the business pays the fee, which is deducted from the settlement. You can instead charge the customer the fee on top of the listed price, so the business receives the full payment amount. Choose this for your business in settings, on an individual payment link, invoice or store QR, or for an API checkout with <C>fee_payer</C>.
+        By default, the business pays the fee, which is deducted from the settlement. You can instead charge the customer the fee on top of the listed price, so the business receives the full payment amount.
+      </P>
+      <P>
+        <b>Bank transfer and crypto are chosen separately</b>, because the two cost a customer differently. You might absorb the fee on bank transfers and pass on the fee on stablecoins, or the other way round. Money Moves app payments are free, so neither side is charged. Choose both in Settings, Fees.
+      </P>
+      <H3>Setting it on an API payment</H3>
+      <P>
+        Send <C>fee_payer</C> on a checkout to override your account's choice for that checkout. It takes <C>business</C> or <C>customer</C>, and applies whichever way the customer ends up paying. Leave it out and each way to pay follows your Settings choice.
+      </P>
+      <Block
+        lang="json"
+        label="POST /v1/checkouts"
+        code={`{
+  "amount": 5000,
+  "currency": "NGN",
+  "fee_payer": "customer"
+}`}
+      />
+      <P>
+        The same field works on a payment link, an invoice and a store QR code, in the dashboard and through the API.
       </P>
       <P>
         When the customer pays the fee, <C>customer_fee_ngn</C> shows the additional amount charged. <C>fee_ngn</C> shows our fee on each payment, and the settlement shows the amount deducted.
