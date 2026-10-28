@@ -175,13 +175,27 @@ async function ownTransfer(tx: string): Promise<string | null> {
  * never sent back. Runs with the scan, and catches anything recorded earlier.
  */
 export async function settleOwnTransfers(): Promise<void> {
-  const waiting = await prisma.cryptoArrival.findMany({ where: { kind: "UNMATCHED", returnStatus: "MANUAL" }, select: { id: true, txHash: true }, take: 200 });
+  const waiting = await prisma.cryptoArrival.findMany({ where: { kind: "UNMATCHED", returnStatus: "MANUAL" }, select: { id: true, txHash: true, network: true, toAddress: true }, take: 200 });
   for (const x of waiting) {
-    const what = await ownTransfer(x.txHash);
+    const what = (await ownTransfer(x.txHash)) ?? sharedTreasury(x.network as Network, x.toAddress);
     if (!what) continue;
     const done = await prisma.cryptoArrival.updateMany({ where: { id: x.id, returnStatus: "MANUAL" }, data: { returnStatus: "KEPT", returnWhy: "own", returnBy: "system", returnError: what } });
     if (done.count) log.info("[crypto-in] an unmatched transfer was our own, put to rest", { id: x.id, tx: x.txHash });
   }
+}
+
+/**
+ * A plain transfer into the treasury on a network where checkouts never send
+ * there: each payment has its own address, so a customer can't have meant a
+ * checkout. Our treasury on these networks is shared with the Money Moves app,
+ * whose users pay bills, buy airtime and cash out into it, so this is the
+ * app's money, not a business's.
+ */
+function sharedTreasury(network: Network, to: string | null): string | null {
+  if (kindFor(network) !== "OWN" || !to) return null;
+  const treasury = treasuryFor(network);
+  if (!treasury || addressKey(network, treasury) !== addressKey(network, to)) return null;
+  return "A Money Moves app transfer into the treasury we share with the app (bills, airtime or cash out). Not a business payment.";
 }
 
 /** A transfer to the treasury: by memo on Stellar and TON, by exact amount elsewhere. */
@@ -227,7 +241,11 @@ export async function takeArrival(a: Incoming): Promise<boolean> {
         memo: a.memo ?? null,
         txHash: a.tx,
         kind: p ? "PAYMENT" : "UNMATCHED",
-        ...(p ? {} : { returnMicros: a.micros, returnWhy: "unmatched", returnStatus: "MANUAL" }),
+        ...(p
+          ? {}
+          : toTreasury && sharedTreasury(a.network, a.to)
+            ? { returnWhy: "own", returnStatus: "KEPT", returnBy: "system", returnError: sharedTreasury(a.network, a.to) }
+            : { returnMicros: a.micros, returnWhy: "unmatched", returnStatus: "MANUAL" }),
       },
     });
   } catch (e) {
