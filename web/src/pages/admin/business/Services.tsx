@@ -229,7 +229,7 @@ export function Services() {
       )}
 
       {tab === 'limits' && (
-      <Group title="Checkout limits" sub="The least and the most one checkout can be - a fixed price or what the customer types. Dollar prices are checked at the rate of the moment.">
+      <Group title="Checkout limits: bank transfer" sub="The least and the most one checkout paid by bank transfer can be, a fixed price or what the customer types. Each way to pay has its own: the checkout greys out a way the amount does not fit, and the amount box takes the widest. Dollar prices are checked at the rate of the moment. At most ₦20,000,000. Set a business’s own on its page.">
         <NumberRow label="Registered businesses: least" unit="₦" value={draft.limits.businessMinNgn} onChange={(v) => set('limits', 'businessMinNgn', v)} changed={diff.has('limits.businessMinNgn')} />
         <NumberRow label="Registered businesses: most" unit="₦" value={draft.limits.businessMaxNgn} onChange={(v) => set('limits', 'businessMaxNgn', v)} changed={diff.has('limits.businessMaxNgn')} />
         <NumberRow label="Freelancers (Just me): least" unit="₦" value={draft.limits.freelancerMinNgn} onChange={(v) => set('limits', 'freelancerMinNgn', v)} changed={diff.has('limits.freelancerMinNgn')} />
@@ -238,9 +238,27 @@ export function Services() {
       )}
 
       {tab === 'limits' && (
+      <Group title="Checkout limits: stablecoins" sub="One checkout paid with USDC or USDT.">
+        <NumberRow label="Registered businesses: least" unit="₦" value={draft.limits.cryptoBusinessMinNgn} onChange={(v) => set('limits', 'cryptoBusinessMinNgn', v)} changed={diff.has('limits.cryptoBusinessMinNgn')} />
+        <NumberRow label="Registered businesses: most" unit="₦" value={draft.limits.cryptoBusinessMaxNgn} onChange={(v) => set('limits', 'cryptoBusinessMaxNgn', v)} changed={diff.has('limits.cryptoBusinessMaxNgn')} />
+        <NumberRow label="Freelancers (Just me): least" unit="₦" value={draft.limits.cryptoFreelancerMinNgn} onChange={(v) => set('limits', 'cryptoFreelancerMinNgn', v)} changed={diff.has('limits.cryptoFreelancerMinNgn')} />
+        <NumberRow label="Freelancers (Just me): most" unit="₦" value={draft.limits.cryptoFreelancerMaxNgn} onChange={(v) => set('limits', 'cryptoFreelancerMaxNgn', v)} changed={diff.has('limits.cryptoFreelancerMaxNgn')} />
+      </Group>
+      )}
+
+      {tab === 'limits' && (
+      <Group title="Checkout limits: Money Moves app" sub="One checkout paid from the Money Moves app, on a checkout page or by scanning in the app.">
+        <NumberRow label="Registered businesses: least" unit="₦" value={draft.limits.appBusinessMinNgn} onChange={(v) => set('limits', 'appBusinessMinNgn', v)} changed={diff.has('limits.appBusinessMinNgn')} />
+        <NumberRow label="Registered businesses: most" unit="₦" value={draft.limits.appBusinessMaxNgn} onChange={(v) => set('limits', 'appBusinessMaxNgn', v)} changed={diff.has('limits.appBusinessMaxNgn')} />
+        <NumberRow label="Freelancers (Just me): least" unit="₦" value={draft.limits.appFreelancerMinNgn} onChange={(v) => set('limits', 'appFreelancerMinNgn', v)} changed={diff.has('limits.appFreelancerMinNgn')} />
+        <NumberRow label="Freelancers (Just me): most" unit="₦" value={draft.limits.appFreelancerMaxNgn} onChange={(v) => set('limits', 'appFreelancerMaxNgn', v)} changed={diff.has('limits.appFreelancerMaxNgn')} />
+      </Group>
+      )}
+
+      {tab === 'limits' && (
       <Group
         title="Payouts a person checks"
-        sub="Live payouts bigger than these wait in Settlements → To review until someone approves them or pays them by hand. Businesses are never told - they see the payout as on its way."
+        sub="Live payouts bigger than these wait in Settlements → To review until someone approves them or pays them by hand. Businesses are never told: they see the payout as on its way. Set a business’s own on its page."
       >
         <NumberRow
           label="Naira above"
@@ -264,13 +282,21 @@ export function Services() {
       {tab === 'limits' && (
       <Group
         title="Daily limits"
-        sub="Past what a business takes in live in a day, its settlements wait in Settlements, To review. Payments still come in. Set a business's own limit on its page. Businesses are never told."
+        sub="A safety net against fraud. Once a business has received more than its daily limit in live payments today, it can still take payments, but its payouts wait in Settlements → To review until someone approves them. Businesses are never told. A business's own limit is set on its page."
       >
-        <NumberRow label="New businesses for" sub="How long a business counts as new" unit="days" value={draft.risk.newDays} onChange={(v) => set('risk', 'newDays', v)} changed={diff.has('risk.newDays')} />
-        <NumberRow label="New businesses: a day" unit="₦" value={draft.risk.newDailyNgn} onChange={(v) => set('risk', 'newDailyNgn', v)} changed={diff.has('risk.newDailyNgn')} />
-        <NumberRow label="Everyone else: a day" unit="₦" value={draft.risk.dailyNgn} onChange={(v) => set('risk', 'dailyNgn', v)} changed={diff.has('risk.dailyNgn')} />
-        <NumberRow label="Unusual: times a usual day" sub="Shown on the overview" unit="×" value={draft.risk.spikeTimes} onChange={(v) => set('risk', 'spikeTimes', v)} changed={diff.has('risk.spikeTimes')} />
-        <NumberRow label="Unusual: at least" sub="So a quiet business's first sale isn't flagged" unit="₦" value={draft.risk.spikeMinNgn} onChange={(v) => set('risk', 'spikeMinNgn', v)} changed={diff.has('risk.spikeMinNgn')} />
+        <NumberRow label="A business counts as new for" sub="Days after it signs up" unit="days" value={draft.risk.newDays} onChange={(v) => set('risk', 'newDays', v)} changed={diff.has('risk.newDays')} />
+        <NumberRow label="Daily limit while new" sub="Received in one day, before payouts wait" unit="₦" value={draft.risk.newDailyNgn} onChange={(v) => set('risk', 'newDailyNgn', v)} changed={diff.has('risk.newDailyNgn')} />
+        <NumberRow label="Daily limit after that" sub="For every business past its first days" unit="₦" value={draft.risk.dailyNgn} onChange={(v) => set('risk', 'dailyNgn', v)} changed={diff.has('risk.dailyNgn')} />
+      </Group>
+      )}
+
+      {tab === 'limits' && (
+      <Group
+        title="Unusual activity"
+        sub="Flags a business on the Overview when today is far above its normal day. Only a flag for you to look at: nothing is held."
+      >
+        <NumberRow label="Flag when today is more than" sub="Times its average day over the last 30 days" unit="×" value={draft.risk.spikeTimes} onChange={(v) => set('risk', 'spikeTimes', v)} changed={diff.has('risk.spikeTimes')} />
+        <NumberRow label="And today is at least" sub="So small amounts, like a quiet business's first sale, aren't flagged" unit="₦" value={draft.risk.spikeMinNgn} onChange={(v) => set('risk', 'spikeMinNgn', v)} changed={diff.has('risk.spikeMinNgn')} />
       </Group>
       )}
 

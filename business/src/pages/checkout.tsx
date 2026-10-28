@@ -274,8 +274,6 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   const brand = preview?.brand ?? (L ? (L.business.brand ?? DEFAULT_BRANDING) : saved)
   // Naira per dollar: the payment's own once it's open, else today's.
   const RATE = P?.ngnPerUsd ?? L?.rate ?? NGN_RATE
-  const maxNgn = L?.limits.maxNgn ?? MAX_NGN
-  const MAX_PAY: Record<Currency, number> = { NGN: maxNgn, USD: Math.floor(maxNgn / RATE / 100) * 100 }
   const accent = brand.accent
   const ink = onColor(accent)
   const solid = { background: accent, color: ink }
@@ -308,6 +306,13 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
     ? L.link.methods.map((m) => METHOD_FROM_API[m])
     : invoice?.methods || (link && 'methods' in link && link.methods) || (outlet && 'methods' in outlet && outlet.methods) || defaultMethods || ['app', 'crypto', 'naira']
   const offered = allowed.filter((m) => m !== 'crypto' || coins.length > 0)
+  // Each way to pay has its own range: the amount box takes the widest of the ways offered here.
+  const W = L?.wayLimits
+  const maxNgn = W && offered.length ? Math.max(...offered.map((m) => W[m].maxNgn)) : (L?.limits.maxNgn ?? MAX_NGN)
+  const MAX_PAY: Record<Currency, number> = { NGN: maxNgn, USD: Math.floor(maxNgn / RATE / 100) * 100 }
+  /** Whether this amount can be paid this way, and if not, what that way takes. */
+  const fits = (m: Method) => !W || !nairaAmount || (nairaAmount >= W[m].minNgn && nairaAmount <= W[m].maxNgn)
+  const rangeNote = (m: Method) => (W ? (nairaAmount > W[m].maxNgn ? `Up to ${ngn(W[m].maxNgn).replace('.00', '')} here` : `From ${ngn(W[m].minNgn).replace('.00', '')} here`) : '')
 
   const start = params.get('method')
   const [method, setMethod] = useState<Method>(() => invoice?.paid?.method ?? ((start === 'crypto' || start === 'naira') && offered.includes(start) ? start : (offered[0] ?? 'app')))
@@ -380,6 +385,13 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
     else setStage((s) => (s === 'choose' || s === 'details' ? 'pay' : s))
   }, [P?.token, P?.status])
 
+  // The way picked can't take this amount (it changed, or the page opened on it): move to one that can.
+  useEffect(() => {
+    if (P || fits(method)) return
+    const m = offered.find(fits)
+    if (m) setMethod(m)
+  }, [nairaAmount, stage]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const how = method === 'app' ? 'Money Moves app' : method === 'naira' ? `Bank transfer · ${ngn(nairaAmount)}` : `${asset} on ${chain}`
   const over = !fixed && typed > MAX_PAY[payIn]
   // A typed amount can't go under the link's own least, in whichever money it's typed.
@@ -402,7 +414,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
     void live.start(method, { ...startBody(), ...(method === 'crypto' && asset && chain ? { coin: asset, network: chain } : {}) })
   }
   const maxLabel = payIn === 'NGN' ? ngn(MAX_PAY.NGN).replace('.00', '') : usd(MAX_PAY.USD).replace('.00', '')
-  const canPay = !!amountUsd && !over && !under && !closedLink && !live?.busy && (method !== 'crypto' || (!!asset && !!chain))
+  const canPay = !!amountUsd && !over && !under && !closedLink && !live?.busy && fits(method) && (method !== 'crypto' || (!!asset && !!chain))
   // The typed amount, with thousands separators as it's typed.
   const shownCustom = custom.replace(/^(\d+)/, (m) => Number(m).toLocaleString('en-US'))
   const open = stage === 'choose' || stage === 'pay'
@@ -626,17 +638,21 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
       <div className="rounded-[12px] border border-line bg-card" role="radiogroup">
         {offered.map((m, i) => {
           const on = method === m
+          const ok = fits(m)
           return (
             <div key={m} className={cx(i > 0 && !on && 'border-t border-line')}>
               <div className={cx('transition', on && 'relative z-10 m-[3px] rounded-[10px] border-2')} style={on ? { borderColor: accent } : undefined}>
-                <button role="radio" aria-checked={on} onClick={() => setMethod(m)} className={cx('flex w-full items-center gap-3 text-left', on ? 'px-[13px] py-[13px]' : 'px-4 py-4')}>
+                <button role="radio" aria-checked={on} disabled={!ok} onClick={() => setMethod(m)} className={cx('flex w-full items-center gap-3 text-left', on ? 'px-[13px] py-[13px]' : 'px-4 py-4', !ok && 'cursor-not-allowed opacity-50')}>
                   <span className="flex size-5 shrink-0 items-center justify-center rounded-full border-2" style={{ borderColor: on ? accent : '#C9C6BC' }}>
                     {on && <span className="size-2.5 rounded-full" style={{ background: accent }} />}
                   </span>
                   <span className="text-[#6B6A64]">{METHOD[m].icon(20)}</span>
-                  <span className="min-w-0 flex-1 text-[15px] text-fg">{METHOD[m].label}</span>
-                  {m === 'app' && <span className="rounded-full bg-[#E4F2E8] px-2 py-0.5 text-[11px] font-semibold text-good">No fees</span>}
-                  {m === 'crypto' && (
+                  <span className="min-w-0 flex-1 text-[15px] text-fg">
+                    {METHOD[m].label}
+                    {!ok && <span className="block text-[12.5px] text-muted">{rangeNote(m)}</span>}
+                  </span>
+                  {ok && m === 'app' && <span className="rounded-full bg-[#E4F2E8] px-2 py-0.5 text-[11px] font-semibold text-good">No fees</span>}
+                  {ok && m === 'crypto' && (
                     <span className="flex -space-x-1.5 [&>*]:rounded-full [&>*]:ring-2 [&>*]:ring-white">
                       {coins.map((c) => (
                         <TokenIcon key={c.asset} asset={c.asset} size={22} />

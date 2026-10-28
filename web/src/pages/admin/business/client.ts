@@ -456,12 +456,23 @@ export type DetailChangeView = {
   createdAt: string
 }
 
+/** The ways to pay, as limits name them. */
+export type Way = 'naira' | 'crypto' | 'app'
+export type NgnRange = { minNgn: number; maxNgn: number }
+
 export type BusinessDetail = {
   detailChange: DetailChangeView | null
   business: BusinessRow & {
     settleChain: string
     adminNote: string | null
     risk?: { ownLimitNgn: number | null; limitNgn: number; takenTodayNgn: number }
+    /** One live checkout's least and most per way to pay, and the payout sizes that wait for a person: its own where set, the platform's, and what applies. */
+    limits?: {
+      own: { checkout: Partial<Record<Way, { minNgn?: number | null; maxNgn?: number | null }>>; reviewNairaAboveNgn: number | null; reviewCryptoAboveUsd: number | null }
+      defaults: { checkout: Record<Way, NgnRange>; review: { nairaAboveNgn: number; cryptoAboveUsd: number } }
+      checkout: Record<Way, NgnRange>
+      review: { nairaAboveNgn: number; cryptoAboveUsd: number }
+    }
     referral?: { code: string | null; referredBy: { id: string; name: string } | null; referred: number }
     updatedAt: string
     statusChangedBy: string | null
@@ -622,7 +633,12 @@ export type Platform = {
   coins: { USDC: boolean; USDT: boolean }
   networks: Record<string, boolean>
   fees: { nairaRateBps: number; nairaCapNgn: number; cryptoRateBps: number; cryptoCapUsd: number; appRateBps: number; payoutNgn: number }
-  limits: { businessMinNgn: number; businessMaxNgn: number; freelancerMinNgn: number; freelancerMaxNgn: number }
+  /** The plain four are bank transfer; crypto* and app* are stablecoins and the Money Moves app. */
+  limits: {
+    businessMinNgn: number; businessMaxNgn: number; freelancerMinNgn: number; freelancerMaxNgn: number
+    cryptoBusinessMinNgn: number; cryptoBusinessMaxNgn: number; cryptoFreelancerMinNgn: number; cryptoFreelancerMaxNgn: number
+    appBusinessMinNgn: number; appBusinessMaxNgn: number; appFreelancerMinNgn: number; appFreelancerMaxNgn: number
+  }
   review: { nairaAboveNgn: number; cryptoAboveUsd: number }
   risk: { newDays: number; newDailyNgn: number; dailyNgn: number; spikeTimes: number; spikeMinNgn: number }
 }

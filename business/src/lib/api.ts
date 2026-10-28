@@ -306,6 +306,8 @@ export interface PublicLink {
   /** Naira per dollar, or null while the rate can't be read. */
   rate: number | null
   limits: { minNgn: number; maxNgn: number }
+  /** Each way to pay's own range: a way the amount doesn't fit is greyed out. */
+  wayLimits?: Record<'naira' | 'crypto' | 'app', { minNgn: number; maxNgn: number }>
   simulator: boolean
   /** Our team has paused every checkout for maintenance. */
   maintenance?: boolean

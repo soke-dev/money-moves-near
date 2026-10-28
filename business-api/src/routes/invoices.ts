@@ -147,7 +147,7 @@ router.post("/", requireMember(...MANAGE), async (req, res) => {
   const items: Item[] = b.items.map((x) => ({ name: x.name, qty: x.qty, priceMinor: toMinor(x.price) }));
   const amountMinor = items.reduce((a, x) => a + x.priceMinor * x.qty, 0);
   // The total, inside what one checkout can be for this kind of business.
-  await minorFor(amountMinor / 100, b.currency, "The total", limitsFor(p, business.kind, b.mode));
+  await minorFor(amountMinor / 100, b.currency, "The total", limitsFor(p, business, b.mode));
 
   const now = new Date();
   for (let attempt = 0; attempt < 5; attempt++) {

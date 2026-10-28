@@ -18,13 +18,13 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { createHash } from "crypto";
-import type { Business, BusinessKind, Invoice, Mode, PayMethod, Payment, Prisma } from "@prisma/client";
+import type { Business, Invoice, Mode, PayMethod, Payment, Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { body, HttpError } from "../lib/http";
 import { limited } from "../lib/limits";
 import { ngnPerUsd } from "../lib/rates";
 import { railRef } from "../lib/money";
-import { NETWORKS, forMode, limitsFor, platform, type Platform } from "../lib/platform";
+import { NETWORKS, WAYS, forMode, limitsFor, platform, type OwnLimits, type Platform, type Way } from "../lib/platform";
 import { COINS, offeredAccept, offersCrypto } from "../lib/accept";
 import { canSimulate } from "../rails";
 import { isDev } from "../config/env";
@@ -133,11 +133,13 @@ const publicPayment = (p: Payment, seen: Seen | null = null, returns: Awaited<Re
   simulator: canSimulate(p.mode),
 });
 
-/** How big one checkout can be for this business, in naira - what the page lets the customer type. */
-export const limitsNgn = (p: Platform, kind: BusinessKind, mode: Mode) => {
-  const { minKobo, maxKobo } = limitsFor(p, kind, mode);
+/** How big one checkout can be for this business, in naira - what the page lets the customer type. Given a way to pay, that way's. */
+export const limitsNgn = (p: Platform, b: OwnLimits, mode: Mode, way?: Way) => {
+  const { minKobo, maxKobo } = limitsFor(p, b, mode, way);
   return { minNgn: minKobo / 100, maxNgn: maxKobo / 100 };
 };
+/** Each way to pay's own range, so the page can grey out a way the amount doesn't fit. */
+export const wayLimitsNgn = (p: Platform, b: OwnLimits, mode: Mode) => Object.fromEntries(WAYS.map((w) => [w, limitsNgn(p, b, mode, w)])) as Record<Way, { minNgn: number; maxNgn: number }>;
 const businessOf = (b: Business) => ({ name: b.name, verified: b.status === "VERIFIED", brand: brandOf(b), feePayer: b.feePayer });
 
 
@@ -446,7 +448,8 @@ router.get("/i/:token", watching, async (req, res) => {
     },
     business: businessOf(inv.business),
     rate,
-    limits: limitsNgn(p, inv.business.kind, inv.mode),
+    limits: limitsNgn(p, inv.business, inv.mode),
+    wayLimits: wayLimitsNgn(p, inv.business, inv.mode),
     simulator: canSimulate(inv.mode),
     maintenance: p.maintenance,
     // An account already opened for it, still open: the page picks up where the customer left off.
@@ -513,7 +516,8 @@ router.get("/o/:slug", watching, async (req, res) => {
     outlet: { name: o.name, location: o.location },
     business: businessOf(o.business),
     rate,
-    limits: limitsNgn(p, o.business.kind, o.mode),
+    limits: limitsNgn(p, o.business, o.mode),
+    wayLimits: wayLimitsNgn(p, o.business, o.mode),
     simulator: canSimulate(o.mode),
     maintenance: p.maintenance,
   });
@@ -576,7 +580,8 @@ router.get("/:slug", watching, async (req, res) => {
     },
     business: businessOf(link.business),
     rate,
-    limits: limitsNgn(p, link.business.kind, link.mode),
+    limits: limitsNgn(p, link.business, link.mode),
+    wayLimits: wayLimitsNgn(p, link.business, link.mode),
     simulator: canSimulate(link.mode),
     maintenance: p.maintenance,
   });

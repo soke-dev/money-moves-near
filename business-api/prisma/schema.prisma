@@ -156,6 +156,11 @@ model Business {
   requireAppTwoStep Boolean      @default(false) @map("require_app_two_step")
   /// How much it can take in live in a day before its settlements wait for our team. Null: the platform's default for its age.
   dailyLimitNgn     Int?         @map("daily_limit_ngn")
+  /// Its own least and most for one live checkout, in naira, per way to pay: {"naira":{"minNgn":..,"maxNgn":..},"crypto":{..},"app":{..}}. Missing: the platform's for its kind.
+  ownCheckout       Json?        @map("own_checkout")
+  /// Live payouts above these wait for our team: naira to a bank, and crypto in dollars. Null: the platform's.
+  reviewNairaAboveNgn  Int?      @map("review_naira_above_ngn")
+  reviewCryptoAboveUsd Float?    @map("review_crypto_above_usd")
   /// Where payments made through the API settle when a checkout doesn't say. Null: a checked bank account, then a linked Money Moves account, then the business wallet.
   apiSettleTo       Destination? @map("api_settle_to")
   /// The bank account API payments settle to, when it's a bank.

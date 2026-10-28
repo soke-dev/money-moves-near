@@ -90,7 +90,7 @@ router.get("/:kind/:ref", async (req, res) => {
       // In the checkout's own money, major units: a set price, or null for the person to type.
       amount: c.amountMinor != null ? c.amountMinor / 100 : null,
       min: c.minMinor != null ? c.minMinor / 100 : null,
-      limits: limitsNgn(p, c.business.kind, c.mode),
+      limits: limitsNgn(p, c.business, c.mode, "app"),
       rate: await ngnPerUsd().catch(() => null),
       payable: !stop,
       blocked: stop,

@@ -55,7 +55,8 @@ export async function payBank(s: WalletSend): Promise<void> {
   if (s.kind !== "BANK" || s.status !== "CONFIRMED" || !s.payoutKobo || !s.bankCode || !s.accountNumber) return;
   const rules = await platform();
   // Over the limit: a person releases it. The business only ever sees "on its way".
-  if (needsReview(rules, { kobo: s.payoutKobo })) return;
+  const own = await prisma.business.findUniqueOrThrow({ where: { id: s.businessId }, select: { kind: true, reviewNairaAboveNgn: true } });
+  if (needsReview(rules, own, { kobo: s.payoutKobo })) return;
   if (!(await payoutsOn())) return;
   const claimed = await prisma.walletSend.updateMany({ where: { id: s.id, status: "CONFIRMED" }, data: { status: "PAYING" } });
   if (!claimed.count) return;

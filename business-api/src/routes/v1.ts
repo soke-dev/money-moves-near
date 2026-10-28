@@ -351,7 +351,7 @@ router.post("/checkouts", async (req, res) => {
   const fallback = b.settle_to ? null : await defaultDestination(key.businessId, key.mode, p);
   const asked = b.settle_to ? DEST_IN[b.settle_to] : fallback!.destination;
   const { destination, bankAccountId, business } = await placesFor(key.businessId, key.mode, { methods, destination: asked, bankAccountId: fallback?.bankAccountId });
-  const amountMinor = await minorFor(b.amount, b.currency, "The amount", limitsFor(p, business.kind, key.mode));
+  const amountMinor = await minorFor(b.amount, b.currency, "The amount", limitsFor(p, business, key.mode));
   const expiresAt = expiryOf(b);
   for (let attempt = 0; attempt < 5; attempt++) {
     const slug = `${key.mode === "TEST" ? "test-" : ""}co-${randomBytes(6).toString("hex")}`;

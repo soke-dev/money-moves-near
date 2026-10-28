@@ -34,6 +34,7 @@ import {
   type Paged,
   type Pay,
   type Settle,
+  type Way,
 } from './client'
 import {
   ActionPanel,
@@ -480,6 +481,7 @@ function OverviewTab({ data, go }: { data: BusinessDetail; go: Go }) {
         <DetailsPanel data={data} />
         <FeePanel b={b} />
         <LimitPanel b={b} />
+        <OwnLimitsPanel b={b} />
         <TwoStepResetPanel email={b.owner?.email ?? ''} />
         <VerificationPanel app={app} onOpen={() => go('verification')} />
         <NotesPanel b={b} />
@@ -701,6 +703,126 @@ function LimitPanel({ b }: { b: Biz }) {
         </div>
       )}
     </Panel>
+  )
+}
+
+const WAYS: { id: Way; label: string }[] = [
+  { id: 'naira', label: 'Bank transfer' },
+  { id: 'crypto', label: 'Stablecoins' },
+  { id: 'app', label: 'Money Moves app' },
+]
+const digits = (s: string) => s.replace(/[^0-9]/g, '')
+const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s))
+
+/**
+ * One live checkout's least and most for each way to pay, and the payout sizes
+ * past which a person checks: this business's own, over the platform's on
+ * Services. An empty box keeps the platform's. The business is never told.
+ */
+function OwnLimitsPanel({ b }: { b: Biz }) {
+  const l = b.limits
+  const [editing, setEditing] = useState(false)
+  if (!l) return null
+  const ownCheckout = WAYS.some((w) => l.own.checkout[w.id]?.minNgn != null || l.own.checkout[w.id]?.maxNgn != null)
+  const ownReview = l.own.reviewNairaAboveNgn != null || l.own.reviewCryptoAboveUsd != null
+  return (
+    <Panel title="Checkout and payout limits" action={!editing && <TextButton onClick={() => setEditing(true)}>Change</TextButton>}>
+      {editing ? (
+        <EditOwnLimits b={b} onClose={() => setEditing(false)} />
+      ) : (
+        <div className="space-y-3 text-[13px]">
+          <div className="space-y-1.5">
+            {WAYS.map((w) => {
+              const own = l.own.checkout[w.id]
+              const set = own?.minNgn != null || own?.maxNgn != null
+              return (
+                <div key={w.id} className="flex items-baseline justify-between gap-3">
+                  <span style={{ color: C.muted }}>{w.label}</span>
+                  <span className="tabular-nums" style={{ color: set ? C.text : C.muted }}>
+                    {naira(l.checkout[w.id].minNgn)} to {naira(l.checkout[w.id].maxNgn)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+          <div className="space-y-1.5 border-t pt-3" style={{ borderColor: C.line }}>
+            <div className="flex items-baseline justify-between gap-3">
+              <span style={{ color: C.muted }}>Bank payouts checked above</span>
+              <span className="tabular-nums" style={{ color: l.own.reviewNairaAboveNgn != null ? C.text : C.muted }}>{naira(l.review.nairaAboveNgn)}</span>
+            </div>
+            <div className="flex items-baseline justify-between gap-3">
+              <span style={{ color: C.muted }}>Crypto payouts checked above</span>
+              <span className="tabular-nums" style={{ color: l.own.reviewCryptoAboveUsd != null ? C.text : C.muted }}>${l.review.cryptoAboveUsd.toLocaleString()}</span>
+            </div>
+          </div>
+          <div>
+            <Tag tone={ownCheckout || ownReview ? 'info' : undefined}>{ownCheckout || ownReview ? 'Some set for this business' : 'Platform defaults'}</Tag>
+          </div>
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+function EditOwnLimits({ b, onClose }: { b: Biz; onClose: () => void }) {
+  const l = b.limits!
+  const start = (n: number | null | undefined) => (n != null ? String(n) : '')
+  const [box, setBox] = useState<Record<string, string>>(() => ({
+    ...Object.fromEntries(WAYS.flatMap((w) => [[`${w.id}Min`, start(l.own.checkout[w.id]?.minNgn)], [`${w.id}Max`, start(l.own.checkout[w.id]?.maxNgn)]])),
+    naira: start(l.own.reviewNairaAboveNgn),
+    crypto: start(l.own.reviewCryptoAboveUsd),
+  }))
+  const [password, setPassword] = useState('')
+  const { busy, said, run } = useAction()
+  const put = (k: string, v: string) => setBox((x) => ({ ...x, [k]: v }))
+  const save = async (useDefaults: boolean) => {
+    const body = useDefaults
+      ? { ownCheckout: null, reviewNairaAboveNgn: null, reviewCryptoAboveUsd: null, password }
+      : {
+          ownCheckout: Object.fromEntries(WAYS.map((w) => [w.id, { minNgn: numOrNull(box[`${w.id}Min`]), maxNgn: numOrNull(box[`${w.id}Max`]) }])),
+          reviewNairaAboveNgn: numOrNull(box.naira),
+          reviewCryptoAboveUsd: numOrNull(box.crypto),
+          password,
+        }
+    if (await run(() => biz(`/businesses/${b.id}`, { method: 'PATCH', body }), 'Saved.')) onClose()
+  }
+  return (
+    <div className="space-y-3">
+      <p className="text-[12.5px] leading-relaxed" style={{ color: C.muted }}>
+        For this business only, higher or lower than Services. Leave a box empty to keep the platform's, shown greyed. Live checkouts only; the business is never told.
+      </p>
+      {WAYS.map((w) => (
+        <div key={w.id} className="grid grid-cols-2 gap-3">
+          <Field label={`${w.label}: least, ₦`}>
+            <Input value={box[`${w.id}Min`]} onChange={(e) => put(`${w.id}Min`, digits(e.target.value))} placeholder={String(l.defaults.checkout[w.id].minNgn)} inputMode="numeric" />
+          </Field>
+          <Field label="Most, ₦">
+            <Input value={box[`${w.id}Max`]} onChange={(e) => put(`${w.id}Max`, digits(e.target.value))} placeholder={String(l.defaults.checkout[w.id].maxNgn)} inputMode="numeric" />
+          </Field>
+        </div>
+      ))}
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Check bank payouts above, ₦">
+          <Input value={box.naira} onChange={(e) => put('naira', digits(e.target.value))} placeholder={String(l.defaults.review.nairaAboveNgn)} inputMode="numeric" />
+        </Field>
+        <Field label="Check crypto payouts above, $">
+          <Input value={box.crypto} onChange={(e) => put('crypto', e.target.value.replace(/[^0-9.]/g, ''))} placeholder={String(l.defaults.review.cryptoAboveUsd)} inputMode="decimal" />
+        </Field>
+      </div>
+      <PasswordInput full value={password} onChange={setPassword} />
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button small onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button small disabled={busy || !password} onClick={() => void save(true)}>
+          Use defaults
+        </Button>
+        <Button small tone="primary" disabled={busy || !password} onClick={() => void save(false)}>
+          {busy ? 'Saving…' : 'Save limits'}
+        </Button>
+      </div>
+      {said && !said.ok && <Said {...said} />}
+    </div>
   )
 }
 

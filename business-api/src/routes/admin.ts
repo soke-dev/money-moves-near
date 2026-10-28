@@ -11,7 +11,8 @@
  */
 import { Router, type Request } from "express";
 import { z } from "zod";
-import type { BankAccount, BusinessStatus, CryptoArrival, Mode, Payment, PaymentLink, Prisma, Refund, RefundEvent, SettleChain, Settlement, SettlementEvent, SettlementStatus, User } from "@prisma/client";
+import { Prisma } from "@prisma/client";
+import type { BankAccount, BusinessStatus, CryptoArrival, Mode, Payment, PaymentLink, Refund, RefundEvent, SettleChain, Settlement, SettlementEvent, SettlementStatus, User } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { body, HttpError } from "../lib/http";
 import { audit } from "../lib/audit";
@@ -24,7 +25,10 @@ import { REFUND_WITHIN_MS, markRefundSent } from "../services/refunds";
 import { requestShape } from "./requests";
 import adminSupportRoutes from "./admin-support";
 import { keepOneDefault, nameOnRecord, recheckBanks } from "../lib/banks";
-import { DEFAULT_CHAIN, NETWORKS, PLATFORM_DEFAULTS, chainPaused, effectiveChain, nairaDefaults, payoutsOn, platform, platformSchema, platformWithMeta, savePlatform } from "../lib/platform";
+import { DEFAULT_CHAIN, NETWORKS, PLATFORM_DEFAULTS, WAYS, chainPaused, effectiveChain, kindLimitsNgn, nairaDefaults, ownCheckoutOf, ownCheckoutSchema, payoutsOn, platform, platformSchema, platformWithMeta, reviewLimits, savePlatform, type Way } from "../lib/platform";
+import { wayLimitsNgn } from "./pay";
+
+const WAY_LABEL: Record<Way, string> = { naira: "Bank transfer", crypto: "Stablecoins", app: "Money Moves app" };
 import { COIN_NETWORKS, liveReady, notLiveWhy } from "../lib/accept";
 import { appPayReady } from "../lib/app-pay";
 import { appLinksReady } from "../lib/app-links";
@@ -393,6 +397,13 @@ router.get("/businesses/:id", async (req, res) => {
       referral: { code: b.referralCode, referredBy: referrer, referred: referredCount },
       /** Past this in a day, its live settlements wait for a person. */
       risk: { ownLimitNgn: b.dailyLimitNgn, limitNgn: dailyLimitNgn(b, p), takenTodayNgn: (await takenTodayKobo(prisma, b.id)) / 100 },
+      /** One live checkout's least and most, and the payout sizes that wait for a person: its own where set, and what applies. */
+      limits: {
+        own: { checkout: ownCheckoutOf(b.ownCheckout), reviewNairaAboveNgn: b.reviewNairaAboveNgn, reviewCryptoAboveUsd: b.reviewCryptoAboveUsd },
+        defaults: { checkout: Object.fromEntries(WAYS.map((w) => [w, kindLimitsNgn(p, b.kind, w)])), review: p.review },
+        checkout: wayLimitsNgn(p, b, "LIVE"),
+        review: reviewLimits(p, b),
+      },
       updatedAt: b.updatedAt,
       statusChangedBy: statusEntry ? byOf(statusEntry, people) : null,
       nameOnRecord: await nameOnRecord(id),
@@ -466,6 +477,10 @@ const editInput = z.object({
   feeCapNgn: z.number().min(0).max(100_000, "Keep the cap at ₦100,000 or under.").nullish(),
   /** Its own daily limit in naira. Null puts the platform's default back. */
   dailyLimitNgn: z.number().int().min(0).max(10_000_000_000).nullish(),
+  /** Its own least and most for one live checkout, and the payout sizes past which a person checks. Null puts the platform's back. */
+  ownCheckout: ownCheckoutSchema.nullish(),
+  reviewNairaAboveNgn: z.number().int().min(0).max(100_000_000).nullish(),
+  reviewCryptoAboveUsd: z.number().min(0).max(1_000_000).nullish(),
   password: z.string().max(200).optional(),
 });
 
@@ -475,8 +490,20 @@ router.patch("/businesses/:id", async (req, res) => {
   const before = await prisma.business.findUnique({ where: { id } });
   if (!before) throw new HttpError(404, "No business with that id.", "not_found");
   // A name decides whose bank accounts can be paid, and a fee is money: both take the password. A note doesn't.
-  const sensitive = b.name !== undefined || b.kind !== undefined || b.feeRateBps !== undefined || b.feeCapNgn !== undefined || b.dailyLimitNgn !== undefined;
+  const ownLimits = b.ownCheckout !== undefined || b.reviewNairaAboveNgn !== undefined || b.reviewCryptoAboveUsd !== undefined;
+  const sensitive = b.name !== undefined || b.kind !== undefined || b.feeRateBps !== undefined || b.feeCapNgn !== undefined || b.dailyLimitNgn !== undefined || ownLimits;
   if (sensitive) await needActionPassword(req, b.password, "edit_business");
+  // The least has to stay under the most, counting the platform's for whichever isn't set here.
+  if (b.ownCheckout !== undefined || b.kind !== undefined) {
+    const p = await platform();
+    const own = b.ownCheckout !== undefined ? (b.ownCheckout ?? {}) : ownCheckoutOf(before.ownCheckout);
+    for (const w of WAYS) {
+      const d = kindLimitsNgn(p, b.kind ?? before.kind, w);
+      const min = own[w]?.minNgn ?? d.minNgn;
+      const max = own[w]?.maxNgn ?? d.maxNgn;
+      if (min >= max) throw new HttpError(400, `${WAY_LABEL[w]}: the least a checkout can be (₦${min.toLocaleString()}) has to be under the most (₦${max.toLocaleString()}).`, "bad_limits");
+    }
+  }
   const data: Prisma.BusinessUpdateInput = {};
   if (b.name !== undefined) data.name = b.name;
   if (b.kind !== undefined) data.kind = b.kind;
@@ -485,6 +512,13 @@ router.patch("/businesses/:id", async (req, res) => {
   if (b.feeRateBps !== undefined) data.feeRateBps = b.feeRateBps;
   if (b.feeCapNgn !== undefined) data.feeCapKobo = b.feeCapNgn == null ? null : Math.round(b.feeCapNgn * 100);
   if (b.dailyLimitNgn !== undefined) data.dailyLimitNgn = b.dailyLimitNgn;
+  if (b.ownCheckout !== undefined) {
+    // Only the boxes actually filled in are kept; an empty set puts the platform's back.
+    const kept = Object.fromEntries(WAYS.flatMap((w) => { const x = b.ownCheckout?.[w]; const pair = { ...(x?.minNgn != null ? { minNgn: x.minNgn } : {}), ...(x?.maxNgn != null ? { maxNgn: x.maxNgn } : {}) }; return Object.keys(pair).length ? [[w, pair]] : []; }));
+    data.ownCheckout = Object.keys(kept).length ? kept : Prisma.DbNull;
+  }
+  if (b.reviewNairaAboveNgn !== undefined) data.reviewNairaAboveNgn = b.reviewNairaAboveNgn;
+  if (b.reviewCryptoAboveUsd !== undefined) data.reviewCryptoAboveUsd = b.reviewCryptoAboveUsd;
   await prisma.business.update({ where: { id }, data });
   if (b.name !== undefined || b.kind !== undefined) await recheckBanks(id);
   const changed = Object.keys(data);

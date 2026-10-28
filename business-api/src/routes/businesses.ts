@@ -137,7 +137,7 @@ router.get("/:businessId/checkout-preview", requireMember(), async (req, res) =>
   const business = await prisma.business.findUniqueOrThrow({ where: { id: req.member!.businessId } });
   const mode = req.query.mode === "LIVE" ? "LIVE" : "TEST";
   const rate = await ngnPerUsd().catch(() => null);
-  res.json({ rate, limits: limitsNgn(await platform(), business.kind, mode), simulator: canSimulate(mode) });
+  res.json({ rate, limits: limitsNgn(await platform(), business, mode), simulator: canSimulate(mode) });
 });
 
 /**

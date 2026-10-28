@@ -14,7 +14,7 @@
  * new switch never needs a migration.
  */
 import { z } from "zod";
-import type { BusinessKind, Mode, Prisma, SettleChain } from "@prisma/client";
+import type { BusinessKind, Mode, PayMethod, Prisma, SettleChain } from "@prisma/client";
 import { prisma } from "./prisma";
 import { log } from "./log";
 
@@ -47,15 +47,31 @@ export const platformSchema = z.object({
     appRateBps: z.number().int().min(0).max(1000),
     payoutNgn: z.number().min(0).max(10_000),
   }),
-  /** The least and the most one checkout can be: for a registered business, and for someone working for themselves. */
+  /**
+   * The least and the most one checkout can be, per way to pay: for a
+   * registered business, and for someone working for themselves. The plain
+   * four are bank transfer; crypto* and app* are stablecoins and the Money
+   * Moves app. At most ₦20 million: an amount is a 32-bit count of kobo.
+   */
   limits: z
     .object({
       businessMinNgn: z.number().min(1).max(1_000_000),
-      businessMaxNgn: z.number().min(1_000).max(100_000_000),
+      businessMaxNgn: z.number().min(1_000).max(20_000_000),
       freelancerMinNgn: z.number().min(1).max(1_000_000),
-      freelancerMaxNgn: z.number().min(1_000).max(100_000_000),
+      freelancerMaxNgn: z.number().min(1_000).max(20_000_000),
+      cryptoBusinessMinNgn: z.number().min(1).max(1_000_000),
+      cryptoBusinessMaxNgn: z.number().min(1_000).max(20_000_000),
+      cryptoFreelancerMinNgn: z.number().min(1).max(1_000_000),
+      cryptoFreelancerMaxNgn: z.number().min(1_000).max(20_000_000),
+      appBusinessMinNgn: z.number().min(1).max(1_000_000),
+      appBusinessMaxNgn: z.number().min(1_000).max(20_000_000),
+      appFreelancerMinNgn: z.number().min(1).max(1_000_000),
+      appFreelancerMaxNgn: z.number().min(1_000).max(20_000_000),
     })
-    .refine((l) => l.businessMinNgn < l.businessMaxNgn && l.freelancerMinNgn < l.freelancerMaxNgn, "The least a checkout can be has to be under the most."),
+    .refine(
+      (l) => (["", "crypto", "app"] as const).every((m) => (["business", "freelancer"] as const).every((k) => limitPair(l, m, k).minNgn < limitPair(l, m, k).maxNgn)),
+      "The least a checkout can be has to be under the most.",
+    ),
   /**
    * Live payouts bigger than these wait for a person. Naira: settlements to a
    * bank, and - once the business wallet exists - naira sent out of it. Crypto:
@@ -94,7 +110,11 @@ export const PLATFORM_DEFAULTS: Platform = {
   coins: { USDC: true, USDT: true },
   networks: Object.fromEntries(NETWORKS.map((n) => [n, true])) as Platform["networks"],
   fees: { nairaRateBps: 50, nairaCapNgn: 1_000, cryptoRateBps: 50, cryptoCapUsd: 1, appRateBps: 0, payoutNgn: 100 },
-  limits: { businessMinNgn: 100, businessMaxNgn: 1_000_000, freelancerMinNgn: 100, freelancerMaxNgn: 500_000 },
+  limits: {
+    businessMinNgn: 100, businessMaxNgn: 1_000_000, freelancerMinNgn: 100, freelancerMaxNgn: 500_000,
+    cryptoBusinessMinNgn: 100, cryptoBusinessMaxNgn: 1_000_000, cryptoFreelancerMinNgn: 100, cryptoFreelancerMaxNgn: 500_000,
+    appBusinessMinNgn: 100, appBusinessMaxNgn: 1_000_000, appFreelancerMinNgn: 100, appFreelancerMaxNgn: 500_000,
+  },
   review: { nairaAboveNgn: 50_000, cryptoAboveUsd: 50 },
   risk: { newDays: 30, newDailyNgn: 2_000_000, dailyNgn: 20_000_000, spikeTimes: 3, spikeMinNgn: 500_000 },
 };
@@ -113,6 +133,16 @@ function withDefaults(stored: unknown): Platform {
     const v = s[k];
     merged[k] = d && typeof d === "object" ? { ...d, ...(v && typeof v === "object" ? v : {}) } : (v ?? d);
   }
+  // Limits saved before each way to pay had its own: crypto and the app start where bank transfer was.
+  const sl = (s.limits && typeof s.limits === "object" ? s.limits : {}) as Record<string, unknown>;
+  const ml = merged.limits as Record<string, unknown>;
+  for (const m of ["crypto", "app"])
+    for (const f of ["BusinessMinNgn", "BusinessMaxNgn", "FreelancerMinNgn", "FreelancerMaxNgn"]) {
+      const plain = f[0].toLowerCase() + f.slice(1);
+      if (sl[m + f] === undefined && sl[plain] !== undefined) ml[m + f] = sl[plain];
+    }
+  // A most saved before the ₦20 million ceiling comes down to it, rather than failing every setting.
+  for (const [k, v] of Object.entries(ml)) if (k.endsWith("MaxNgn") && typeof v === "number" && v > 20_000_000) ml[k] = 20_000_000;
   const ok = platformSchema.safeParse(merged);
   if (ok.success) return ok.data;
   log.error("[platform] stored settings don't fit, using the defaults", { problem: ok.error.issues[0]?.message });
@@ -182,18 +212,73 @@ export const nairaDefaults = (p: Platform) => ({ rateBps: p.fees.nairaRateBps, c
  */
 export const TEST_LIMITS = { minKobo: 100, maxKobo: 20_000_000 * 100 };
 
-/** How big one checkout can be: the business's kind's limits when live, none to speak of in test. */
-export function limitsFor(p: Platform, kind: BusinessKind, mode: Mode) {
-  return mode === "TEST" ? TEST_LIMITS : checkoutLimits(p, kind);
+/** The ways to pay, as the limits name them. */
+export const WAYS = ["naira", "crypto", "app"] as const;
+export type Way = (typeof WAYS)[number];
+export const WAY_OF: Record<PayMethod, Way> = { NAIRA: "naira", CRYPTO: "crypto", APP: "app" };
+const WAY_NAME: Record<Way, string> = { naira: "Paying by bank transfer", crypto: "Paying with stablecoins", app: "Paying with the Money Moves app" };
+
+/** One way to pay's least and most for one kind, out of the flat platform limits. */
+function limitPair(l: Record<string, number>, m: "" | "crypto" | "app", k: "business" | "freelancer") {
+  const key = (s: string) => (m ? m + k[0].toUpperCase() + k.slice(1) + s : k + s);
+  return { minNgn: l[key("MinNgn")], maxNgn: l[key("MaxNgn")] };
 }
 
-/** How big one checkout can be for a business of this kind, in kobo. */
-export function checkoutLimits(p: Platform, kind: BusinessKind) {
-  const [min, max] = kind === "INDIVIDUAL" ? [p.limits.freelancerMinNgn, p.limits.freelancerMaxNgn] : [p.limits.businessMinNgn, p.limits.businessMaxNgn];
-  return { minKobo: Math.round(min * 100), maxKobo: Math.round(max * 100) };
+const ownPair = z.object({ minNgn: z.number().int().min(1).max(1_000_000).nullish(), maxNgn: z.number().int().min(1_000).max(20_000_000).nullish() });
+/** A business's own least and most per way to pay, as the admin console sets them. Any of them may be missing. */
+export const ownCheckoutSchema = z.object({ naira: ownPair, crypto: ownPair, app: ownPair }).partial();
+export type OwnCheckout = z.infer<typeof ownCheckoutSchema>;
+export const ownCheckoutOf = (v: unknown): OwnCheckout => {
+  const r = ownCheckoutSchema.safeParse(v ?? {});
+  return r.success ? r.data : {};
+};
+
+/** What a business can have set for itself on the admin console, over the platform's. */
+export type OwnLimits = {
+  kind: BusinessKind;
+  ownCheckout?: Prisma.JsonValue | null;
+  reviewNairaAboveNgn?: number | null;
+  reviewCryptoAboveUsd?: number | null;
+};
+
+/** The platform's least and most for a business of this kind paying this way, in naira. */
+export function kindLimitsNgn(p: Platform, kind: BusinessKind, way: Way) {
+  return limitPair(p.limits as unknown as Record<string, number>, way === "naira" ? "" : way, kind === "INDIVIDUAL" ? "freelancer" : "business");
 }
 
-/** Whether a live payout this big waits for a person: naira in kobo, crypto in dollars. */
+/**
+ * How big one checkout paid this way can be for this business, in kobo: its
+ * own least and most where our team set them, else its kind's. An own least
+ * that ends up at or over the most (the platform's most lowered after it was
+ * set) is ignored.
+ */
+export function wayLimits(p: Platform, b: OwnLimits, way: Way) {
+  const d = kindLimitsNgn(p, b.kind, way);
+  const own = ownCheckoutOf(b.ownCheckout)[way];
+  const max = Math.min(own?.maxNgn ?? d.maxNgn, TEST_LIMITS.maxKobo / 100);
+  let min = own?.minNgn ?? d.minNgn;
+  if (min >= max) min = Math.min(d.minNgn, max - 1);
+  return { minKobo: Math.round(min * 100), maxKobo: Math.round(max * 100), how: WAY_NAME[way] };
+}
+
+/**
+ * How big one checkout can be. Paid a given way: that way's limits. Not yet
+ * (making a link or an invoice, or the amount box before a way is picked):
+ * the widest of them, and the way is checked when the payment starts. Test
+ * mode has none to speak of.
+ */
+export function limitsFor(p: Platform, b: OwnLimits, mode: Mode, way?: Way | PayMethod): { minKobo: number; maxKobo: number; how?: string } {
+  if (mode === "TEST") return TEST_LIMITS;
+  if (way) return wayLimits(p, b, way in WAY_OF ? WAY_OF[way as PayMethod] : (way as Way));
+  const all = WAYS.map((w) => wayLimits(p, b, w));
+  return { minKobo: Math.min(...all.map((x) => x.minKobo)), maxKobo: Math.max(...all.map((x) => x.maxKobo)) };
+}
+
+/** Above these, a live payout waits for a person: the business's own, else the platform's. */
+export function reviewLimits(p: Platform, b: OwnLimits) {
+  return { nairaAboveNgn: b.reviewNairaAboveNgn ?? p.review.nairaAboveNgn, cryptoAboveUsd: b.reviewCryptoAboveUsd ?? p.review.cryptoAboveUsd };
+}
+
 /**
  * The switches as a payment in this mode sees them. Test mode runs on the
  * simulator, so the kill switches and pauses - maintenance, payouts, ways to
@@ -207,5 +292,8 @@ export function forMode(p: Platform, mode: Mode): Platform {
   return { ...p, maintenance: false, payouts: true, methods: allOn(p.methods), channels: allOn(p.channels), destinations: allOn(p.destinations), coins: allOn(p.coins), networks: allOn(p.networks) };
 }
 
-export const needsReview = (p: Platform, payout: { kobo: number } | { usd: number }) =>
-  "kobo" in payout ? payout.kobo > Math.round(p.review.nairaAboveNgn * 100) : payout.usd > p.review.cryptoAboveUsd;
+/** Whether a live payout this big waits for a person: naira in kobo, crypto in dollars, against this business's limits. */
+export const needsReview = (p: Platform, b: OwnLimits, payout: { kobo: number } | { usd: number }) => {
+  const r = reviewLimits(p, b);
+  return "kobo" in payout ? payout.kobo > Math.round(r.nairaAboveNgn * 100) : payout.usd > r.cryptoAboveUsd;
+};

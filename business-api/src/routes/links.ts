@@ -102,7 +102,7 @@ router.post("/", requireMember(...MANAGE), async (req, res) => {
   const b = body(createInput, req);
   const { destination, bankAccountId, business } = await placesFor(businessId, b.mode, b);
   if (b.mode === "LIVE" && business.status !== "VERIFIED") throw new HttpError(403, "Activate your business to take real payments. Test links work in the meantime.", "business_unverified");
-  const limits = limitsFor(p, business.kind, b.mode);
+  const limits = limitsFor(p, business, b.mode);
 
   const fixed = b.amount != null;
   const data = {
@@ -147,8 +147,8 @@ router.patch("/:linkId", requireMember(...MANAGE), async (req, res) => {
   const link = await prisma.paymentLink.findFirst({ where: { id: String(req.params.linkId), businessId, deletedAt: null } });
   if (!link) throw new HttpError(404, "That link isn't here any more.", "not_found");
   const b = body(updateInput, req);
-  const { kind } = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { kind: true } });
-  const limits = limitsFor(await platform(), kind, link.mode);
+  const own = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { kind: true, ownCheckout: true } });
+  const limits = limitsFor(await platform(), own, link.mode);
   const currency = b.currency ?? link.currency;
   const data: Prisma.PaymentLinkUncheckedUpdateInput = {};
   if (b.name !== undefined) data.name = b.name;

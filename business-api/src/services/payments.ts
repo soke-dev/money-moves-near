@@ -35,7 +35,7 @@ import {
   toMinor,
 } from "../lib/money";
 import { canSimulate, railsFor } from "../rails";
-import { chainPaused, effectiveChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, type Platform } from "../lib/platform";
+import { chainPaused, effectiveChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, reviewLimits, type Platform } from "../lib/platform";
 import { floatSend, floatTxStatus, NotSent, type FloatChain, type Sent } from "../lib/float";
 import { stellarFromSolana } from "../lib/stellar";
 import { linkAddress } from "../lib/app-links";
@@ -107,13 +107,16 @@ const CHANNEL = { link: "links", invoice: "invoices", outlet: "outlets" } as con
 const INACTIVE = { link: "This link isn't taking payments right now.", invoice: "This invoice isn't waiting for a payment.", outlet: "This store isn't taking payments right now." };
 const PAUSED = { link: "Payment links are paused right now. Try again a little later.", invoice: "Invoices are paused right now. Try again a little later.", outlet: "Store payments are paused right now. Try again a little later." };
 
-/** What the customer has to send, and its dollar side - inside the limits for this kind of business. */
-function priceFor(c: Checkout, input: OpenInput, rate: number, limits: { minKobo: number; maxKobo: number }): { amountKobo: number; amountCents: number } {
+/** What the customer has to send, and its dollar side - inside the limits for this business and the way it's paid. */
+function priceFor(c: Checkout, input: OpenInput, rate: number, limits: { minKobo: number; maxKobo: number; how?: string }): { amountKobo: number; amountCents: number } {
   const { minKobo: MIN_KOBO, maxKobo: MAX_KOBO } = limits;
+  // Each way to pay has its own limits: say which, so the customer can pick another.
+  const tooBig = (fallback: string) => (limits.how ? `${limits.how} goes up to ${formatMinor(MAX_KOBO, "NGN")} here. Choose another way to pay.` : fallback);
+  const tooSmall = () => (limits.how ? `${limits.how} starts at ${formatMinor(MIN_KOBO, "NGN")} here. Choose another way to pay.` : `The least one payment can be is ${formatMinor(MIN_KOBO, "NGN")}.`);
   if (c.amountMinor != null) {
     const p = c.currency === "NGN" ? { amountKobo: c.amountMinor, amountCents: koboToCents(c.amountMinor, rate) } : { amountKobo: centsToKobo(c.amountMinor, rate), amountCents: c.amountMinor };
-    if (p.amountKobo > MAX_KOBO) throw new HttpError(400, `This ${c.kind === "invoice" ? "invoice" : "price"} is more than one payment can be.`, "above_maximum");
-    if (p.amountKobo < MIN_KOBO) throw new HttpError(400, `The least one payment can be is ${formatMinor(MIN_KOBO, "NGN")}.`, "below_minimum");
+    if (p.amountKobo > MAX_KOBO) throw new HttpError(400, tooBig(`This ${c.kind === "invoice" ? "invoice" : "price"} is more than one payment can be.`), "above_maximum");
+    if (p.amountKobo < MIN_KOBO) throw new HttpError(400, tooSmall(), "below_minimum");
     return p;
   }
   if (!input.amount || !(input.amount > 0)) throw new HttpError(400, "Enter the amount you're paying.", "amount_required");
@@ -124,8 +127,8 @@ function priceFor(c: Checkout, input: OpenInput, rate: number, limits: { minKobo
   if (c.minMinor != null && (c.currency === "NGN" ? amountKobo : amountCents) < c.minMinor) {
     throw new HttpError(400, `The least you can pay here is ${formatMinor(c.minMinor, c.currency)}.`, "below_minimum");
   }
-  if (amountKobo > MAX_KOBO) throw new HttpError(400, `The most one payment can be is ${formatMinor(MAX_KOBO, "NGN")}.`, "above_maximum");
-  if (amountKobo < MIN_KOBO) throw new HttpError(400, `The least one payment can be is ${formatMinor(MIN_KOBO, "NGN")}.`, "below_minimum");
+  if (amountKobo > MAX_KOBO) throw new HttpError(400, tooBig(`The most one payment can be is ${formatMinor(MAX_KOBO, "NGN")}.`), "above_maximum");
+  if (amountKobo < MIN_KOBO) throw new HttpError(400, tooSmall(), "below_minimum");
   return { amountKobo, amountCents };
 }
 
@@ -153,7 +156,7 @@ export async function admit(c: Checkout, method: PayMethod, input: OpenInput) {
   if (!p.channels[CHANNEL[c.kind]]) throw new HttpError(503, PAUSED[c.kind], "channel_paused");
   if (!p.methods[method === "NAIRA" ? "naira" : method === "APP" ? "app" : "crypto"]) throw new HttpError(503, METHOD_PAUSED[method], "method_paused");
   const rate = await ngnPerUsd();
-  const price = priceFor(c, input, rate, limitsFor(p, c.business.kind, c.mode));
+  const price = priceFor(c, input, rate, limitsFor(p, c.business, c.mode, method));
   // The customer pays the fee: added on top, so the business receives its full price.
   if (c.feePayer === "CUSTOMER") {
     const fee = feeOn(method, price.amountKobo, rate, await platform(), c.business);
@@ -523,7 +526,7 @@ async function settlementFor(
     const banks = await tx.bankAccount.findMany({ where: { businessId: p.businessId, removedAt: null, nameMatches: true }, orderBy: { createdAt: "asc" } });
     const pick = banks.find((b) => b.id === source?.bankAccountId) ?? banks.find((b) => b.isDefault) ?? banks[0];
     if (pick) {
-      const why = held ?? (needsReview(rules, { kobo: amountKobo }) ? { limitNgn: rules.review.nairaAboveNgn } : null);
+      const why = held ?? (needsReview(rules, business, { kobo: amountKobo }) ? { limitNgn: reviewLimits(rules, business).nairaAboveNgn } : null);
       return {
         why,
         data: { ...base, destination: "BANK", status: why ? "REVIEW" : "QUEUED", bankAccountId: pick.id, bankCode: pick.bankCode, bankName: pick.bankName, accountNumber: pick.accountNumber, accountName: pick.accountName },
@@ -538,7 +541,7 @@ async function settlementFor(
       return { why: null, data: { ...base, destination: "MONEY_MOVES", status: "HELD", failureReason: links[0] ? "Settling to Money Moves is paused right now." : "No linked Money Moves account." } };
     }
     const amountMicros = BigInt(Math.floor((amountKobo / 100 / p.ngnPerUsd) * 1e6));
-    const why = held ?? (needsReview(rules, { usd: Number(amountMicros) / 1e6 }) ? { limitUsd: rules.review.cryptoAboveUsd } : null);
+    const why = held ?? (needsReview(rules, business, { usd: Number(amountMicros) / 1e6 }) ? { limitUsd: reviewLimits(rules, business).cryptoAboveUsd } : null);
     const chain = effectiveChain(business.settleChain, rules);
     return { why, data: { ...base, destination: "MONEY_MOVES", status: why ? "REVIEW" : "QUEUED", chain, amountMicros, providerRef: links[0].appLinkId, failureReason: pausedNote(chain, rules) } };
   }
@@ -560,7 +563,7 @@ async function settlementFor(
   }
   const amountMicros = BigInt(Math.floor((amountKobo / 100 / p.ngnPerUsd) * 1e6));
   const usd = Number(amountMicros) / 1e6;
-  const why = held ?? (needsReview(rules, { usd }) ? { limitUsd: rules.review.cryptoAboveUsd } : null);
+  const why = held ?? (needsReview(rules, business, { usd }) ? { limitUsd: reviewLimits(rules, business).cryptoAboveUsd } : null);
   return { why, data: { ...base, destination: "WALLET", status: why ? "REVIEW" : "QUEUED", chain, toAddress, amountMicros, failureReason: pausedNote(chain, rules) } };
 }
 
