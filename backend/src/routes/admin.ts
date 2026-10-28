@@ -32,7 +32,7 @@ import {
 } from "../lib/voucher";
 import { cutPot, parseSlices, describe, toAmount, type Spread } from "../lib/voucher-split";
 import { escrowReconciliation, sweepRefunds } from "../lib/user-voucher";
-import { SOL_TRANSFERS_PER_DAY } from "../lib/transfer-limits";
+import { SOL_CAP_RANGE, setSolTransfersPerDay, solCapMeta, solTransfersPerDay, SOL_TRANSFERS_PER_DAY } from "../lib/transfer-limits";
 import { MAX_ACCOUNTS_PER_DEVICE } from "../lib/signup-limits";
 import { voucherEscrowAddress, isVoucherEscrowConfigured } from "../lib/voucher-escrow";
 import {
@@ -365,6 +365,37 @@ const ratesSchema = z.object({
   fundMax: nullableNaira(0, 20000),
   sellMax: nullableNaira(0, 20000),
   password: z.string().max(200).optional(),
+});
+
+/**
+ * How many Solana sends (withdrawals and username transfers together) one
+ * account may make a day. Raising it lets more through, and every Solana send
+ * can cost us rent, so a change takes the action password.
+ */
+router.get("/limits", requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json({ solTransfersPerDay: await solTransfersPerDay(), defaultSolTransfersPerDay: SOL_TRANSFERS_PER_DAY, range: SOL_CAP_RANGE, ...(await solCapMeta()) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/limits", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const by = String((req as any).adminEmail || "admin");
+    const n = Number(req.body?.solTransfersPerDay);
+    if (!Number.isInteger(n) || n < SOL_CAP_RANGE.min || n > SOL_CAP_RANGE.max) {
+      return res.status(400).json({ error: `Pick a whole number from ${SOL_CAP_RANGE.min} to ${SOL_CAP_RANGE.max}.` });
+    }
+    const gate = await checkActionPassword(by, req.body.password, "limits");
+    if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
+    const before = await solTransfersPerDay();
+    await setSolTransfersPerDay(n, by);
+    console.log(`[ADMIN] Solana sends a day changed by ${by}: ${before} to ${n}`);
+    res.json({ solTransfersPerDay: n, defaultSolTransfersPerDay: SOL_TRANSFERS_PER_DAY, range: SOL_CAP_RANGE, ...(await solCapMeta()) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 router.put(
@@ -1937,7 +1968,8 @@ router.post(
 router.get("/radar", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const hours = Math.min(Math.max(Number(req.query.hours) || 24, 1), 168);
-    const min = Math.max(Number(req.query.min) || SOL_TRANSFERS_PER_DAY, 1);
+    const solCap = await solTransfersPerDay();
+    const min = Math.max(Number(req.query.min) || solCap, 1);
     const since = new Date(Date.now() - hours * 60 * 60_000);
 
     const rows = await prisma.transaction.groupBy({
@@ -1998,7 +2030,7 @@ router.get("/radar", requireAdmin, async (req: Request, res: Response, next: Nex
     res.json({
       window: { hours, since: since.toISOString() },
       threshold: min,
-      solanaDailyCap: SOL_TRANSFERS_PER_DAY,
+      solanaDailyCap: solCap,
       count: flagged.length,
       rows: flagged.map((t) => {
         const u = who.get(t.userId);
@@ -2015,7 +2047,7 @@ router.get("/radar", requireAdmin, async (req: Request, res: Response, next: Nex
           total: t.total,
           chains: t.chains,
           // Already refused by the gate rather than merely noticed.
-          atCap: t.solana >= SOL_TRANSFERS_PER_DAY,
+          atCap: t.solana >= solCap,
         };
       }),
     });

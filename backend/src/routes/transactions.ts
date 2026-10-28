@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../lib/prisma";
 import {
-  SOL_TRANSFERS_PER_DAY,
+  solTransfersPerDay,
   SPONSORED_PER_HOUR,
   SPONSORED_PER_DAY,
 } from "../lib/transfer-limits";
@@ -141,11 +141,11 @@ async function solanaDayLimit(
   chain: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   if (chain !== "SOL") return { ok: true };
-  const used = await solanaTransfersToday(userId);
-  if (used >= SOL_TRANSFERS_PER_DAY) {
+  const [used, cap] = await Promise.all([solanaTransfersToday(userId), solTransfersPerDay()]);
+  if (used >= cap) {
     return {
       ok: false,
-      error: `You have used all ${SOL_TRANSFERS_PER_DAY} of today's Solana transfers. Try again tomorrow.`,
+      error: `You have used all ${cap} of today's Solana transfers. Try again tomorrow.`,
     };
   }
   return { ok: true };

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import { PersonalCrypto } from './PersonalCrypto'
 import { SwapSettings } from './SwapSettings'
+import { LimitsSettings } from './LimitsSettings'
 import {
   C, MONO, H1, Label, Mono, Card, Row, MetaBit, Status, Empty, Loading,
   Btn, Chips, Search, Field, Input, Textarea, Modal, Detail, Pager,
@@ -680,9 +681,9 @@ function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: 
   )
 }
 
-type ServicesTab = 'pause' | 'providers' | 'rates' | 'converted' | 'swap' | 'emails'
+type ServicesTab = 'pause' | 'providers' | 'rates' | 'converted' | 'swap' | 'limits' | 'emails'
 
-const SERVICES_TABS: ServicesTab[] = ['pause', 'providers', 'rates', 'converted', 'swap', 'emails']
+const SERVICES_TABS: ServicesTab[] = ['pause', 'providers', 'rates', 'converted', 'swap', 'limits', 'emails']
 
 function Services() {
   // The tab is the second part of the address (#services/swap), so a refresh keeps it.
@@ -790,6 +791,7 @@ function Services() {
           ['rates', 'Naira rates'],
           ['converted', 'Converted'],
           ['swap', 'Swap'],
+          ['limits', 'Limits'],
           ['emails', 'Emails'],
         ]}
       />
@@ -1001,6 +1003,8 @@ function Services() {
       {tab === 'converted' && <Routed />}
 
       {tab === 'swap' && <SwapSettings />}
+
+      {tab === 'limits' && <LimitsSettings />}
 
       {tab === 'emails' && (
         <Panel
