@@ -132,8 +132,9 @@ function DirectDetail({ id, onClose }: { id: string; onClose: () => void }) {
           {data.deposits.length > 0 && <Deposits deposits={data.deposits} onDone={() => void reload()} />}
           <Payments businessId={b.id} payments={data.payments} onDone={() => void reload()} />
         </div>
-        <aside className="min-w-0">
+        <aside className="min-w-0 space-y-5">
           <Limits b={b} onDone={() => void reload()} />
+          {b.account && <Feed id={b.id} />}
         </aside>
       </div>
     </div>
@@ -295,6 +296,31 @@ function DepositActions({ d, onClose, onDone }: { d: Deposit; onClose: () => voi
       )}
       {said && <Said {...said} />}
     </div>
+  )
+}
+
+/** The account's own record of what moved, read on request, as it comes back. */
+function Feed({ id }: { id: string }) {
+  const [on, setOn] = useState(false)
+  const { data, error, loading, reload } = useLoad<{ ok: boolean; status: number; message: string; data: unknown }>(on ? `/direct/${id}/feed` : null)
+  const rows = Array.isArray(data?.data) ? data!.data.length : null
+  return (
+    <Panel title="The account's own record" sub="Its last week of transactions, exactly as reported. For when a transfer didn't show up." action={on ? <TextButton onClick={() => void reload()}>Read again</TextButton> : <TextButton onClick={() => setOn(true)}>Read it</TextButton>}>
+      {!on ? (
+        <div className="text-[13px]" style={{ color: C.dim }}>Not read yet.</div>
+      ) : loading && !data ? (
+        <div className="text-[13px]" style={{ color: C.dim }}>Reading…</div>
+      ) : error ? (
+        <Said ok={false} text={error.message} />
+      ) : data ? (
+        <div className="space-y-2">
+          <div className="text-[13px]" style={{ color: data.ok ? C.text : C.red }}>
+            {data.ok ? (rows == null ? 'Read, but not as a list.' : rows === 0 ? 'Read. No transactions this week.' : `Read. ${rows} transaction${rows === 1 ? '' : 's'}.`) : `Refused (${data.status || 'no answer'}): ${data.message}`}
+          </div>
+          {data.data != null && <pre className="max-h-[320px] overflow-auto rounded-lg p-3 text-[11.5px] leading-relaxed" style={{ background: C.raise, color: C.muted }}>{JSON.stringify(data.data, null, 2)}</pre>}
+        </div>
+      ) : null}
+    </Panel>
   )
 }
 

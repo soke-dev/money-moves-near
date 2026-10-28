@@ -77,6 +77,11 @@ export async function psaCredits(reference: string, from: Date, to: Date): Promi
   if (!r.ok) throw new Error(`Flutterwave subaccount transactions unreadable (${r.status}): ${r.message}`);
   const d = r.data as Record<string, unknown> | unknown[] | null;
   const rows = (Array.isArray(d) ? d : Array.isArray((d as Record<string, unknown>)?.transactions) ? (d as Record<string, unknown>).transactions : []) as Record<string, unknown>[];
+  if (!rows.length && d && !Array.isArray(d) && !shapeLogged) {
+    // An answer with no list where we look for one: say what it did hold, once, rather than read it as empty.
+    shapeLogged = true;
+    log.warn("[psa] transactions came back in a shape we don't read", { wallet: reference, keys: Object.keys(d) });
+  }
   if (!shapeLogged && rows[0]) {
     shapeLogged = true;
     log.info("[psa] transaction fields", { fields: Object.keys(rows[0]) });
@@ -109,6 +114,18 @@ export async function psaCredits(reference: string, from: Date, to: Date): Promi
     });
   }
   return out;
+}
+
+/**
+ * The wallet's transactions as Flutterwave sends them, for our team to look at
+ * when a transfer didn't show up: the answer itself, untouched, over the last
+ * week. Reads only.
+ */
+export async function psaFeed(reference: string) {
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const now = Date.now();
+  const r = await v3<unknown>("GET", `/payout-subaccounts/${encodeURIComponent(reference)}/transactions?from=${day(new Date(now - 7 * 86_400_000))}&to=${day(new Date(now + 86_400_000))}&currency=NGN&fetch_limit=20`).catch((e) => ({ ok: false, status: 0, data: null, message: e instanceof Error ? e.message : String(e) }));
+  return { ok: r.ok, status: r.status, message: r.message, data: r.data };
 }
 
 /** What the wallet holds now, read from Flutterwave; null when it can't be read. */

@@ -28,7 +28,7 @@ import { keepOneDefault, nameOnRecord, recheckBanks } from "../lib/banks";
 import { DEFAULT_CHAIN, NETWORKS, PLATFORM_DEFAULTS, WAYS, chainPaused, effectiveChain, kindLimitsNgn, nairaDefaults, ownCheckoutOf, ownCheckoutSchema, payoutsOn, platform, platformSchema, platformWithMeta, reviewLimits, savePlatform, type Platform, type Way } from "../lib/platform";
 import { wayLimitsNgn } from "./pay";
 import { assignDeposit, depositRow, directBalanceNgn, directPaymentRow, directTotals, markSettled, resolveDeposit, setDirectAllowed, setDirectLimits } from "../services/direct";
-import { psaReady } from "../lib/flutterwave-psa";
+import { psaFeed, psaReady } from "../lib/flutterwave-psa";
 import { defaultDestination } from "./v1";
 
 const WAY_LABEL: Record<Way, string> = { naira: "Bank transfer", crypto: "Stablecoins", app: "Money Moves app" };
@@ -1587,6 +1587,14 @@ router.get("/direct/:id", async (req, res) => {
     prisma.directDeposit.findMany({ where: { businessId: b.id, status: { not: "MATCHED" } }, orderBy: { receivedAt: "desc" }, take: 100 }),
   ]);
   res.json({ ready: psaReady(), business: await directView(b, true), payments: payments.map(directPaymentRow), deposits: deposits.map(depositRow) });
+});
+
+/** The account's last week of transactions exactly as the provider reports them, for when a transfer didn't show up. */
+router.get("/direct/:id/feed", async (req, res) => {
+  const b = await prisma.business.findUnique({ where: { id: String(req.params.id) } });
+  if (!b) throw new HttpError(404, "No business with that id.", "not_found");
+  if (!b.psaReference) throw new HttpError(400, "This business has no direct account yet.", "no_account");
+  res.json(await psaFeed(b.psaReference));
 });
 
 /** Gives a verified business direct account checkouts, or takes them away. Off keeps everything for when it's back on. */
