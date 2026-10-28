@@ -111,6 +111,8 @@ async function openRefund(a: AskRefund): Promise<Refund> {
     await tx.$queryRaw`SELECT id FROM payments WHERE id = ${a.paymentId} AND business_id = ${a.business.id} FOR UPDATE`;
     const p = await tx.payment.findFirst({ where: { id: a.paymentId, businessId: a.business.id } });
     if (!p) throw new HttpError(404, "That payment isn't here.", "not_found");
+    // Direct account money sits in the business's own account and is settled by our team by hand: so is any refund.
+    if (p.direct) throw new HttpError(400, "Direct account payments are refunded by Money Moves. Contact support.", "not_refundable");
     if (p.status !== "PAID" && p.status !== "UNDERPAID") throw new HttpError(400, "Only a payment that came in can be refunded.", "not_refundable");
     if (await tx.refund.findFirst({ where: { paymentId: p.id, status: "AWAITING_FUNDS" } })) {
       throw new HttpError(409, "A refund on this payment is waiting for your money. Finish it or cancel it first.", "refund_waiting");

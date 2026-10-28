@@ -114,6 +114,8 @@ export interface Business {
   /** Live: who pays the processing fee, chosen for each way to pay. */
   feePayer?: "BUSINESS" | "CUSTOMER"
   feePayerCrypto?: "BUSINESS" | "CUSTOMER"
+  /** Our team has switched on direct account checkouts for it. */
+  directAllowed?: boolean
 }
 
 export const BUSINESSES: Business[] = [

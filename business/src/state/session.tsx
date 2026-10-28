@@ -127,6 +127,7 @@ function toBusiness(b: ApiBusiness, u: ApiUser): Business {
     liveNoticeClosed: !!b.liveNoticeClosed,
     logo: b.logo ?? null,
     feePayer: b.feePayer ?? "BUSINESS",
+    directAllowed: !!b.directAllowed,
   }
 }
 

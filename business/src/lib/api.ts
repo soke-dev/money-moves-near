@@ -120,6 +120,8 @@ export interface ApiBusiness {
   /** Who pays the processing fee. */
   feePayer?: "BUSINESS" | "CUSTOMER"
   feePayerCrypto?: "BUSINESS" | "CUSTOMER"
+  /** Our team has switched on direct account checkouts for it. */
+  directAllowed?: boolean
 }
 
 /** A business's look on its checkouts. */
@@ -302,6 +304,8 @@ export interface PublicLink {
   askName?: boolean
   /** Who pays the fee here; null follows the business. In a public checkout, already resolved. */
   feePayer?: 'BUSINESS' | 'CUSTOMER' | null
+  /** A direct account checkout: one account for the business, matched by the exact amount. */
+  direct?: boolean
   }
   business: {
     name: string
@@ -429,6 +433,8 @@ export interface PublicPayment {
   seen?: { tx: string; confirmations: number; needed: number } | null
   /** The processing fee added on top for the customer, when the business has them pay it. */
   customerFeeNgn?: number | null
+  /** Paid into the business's own account: the exact amount, to the kobo, is what matches it. */
+  direct?: boolean
   /** Paid by the app or crypto: the transaction on chain. */
   tx?: string | null
   expiresAt: string

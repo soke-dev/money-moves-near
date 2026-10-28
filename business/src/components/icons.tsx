@@ -17,6 +17,7 @@ import {
   MoonIcon,
   ArrowsClockwiseIcon,
   BankIcon,
+  VaultIcon,
   BellIcon,
   BookOpenTextIcon,
   BuildingsIcon,
@@ -139,6 +140,7 @@ export const ImagePlus = make(ImageSquareIcon)
 export const Info = make(InfoIcon)
 export const KeyRound = make(KeyIcon)
 export const Landmark = make(BankIcon)
+export const Vault = make(VaultIcon)
 export const LifeBuoy = make(LifebuoyIcon)
 export const Link2 = make(LinkSimpleIcon)
 export const ListChecks = make(ListChecksIcon)

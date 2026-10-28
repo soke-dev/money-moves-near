@@ -12,7 +12,7 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
-import type { BankAccount, BusinessStatus, CryptoArrival, Mode, Payment, PaymentLink, Refund, RefundEvent, SettleChain, Settlement, SettlementEvent, SettlementStatus, User } from "@prisma/client";
+import type { BankAccount, Business, BusinessStatus, CryptoArrival, Mode, Payment, PaymentLink, Refund, RefundEvent, SettleChain, Settlement, SettlementEvent, SettlementStatus, User } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { body, HttpError } from "../lib/http";
 import { audit } from "../lib/audit";
@@ -27,6 +27,8 @@ import adminSupportRoutes from "./admin-support";
 import { keepOneDefault, nameOnRecord, recheckBanks } from "../lib/banks";
 import { DEFAULT_CHAIN, NETWORKS, PLATFORM_DEFAULTS, WAYS, chainPaused, effectiveChain, kindLimitsNgn, nairaDefaults, ownCheckoutOf, ownCheckoutSchema, payoutsOn, platform, platformSchema, platformWithMeta, reviewLimits, savePlatform, type Platform, type Way } from "../lib/platform";
 import { wayLimitsNgn } from "./pay";
+import { assignDeposit, depositRow, directBalanceNgn, directPaymentRow, directTotals, markSettled, resolveDeposit, setDirectAllowed, setDirectLimits } from "../services/direct";
+import { psaReady } from "../lib/flutterwave-psa";
 import { defaultDestination } from "./v1";
 
 const WAY_LABEL: Record<Way, string> = { naira: "Bank transfer", crypto: "Stablecoins", app: "Money Moves app" };
@@ -430,6 +432,7 @@ router.get("/businesses/:id", async (req, res) => {
       settleChain: effectiveChain(b.settleChain, p),
       adminNote: b.adminNote,
       referral: { code: b.referralCode, referredBy: referrer, referred: referredCount },
+      direct: { allowed: b.directAllowed, account: b.psaAccountNumber, ready: psaReady() },
       /** Past this in a day, its live settlements wait for a person. */
       settlement: await settlementOf(b, p),
       risk: { ownLimitNgn: b.dailyLimitNgn, limitNgn: dailyLimitNgn(b, p), takenTodayNgn: (await takenTodayKobo(prisma, b.id)) / 100 },
@@ -1550,6 +1553,88 @@ router.post("/crypto/:id/match", async (req, res) => {
   // Weighed like any arrival: it may pay the payment, open it again if it lapsed, or go back.
   await weigh(p.id);
   res.json({ arrival: arrivalView(await arrivalOr404(x.id)) });
+});
+
+// ─── Direct account checkouts ─────────────────────────────────────────────
+
+const directView = async (b: Business, withBalance: boolean) => ({
+  id: b.id,
+  name: b.name,
+  status: b.status,
+  allowed: b.directAllowed,
+  allowedAt: b.directAllowedAt,
+  allowedBy: b.directAllowedBy,
+  account: b.psaAccountNumber ? { number: b.psaAccountNumber, bank: b.psaAccountBank, name: b.psaAccountName, reference: b.psaReference } : null,
+  limits: { minNgn: b.directMinNgn, maxNgn: b.directMaxNgn, dailyNgn: b.directDailyNgn },
+  totals: await directTotals(b.id),
+  /** What the subaccount holds now, read live from Flutterwave. */
+  balanceNgn: withBalance ? await directBalanceNgn(b) : null,
+  checkedAt: b.psaCheckedAt,
+});
+
+/** Every business with a direct account, on or off. */
+router.get("/direct", async (_req, res) => {
+  const list = await prisma.business.findMany({ where: { OR: [{ directAllowed: true }, { psaReference: { not: null } }] }, orderBy: { directAllowedAt: "desc" } });
+  res.json({ ready: psaReady(), businesses: await Promise.all(list.map((b) => directView(b, true))) });
+});
+
+/** One business: its account, limits, payments and deposits that didn't match. */
+router.get("/direct/:id", async (req, res) => {
+  const b = await prisma.business.findUnique({ where: { id: String(req.params.id) } });
+  if (!b) throw new HttpError(404, "No business with that id.", "not_found");
+  const [payments, deposits] = await Promise.all([
+    prisma.payment.findMany({ where: { businessId: b.id, direct: true }, orderBy: { createdAt: "desc" }, take: 300 }),
+    prisma.directDeposit.findMany({ where: { businessId: b.id, status: { not: "MATCHED" } }, orderBy: { receivedAt: "desc" }, take: 100 }),
+  ]);
+  res.json({ ready: psaReady(), business: await directView(b, true), payments: payments.map(directPaymentRow), deposits: deposits.map(depositRow) });
+});
+
+/** Gives a verified business direct account checkouts, or takes them away. Off keeps everything for when it's back on. */
+router.post("/businesses/:id/direct", async (req, res) => {
+  const b = body(z.object({ allowed: z.boolean(), password: z.string().max(200).optional() }), req);
+  await needActionPassword(req, b.password, "direct_access");
+  const saved = await setDirectAllowed(String(req.params.id), b.allowed, req.admin!.email);
+  await record(req, b.allowed ? "direct_allowed" : "direct_revoked", saved.id, { account: saved.psaAccountNumber });
+  res.json({ business: await directView(saved, false) });
+});
+
+/** Its own least, most and daily cap for direct checkouts, in naira. Null puts the platform's back (no daily cap). */
+router.patch("/direct/:id/limits", async (req, res) => {
+  const n = z.number().int().min(1).max(20_000_000).nullish();
+  const b = body(z.object({ minNgn: n, maxNgn: n, dailyNgn: z.number().int().min(1).max(1_000_000_000).nullish(), password: z.string().max(200).optional() }), req);
+  await needActionPassword(req, b.password, "direct_limits");
+  const saved = await setDirectLimits(String(req.params.id), b);
+  await record(req, "direct_limits_changed", saved.id, { minNgn: saved.directMinNgn, maxNgn: saved.directMaxNgn, dailyNgn: saved.directDailyNgn });
+  res.json({ business: await directView(saved, false) });
+});
+
+/** We paid the business for these by hand: marked settled, with an optional note such as the bank reference. */
+router.post("/direct/:id/settle", async (req, res) => {
+  const b = body(z.object({ paymentIds: z.array(z.string().max(64)).min(1).max(500), note: z.string().trim().max(300).nullish(), password: z.string().max(200).optional() }), req);
+  await needActionPassword(req, b.password, "direct_settle");
+  const id = String(req.params.id);
+  const count = await markSettled(id, b.paymentIds, b.note ?? null, req.admin!.email);
+  await record(req, "direct_settled", id, { payments: count, note: b.note ?? null });
+  res.json({ settled: count });
+});
+
+/** A deposit that matched nothing, put towards the payment it was for. */
+router.post("/direct/deposits/:id/assign", async (req, res) => {
+  const b = body(z.object({ ref: z.string().trim().min(1, "Give the payment reference.").max(64), password: z.string().max(200).optional() }), req);
+  await needActionPassword(req, b.password, "direct_deposit");
+  const p = await assignDeposit(String(req.params.id), b.ref, req.admin!.email);
+  await record(req, "direct_deposit_assigned", p.businessId, { deposit: String(req.params.id), payment: p.ref });
+  res.json({ payment: directPaymentRow(p) });
+});
+
+/** A deposit sorted out outside the app (sent back to the sender, say): it stops waiting. */
+router.post("/direct/deposits/:id/resolve", async (req, res) => {
+  const b = body(z.object({ note: z.string().trim().min(1, "Say what happened.").max(300), password: z.string().max(200).optional() }), req);
+  await needActionPassword(req, b.password, "direct_deposit");
+  const d = await prisma.directDeposit.findUnique({ where: { id: String(req.params.id) } });
+  await resolveDeposit(String(req.params.id), b.note, req.admin!.email);
+  await record(req, "direct_deposit_resolved", d?.businessId ?? null, { deposit: String(req.params.id), note: b.note });
+  res.json({ ok: true });
 });
 
 export default router;

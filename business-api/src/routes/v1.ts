@@ -36,6 +36,7 @@ import { CUSTOMER_REASONS, businessReply, customerAccept, filesOf, raiseCustomer
 import { methodStates } from "../lib/methods";
 import { askRefund, cancelRefund, checkRefundFunding, simulateFunding } from "../services/refunds";
 import { hashKey } from "./api-keys";
+import { checkDirectDaily, directLimits, directOn } from "../lib/direct";
 
 declare global {
   // eslint-disable-next-line @typescript-eslint/no-namespace
@@ -106,6 +107,16 @@ router.use(perMinute(600, (req) => req.clientIp));
 
 // ─── The key ──────────────────────────────────────────────────────────────
 
+/** What a direct account key may do: make and read its checkouts, and read their payments. */
+const DIRECT_ROUTES: [string, RegExp][] = [
+  ["POST", /^\/checkouts$/],
+  ["GET", /^\/checkouts$/],
+  ["GET", /^\/checkouts\/[^/]+$/],
+  ["POST", /^\/checkouts\/[^/]+\/cancel$/],
+  ["GET", /^\/payments$/],
+  ["GET", /^\/payments\/[^/]+$/],
+];
+
 /** Who's calling: a secret key for this business, from a server. */
 async function requireKey(req: Request, _res: Response, next: NextFunction) {
   if (req.get("origin")) throw new HttpError(403, "Secret keys work from your server only, never in a website or an app.", "browser_not_allowed");
@@ -115,8 +126,13 @@ async function requireKey(req: Request, _res: Response, next: NextFunction) {
   if (!found || found.revokedAt) throw new HttpError(401, "That key isn't valid. It may have been revoked.", "bad_key");
   // A real key from here: whatever happens next is in the business's Logs.
   req.apiKey = found;
-  const business = await prisma.business.findUniqueOrThrow({ where: { id: found.businessId }, select: { status: true } });
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: found.businessId }, select: { status: true, directAllowed: true } });
   if (business.status === "SUSPENDED") throw new HttpError(403, "This business has been deactivated.", "business_suspended");
+  if (found.kind === "DIRECT") {
+    // Stops while our team has direct accounts switched off for the business, and starts again when they're back on.
+    if (!business.directAllowed) throw new HttpError(403, "Direct account checkouts are switched off for this business.", "direct_off");
+    if (!DIRECT_ROUTES.some(([m, re]) => m === req.method && re.test(req.path))) throw new HttpError(403, "This key is for direct account checkouts only: create and read checkouts, and read payments.", "direct_key_only");
+  }
   if (found.mode === "LIVE" && business.status !== "VERIFIED") throw new HttpError(403, "Live keys work once the business is verified.", "business_unverified");
   if (!(await platform()).channels.api) throw new HttpError(503, "The API is paused by Money Moves right now. Try again a little later.", "channel_paused");
   // Last used, to the minute: not a write on every call.
@@ -218,6 +234,8 @@ function listOf<T extends { id: string }, O>(rows: T[], limit: number, shape: (r
 
 const notFound = (what: string) => new HttpError(404, `No ${what} with that id in this key's mode.`, "not_found");
 const mine = (k: ApiKey) => ({ businessId: k.businessId, mode: k.mode });
+/** Checkouts and payments: a direct key's own kind only. */
+const mineDirect = (k: ApiKey) => ({ ...mine(k), direct: k.kind === "DIRECT" });
 
 // ─── The account ──────────────────────────────────────────────────────────
 
@@ -326,15 +344,69 @@ async function paidFor(linkIds: string[]): Promise<Map<string, Payment>> {
 }
 
 async function findCheckout(k: ApiKey, id: string) {
-  const link = await prisma.paymentLink.findFirst({ where: { id, ...mine(k), apiKeyId: { not: null }, deletedAt: null } });
+  const link = await prisma.paymentLink.findFirst({ where: { id, ...mineDirect(k), apiKeyId: { not: null }, deletedAt: null } });
   if (!link) throw notFound("checkout");
   return link;
+}
+
+/**
+ * A direct account checkout: bank transfer only, paid into the business's own
+ * account, no fee, settled by our team. Ways to pay, coins, settlement place
+ * and who pays the fee don't apply, so they're refused rather than ignored.
+ */
+async function createDirectCheckout(key: ApiKey, b: z.infer<typeof createInput>) {
+  if (b.methods && b.methods.some((m) => m !== "bank_transfer")) throw new HttpError(400, "Direct account checkouts take bank transfer only.", "invalid_request");
+  if (b.accept || b.settle_to || b.fee_payer) throw new HttpError(400, "accept, settle_to and fee_payer don't apply to direct account checkouts. Leave them out.", "invalid_request");
+  if (b.currency !== "NGN") throw new HttpError(400, "Direct account checkouts are priced in NGN.", "invalid_request");
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: key.businessId } });
+  if (!directOn(business)) throw new HttpError(403, "Direct account checkouts are switched off for this business.", "direct_off");
+  const p = await platform();
+  const amountMinor = await minorFor(b.amount, b.currency, "The amount", directLimits(p, business));
+  await checkDirectDaily(business, amountMinor);
+  const expiresAt = expiryOf(b);
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const slug = `dc-${randomBytes(6).toString("hex")}`;
+    try {
+      const link = await prisma.paymentLink.create({
+        data: {
+          businessId: key.businessId,
+          mode: "LIVE",
+          slug,
+          name: b.description || (b.reference ? `Order ${b.reference}` : "Checkout"),
+          description: b.description || null,
+          currency: "NGN",
+          amountMinor,
+          methods: ["NAIRA"],
+          accept: Prisma.DbNull,
+          // Never used: nothing settles automatically. A bank, so the column has a value.
+          destination: "BANK",
+          bankAccountId: null,
+          redirectUrl: b.redirect_url || null,
+          apiKeyId: key.id,
+          direct: true,
+          reference: b.reference || null,
+          metadata: b.metadata ?? Prisma.DbNull,
+          expiresAt,
+          customerEmail: b.customer?.email || null,
+          customerName: b.customer?.name || null,
+        },
+      });
+      return checkoutObject(link, null);
+    } catch (e) {
+      if (!(e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002")) throw e;
+    }
+  }
+  throw new HttpError(500, "Couldn't make the checkout just now. Try again.", "create_failed");
 }
 
 /** Makes a checkout: one amount, and one page to send the customer to. */
 router.post("/checkouts", async (req, res) => {
   const key = req.apiKey!;
   const b = input(createInput, req.body);
+  if (key.kind === "DIRECT") {
+    res.status(201).json(await createDirectCheckout(key, b));
+    return;
+  }
   const p = await platform();
   // The business's own switches: a way to pay it turned off, or has nowhere to settle, isn't offered.
   const owner = await prisma.business.findUniqueOrThrow({ where: { id: key.businessId }, select: { id: true, kind: true, methodsOff: true } });
@@ -391,7 +463,7 @@ router.post("/checkouts", async (req, res) => {
 router.get("/checkouts", async (req, res) => {
   const key = req.apiKey!;
   const q = input(z.object({ ...paging, ...since, reference: z.string().max(100).optional() }).strict(), req.query);
-  const rows = await prisma.paymentLink.findMany({ where: { ...mine(key), apiKeyId: { not: null }, deletedAt: null, ...(q.reference ? { reference: q.reference } : {}), ...created(q) }, ...pageArgs(q) });
+  const rows = await prisma.paymentLink.findMany({ where: { ...mineDirect(key), apiKeyId: { not: null }, deletedAt: null, ...(q.reference ? { reference: q.reference } : {}), ...created(q) }, ...pageArgs(q) });
   const paid = await paidFor(rows.map((r) => r.id));
   res.json(listOf(rows, q.limit, (l) => checkoutObject(l, paid.get(l.id) ?? null)));
 });
@@ -423,7 +495,7 @@ router.get("/payments", async (req, res) => {
     req.query,
   );
   const rows = await prisma.payment.findMany({
-    where: { ...mine(key), ...(q.status ? { status: PAYMENT_STATUS_IN[q.status] } : {}), ...(q.method ? { method: METHOD_IN[q.method] } : {}), ...(q.checkout ? { linkId: q.checkout } : {}), ...created(q) },
+    where: { ...mineDirect(key), ...(q.status ? { status: PAYMENT_STATUS_IN[q.status] } : {}), ...(q.method ? { method: METHOD_IN[q.method] } : {}), ...(q.checkout ? { linkId: q.checkout } : {}), ...created(q) },
     include: { link: linkBits },
     ...pageArgs(q),
   });
@@ -433,7 +505,7 @@ router.get("/payments", async (req, res) => {
 /** One payment, by its id or its reference. */
 router.get("/payments/:id", async (req, res) => {
   const id = String(req.params.id);
-  const p = await prisma.payment.findFirst({ where: { ...mine(req.apiKey!), OR: [{ id }, { ref: id }] }, include: { link: linkBits } });
+  const p = await prisma.payment.findFirst({ where: { ...mineDirect(req.apiKey!), OR: [{ id }, { ref: id }] }, include: { link: linkBits } });
   if (!p) throw notFound("payment");
   res.json(paymentObject(p, p.link));
 });

@@ -19,6 +19,7 @@ import { Activity } from '@/pages/activity'
 import { Reports } from '@/pages/reports'
 import { InvitePage } from '@/pages/invite'
 import { ApiKeys, DocsRedirect, Events, Logs, Webhooks } from '@/pages/developers'
+import { DirectAccount } from '@/pages/direct'
 import { Checkout, CheckoutPreviewFrame } from '@/pages/checkout'
 import { ReceiptPage } from '@/pages/receipt'
 import { GiveBackPage } from '@/pages/give-back'
@@ -127,6 +128,7 @@ export default function App() {
         <Route path="/collect/invoices" element={<Invoices />} />
         <Route path="/collect/outlets" element={<Outlets />} />
         <Route path="/collect/addresses" element={<DepositAddresses />} />
+        <Route path="/collect/direct" element={<DirectAccount />} />
         <Route path="/payouts" element={<Navigate to="/balances" replace />} />
         <Route path="/payouts/beneficiaries" element={<Navigate to="/balances" replace />} />
         <Route path="/settings/business" element={<SettingsFrame><BusinessPreferences /></SettingsFrame>} />

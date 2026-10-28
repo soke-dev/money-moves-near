@@ -16,6 +16,7 @@ import { checkLinks } from "../services/money-moves";
 import { appLinksReady } from "../lib/app-links";
 import { followWalletSends } from "../services/wallet-sends";
 import { refreshNetworks, scanCrypto, settleOwnTransfers } from "../services/crypto-in";
+import { scanDirectAccounts } from "../services/direct";
 import { moveCryptoOut } from "../services/crypto-out";
 import { deliverDue, pruneDeveloperRecords, watchFailingEndpoints } from "../lib/webhooks";
 import { checkRefundFunding, completeTestRefunds } from "../services/refunds";
@@ -127,7 +128,7 @@ function every(ms: number, name: string, fn: () => Promise<void>) {
 }
 
 export function startWorker() {
-  const timers = [every(PAYMENTS_EVERY_MS, "payments", checkOpenPayments), every(SETTLEMENTS_EVERY_MS, "settlements", moveSettlements), every(IDENTITY_EVERY_MS, "identity", recheckIdentities), every(LINKS_EVERY_MS, "money-moves", recheckLinks), every(REFUNDS_EVERY_MS, "refunds", moveRefunds), every(60_000, "disputes", moveDisputes), every(5 * 60_000, "recurring-invoices", moveInvoices), every(5_000, "wallet-sends", followWalletSends), every(5_000, "crypto", scanCrypto), every(60_000, "own-transfers", settleOwnTransfers), every(15_000, "crypto-out", moveCryptoOut), every(120_000, "networks", refreshNetworks), every(5_000, "webhooks", deliverDue), every(6 * 3_600_000, "developer-records", pruneDeveloperRecords), every(3_600_000, "failing-endpoints", watchFailingEndpoints)];
+  const timers = [every(PAYMENTS_EVERY_MS, "payments", checkOpenPayments), every(SETTLEMENTS_EVERY_MS, "settlements", moveSettlements), every(IDENTITY_EVERY_MS, "identity", recheckIdentities), every(LINKS_EVERY_MS, "money-moves", recheckLinks), every(REFUNDS_EVERY_MS, "refunds", moveRefunds), every(60_000, "disputes", moveDisputes), every(5 * 60_000, "recurring-invoices", moveInvoices), every(5_000, "wallet-sends", followWalletSends), every(5_000, "crypto", scanCrypto), every(60_000, "own-transfers", settleOwnTransfers), every(30_000, "direct-accounts", scanDirectAccounts), every(15_000, "crypto-out", moveCryptoOut), every(120_000, "networks", refreshNetworks), every(5_000, "webhooks", deliverDue), every(6 * 3_600_000, "developer-records", pruneDeveloperRecords), every(3_600_000, "failing-endpoints", watchFailingEndpoints)];
   // Stellar and TON are offered once they've been read, so read them now rather than in two minutes.
   void refreshNetworks();
   log.info("[worker] checking payments and settlements");

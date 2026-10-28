@@ -60,7 +60,7 @@ async function me(userId: string) {
   const user = await prisma.user.findUniqueOrThrow({ where: { id: userId }, include: { memberships: { include: { business: true }, orderBy: { createdAt: "asc" } } } });
   return {
     user: publicUser(user),
-    businesses: user.memberships.map((m) => ({ id: m.business.id, name: m.business.name, kind: m.business.kind, merchantId: m.business.merchantId, status: m.business.status, settleChain: m.business.settleChain, role: m.role, verifiedAt: m.business.status === "VERIFIED" ? (m.business.statusChangedAt ?? m.business.updatedAt) : null, liveNoticeClosed: !!m.liveNoticeClosedAt, logo: imageUrl(m.business.logoId), feePayer: m.business.feePayer, feePayerCrypto: m.business.feePayerCrypto })),
+    businesses: user.memberships.map((m) => ({ id: m.business.id, name: m.business.name, kind: m.business.kind, merchantId: m.business.merchantId, status: m.business.status, settleChain: m.business.settleChain, role: m.role, verifiedAt: m.business.status === "VERIFIED" ? (m.business.statusChangedAt ?? m.business.updatedAt) : null, liveNoticeClosed: !!m.liveNoticeClosedAt, logo: imageUrl(m.business.logoId), feePayer: m.business.feePayer, feePayerCrypto: m.business.feePayerCrypto, directAllowed: m.business.directAllowed })),
   };
 }
 

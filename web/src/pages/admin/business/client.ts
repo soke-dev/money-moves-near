@@ -466,6 +466,8 @@ export type BusinessDetail = {
     settleChain: string
     adminNote: string | null
     risk?: { ownLimitNgn: number | null; limitNgn: number; takenTodayNgn: number }
+    /** Direct account checkouts: switched on or not, its account number once opened, and whether the API can open one. */
+    direct?: { allowed: boolean; account: string | null; ready: boolean }
     /** Where its live money goes: its default now, and how many live checkouts pick each place. */
     settlement?: {
       justMe: boolean

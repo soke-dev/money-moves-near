@@ -24,7 +24,7 @@ const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 export const hashKey = (key: string) => createHash("sha256").update(key).digest("hex");
 
 /** sk_test_ and 40 random letters and digits. */
-function newKey(mode: "TEST" | "LIVE") {
+export function newKey(mode: "TEST" | "LIVE") {
   const bytes = randomBytes(40);
   let tail = "";
   for (const b of bytes) tail += ALPHABET[b % ALPHABET.length];
@@ -37,7 +37,7 @@ export function keyShape(k: ApiKey) {
 
 router.get("/", requireMember(...KEYS), async (req, res) => {
   const mode = modeOf(req.query.mode);
-  const keys = await prisma.apiKey.findMany({ where: { businessId: req.member!.businessId, mode, revokedAt: null }, orderBy: { createdAt: "desc" } });
+  const keys = await prisma.apiKey.findMany({ where: { businessId: req.member!.businessId, mode, revokedAt: null, kind: "STANDARD" }, orderBy: { createdAt: "desc" } });
   res.json({ keys: keys.map(keyShape) });
 });
 
@@ -48,7 +48,7 @@ router.post("/", requireMember(...KEYS), limited(20), async (req, res) => {
     const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { status: true } });
     if (business.status !== "VERIFIED") throw new HttpError(403, "Live keys open once your business is verified. Build with test keys until then. Only the key changes when you go live.", "business_unverified");
   }
-  const count = await prisma.apiKey.count({ where: { businessId, mode: b.mode, revokedAt: null } });
+  const count = await prisma.apiKey.count({ where: { businessId, mode: b.mode, revokedAt: null, kind: "STANDARD" } });
   if (count >= MAX_KEYS) throw new HttpError(400, `You have ${MAX_KEYS} keys already. Revoke one you don't use first.`, "too_many_keys");
   const secret = newKey(b.mode);
   const key = await prisma.apiKey.create({ data: { businessId, mode: b.mode, name: b.name, prefix: secret.slice(0, 14), hash: hashKey(secret), createdById: req.auth!.userId } });

@@ -175,6 +175,25 @@ model Business {
   /// Ways to pay the business has switched off on every checkout. The rest are on wherever their money has somewhere to go.
   methodsOff           PayMethod[]  @default([]) @map("methods_off")
 
+  /// Direct account checkout: a hidden, API-only naira checkout paid into the business's own
+  /// Flutterwave subaccount. Our team grants it; we settle the business by hand. Off hides it
+  /// and stops its keys; on again brings everything back.
+  directAllowed    Boolean   @default(false) @map("direct_allowed")
+  directAllowedAt  DateTime? @map("direct_allowed_at")
+  directAllowedBy  String?   @map("direct_allowed_by")
+  /// The subaccount at Flutterwave and the number customers pay.
+  psaReference     String?   @unique @map("psa_reference")
+  psaBarterId      String?   @map("psa_barter_id")
+  psaAccountNumber String?   @map("psa_account_number")
+  psaAccountBank   String?   @map("psa_account_bank")
+  psaAccountName   String?   @map("psa_account_name")
+  /// When its deposits were last read.
+  psaCheckedAt     DateTime? @map("psa_checked_at")
+  /// Its own limits for these checkouts, in naira; null is the platform's naira checkout limits (no daily cap).
+  directMinNgn     Int?      @map("direct_min_ngn")
+  directMaxNgn     Int?      @map("direct_max_ngn")
+  directDailyNgn   Int?      @map("direct_daily_ngn")
+
   /// Its own code for inviting other businesses, made the first time it's asked for.
   referralCode String? @unique @map("referral_code")
   /// The business whose code it signed up with.
@@ -192,6 +211,7 @@ model Business {
   outlets          Outlet[]
   payments         Payment[]
   settlements      Settlement[]
+  directDeposits   DirectDeposit[]
   refunds          Refund[]
   requests         InfoRequest[]
   support          SupportThread[]
@@ -390,6 +410,8 @@ model PaymentLink {
   active        Boolean     @default(true)
   /// Made through the API: the key that made it, and the merchant's own reference for it.
   apiKeyId      String?     @map("api_key_id")
+  /// Made with a direct account key: naira only, paid into the business's subaccount, settled by hand.
+  direct        Boolean     @default(false)
   reference     String?
   /// API checkouts: the merchant's own key-value data, given back on every payment and event.
   metadata      Json?
@@ -562,11 +584,18 @@ model Payment {
   customerPhone String? @map("customer_phone")
 
   // The one-time account the customer pays into.
-  accountBank   String?  @map("account_bank")
-  accountNumber String?  @map("account_number")
-  accountName   String?  @map("account_name")
-  providerRef   String?  @map("provider_ref")
-  expiresAt     DateTime @map("expires_at")
+  accountBank      String?        @map("account_bank")
+  accountNumber    String?        @map("account_number")
+  accountName      String?        @map("account_name")
+  providerRef      String?        @map("provider_ref")
+  /// A direct account payment: paid into the business's subaccount, matched by exact amount, never settled automatically.
+  direct           Boolean        @default(false)
+  /// When our team paid the business for it by hand, who, and their note (a bank reference, say).
+  directSettledAt  DateTime?      @map("direct_settled_at")
+  directSettledBy  String?        @map("direct_settled_by")
+  directSettleNote String?        @map("direct_settle_note")
+  directDeposit    DirectDeposit?
+  expiresAt        DateTime       @map("expires_at")
 
   // A test crypto payment: the coin, the network, and the address shown for it.
   coin           String?      @map("coin")
@@ -1277,19 +1306,21 @@ model SupportMessage {
 // start to tell keys apart.
 
 model ApiKey {
-  id          String    @id @default(cuid())
-  businessId  String    @map("business_id")
+  id          String     @id @default(cuid())
+  businessId  String     @map("business_id")
   mode        Mode
   name        String
   /// The start of the key, to tell keys apart: "sk_test_Ab3dEf".
   prefix      String
   /// sha256 of the whole key.
-  hash        String    @unique
-  createdById String?   @map("created_by_id")
-  lastUsedAt  DateTime? @map("last_used_at")
-  revokedAt   DateTime? @map("revoked_at")
-  revokedBy   String?   @map("revoked_by")
-  createdAt   DateTime  @default(now()) @map("created_at")
+  hash        String     @unique
+  createdById String?    @map("created_by_id")
+  lastUsedAt  DateTime?  @map("last_used_at")
+  revokedAt   DateTime?  @map("revoked_at")
+  revokedBy   String?    @map("revoked_by")
+  /// STANDARD: the normal API. DIRECT: only direct account checkouts, and only while the business has them.
+  kind        ApiKeyKind @default(STANDARD)
+  createdAt   DateTime   @default(now()) @map("created_at")
 
   business Business      @relation(fields: [businessId], references: [id], onDelete: Restrict)
   links    PaymentLink[]
@@ -1709,4 +1740,40 @@ model DisputeMessage {
 
   @@index([disputeId, createdAt])
   @@map("dispute_messages")
+}
+
+/// A transfer into a business's direct account (its Flutterwave subaccount). Matched to the one open
+/// direct payment it pays for by exact amount; anything else waits for our team.
+model DirectDeposit {
+  id            String              @id @default(cuid())
+  businessId    String              @map("business_id")
+  business      Business            @relation(fields: [businessId], references: [id])
+  /// Flutterwave's reference for the transfer: one row per transfer, however often it is read.
+  reference     String              @unique
+  amountKobo    Int                 @map("amount_kobo")
+  feeKobo       Int?                @map("fee_kobo")
+  senderName    String?             @map("sender_name")
+  senderAccount String?             @map("sender_account")
+  senderBank    String?             @map("sender_bank")
+  receivedAt    DateTime            @map("received_at")
+  status        DirectDepositStatus @default(UNMATCHED)
+  paymentId     String?             @unique @map("payment_id")
+  payment       Payment?            @relation(fields: [paymentId], references: [id])
+  note          String?
+  resolvedBy    String?             @map("resolved_by")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  @@index([businessId, status])
+  @@map("direct_deposits")
+}
+
+enum DirectDepositStatus {
+  UNMATCHED
+  MATCHED
+  RESOLVED
+}
+
+enum ApiKeyKind {
+  STANDARD
+  DIRECT
 }

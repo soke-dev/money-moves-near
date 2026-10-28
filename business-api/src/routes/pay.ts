@@ -124,6 +124,8 @@ const publicPayment = (p: Payment, seen: Seen | null = null, returns: Awaited<Re
   seen,
   /** The processing fee added on top for the customer, when the business has them pay it. */
   customerFeeNgn: p.customerFeeKobo != null ? p.customerFeeKobo / 100 : null,
+  /** Paid into the business's own account: told apart only by its exact amount, so the page asks for it to the kobo. */
+  direct: p.direct,
   /** Paid by the app or crypto: the transaction on chain. */
   tx: (p.method === "CRYPTO" || p.method === "APP") && p.payerSession ? p.payerSession.split(":")[0] : null,
   expiresAt: p.expiresAt,
@@ -577,6 +579,8 @@ router.get("/:slug", watching, async (req, res) => {
       askPhone: link.askPhone,
       askName: link.askName,
       feePayer: link.feePayer ?? link.business.feePayer,
+      /** A direct account checkout: bank transfer into the business's own account, for the exact amount. */
+      direct: link.direct,
     },
     business: businessOf(link.business),
     rate,

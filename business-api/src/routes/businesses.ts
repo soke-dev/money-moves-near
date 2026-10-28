@@ -25,7 +25,7 @@ import { defaultDestination } from "./v1";
 
 const router = Router();
 
-const summary = (b: Business) => ({ id: b.id, name: b.name, kind: b.kind, merchantId: b.merchantId, status: b.status, country: b.country, settleChain: b.settleChain, createdAt: b.createdAt, verifiedAt: verifiedAt(b), logo: imageUrl(b.logoId), feePayer: b.feePayer, feePayerCrypto: b.feePayerCrypto });
+const summary = (b: Business) => ({ id: b.id, name: b.name, kind: b.kind, merchantId: b.merchantId, status: b.status, country: b.country, settleChain: b.settleChain, createdAt: b.createdAt, verifiedAt: verifiedAt(b), logo: imageUrl(b.logoId), feePayer: b.feePayer, feePayerCrypto: b.feePayerCrypto, directAllowed: b.directAllowed });
 /** When our team approved it - for the dashboard's notification and its one-time "you're approved" notice. */
 const verifiedAt = (b: Business) => (b.status === "VERIFIED" ? (b.statusChangedAt ?? b.updatedAt) : null);
 const forMember = (m: Pick<Member, "role" | "liveNoticeClosedAt">) => ({ role: m.role, liveNoticeClosed: !!m.liveNoticeClosedAt });

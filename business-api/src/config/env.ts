@@ -78,6 +78,13 @@ const schema = z.object({
    */
   FLUTTERWAVE_COLLECTIONS_BVN: emptyAsUnset(z.string().regex(/^\d{11}$/, "an 11-digit BVN").optional()),
   FLUTTERWAVE_COLLECTIONS_NIN: emptyAsUnset(z.string().regex(/^\d{11}$/, "an 11-digit NIN").optional()),
+  /**
+   * Flutterwave v3, the same account's secret key as the app's: only for
+   * direct account checkouts (payout subaccounts), which v4 doesn't offer.
+   * Without it, no business can be given a direct account.
+   */
+  FLW_V3_SECRET_KEY: emptyAsUnset(z.string().trim().optional()),
+  FLW_V3_BASE_URL: z.string().url().default("https://api.flutterwave.com/v3"),
   /** Didit, for the account representative's identity check. Without both, the check says it's unavailable - it's never simulated. */
   DIDIT_API_KEY: z.string().trim().optional(),
   DIDIT_WORKFLOW_ID: z.string().trim().optional(),

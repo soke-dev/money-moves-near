@@ -482,6 +482,7 @@ function OverviewTab({ data, go }: { data: BusinessDetail; go: Go }) {
         <FeePanel b={b} />
         <LimitPanel b={b} />
         <OwnLimitsPanel b={b} />
+        <DirectPanel b={b} />
         <TwoStepResetPanel email={b.owner?.email ?? ''} />
         <VerificationPanel app={app} onOpen={() => go('verification')} />
         <NotesPanel b={b} />
@@ -910,6 +911,61 @@ function EditOwnLimits({ b, onClose }: { b: Biz; onClose: () => void }) {
 }
 
 /** Someone who lost their phone and their recovery codes: back to codes by email, once it's checked it's really them. */
+/**
+ * Direct account checkouts for this business: an account of its own, paid
+ * by the exact amount, settled by our team by hand. Off keeps the account,
+ * payments and keys, so on again brings them back.
+ */
+function DirectPanel({ b }: { b: Biz }) {
+  const d = b.direct
+  const [asking, setAsking] = useState(false)
+  const [password, setPassword] = useState('')
+  const { busy, said, run } = useAction()
+  if (!d || (!d.allowed && !d.account && b.status !== 'VERIFIED')) return null
+  const turn = async () => {
+    const ok = await run(() => biz(`/businesses/${b.id}/direct`, { method: 'POST', body: { allowed: !d.allowed, password } }), d.allowed ? 'Switched off.' : 'Switched on.')
+    if (ok) {
+      setAsking(false)
+      setPassword('')
+    }
+  }
+  return (
+    <Panel title="Direct account" action={!asking && (d.allowed || d.ready) && <TextButton onClick={() => setAsking(true)}>{d.allowed ? 'Switch off' : 'Switch on'}</TextButton>}>
+      {asking ? (
+        <div className="space-y-3">
+          <p className="text-[12.5px] leading-relaxed" style={{ color: C.muted }}>
+            {d.allowed
+              ? 'Its direct keys stop working and its customers can no longer pay this way. Its account, payments and keys are kept for when it comes back on.'
+              : d.account
+                ? 'Its direct account, payments and keys come back as they were.'
+                : 'Opens an account in its name. Customers pay into it by bank transfer, and our team settles the business by hand. There is no fee.'}
+          </p>
+          <PasswordInput full value={password} onChange={setPassword} />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button small onClick={() => setAsking(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button small tone={d.allowed ? undefined : 'primary'} disabled={busy || !password} onClick={() => void turn()}>
+              {busy ? 'Saving…' : d.allowed ? 'Switch off' : 'Switch on'}
+            </Button>
+          </div>
+          {said && !said.ok && <Said {...said} />}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Facts rows={[['State', <Tag tone={d.allowed ? 'good' : undefined}>{d.allowed ? 'On' : 'Off'}</Tag>], !!d.account && ['Account', <Copy text={d.account} />]]} />
+          {!d.ready && !d.allowed && (
+            <p className="text-[12.5px]" style={{ color: C.dim }}>
+              Can't be switched on until FLW_V3_SECRET_KEY is set on the Business API.
+            </p>
+          )}
+          {said?.ok && <Said {...said} />}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
 function TwoStepResetPanel({ email }: { email: string }) {
   const [open, setOpen] = useState(false)
   const [who, setWho] = useState(email)

@@ -671,7 +671,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                         </a>
                       </div>
                     )}
-                    {m === 'naira' && note('A one-time bank account is made for you after you continue. Transfer from any bank app.')}
+                    {m === 'naira' && note(L?.link.direct ? "You'll get the business's account number and the exact amount to send after you continue. Transfer from any bank app." : 'A one-time bank account is made for you after you continue. Transfer from any bank app.')}
                     {m === 'crypto' && (
                       <>
                         <Picker
@@ -1004,7 +1004,16 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                 <span className="display tabular text-[32px] font-semibold leading-none tracking-[-0.03em] text-fg">{ngn(nairaAmount)}</span>
                 <CopyChip value={String(nairaAmount)} />
               </div>
-              <div className="mt-1.5 text-[13px] text-muted">To this account, in one transfer</div>
+              {P?.direct ? (
+                <div className="mt-2.5 flex gap-2.5 rounded-[12px] border border-[#F2D3A6] bg-[#FDF6E7] px-3.5 py-3 text-[12.5px] leading-relaxed text-[#7A4A0A]">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  <span>
+                    Send <b className="font-semibold">exactly {ngn(nairaAmount)}</b>, kobo included, in one transfer. The exact amount is how your payment is recognised.
+                  </span>
+                </div>
+              ) : (
+                <div className="mt-1.5 text-[13px] text-muted">To this account, in one transfer</div>
+              )}
               <div className="mt-4 divide-y divide-soft border-t border-line">
                 <div className="flex items-center justify-between gap-3 py-3.5">
                   <div>

@@ -27,6 +27,7 @@ import {
   Menu,
   Plus,
   QrCode,
+  Vault,
   Rocket,
   Settings,
   ShieldAlert,
@@ -64,6 +65,8 @@ interface Item {
   also?: { label: string; to: string }[]
   /** The owner and admins only: hidden from the rest of the team. */
   ownerOnly?: boolean
+  /** Only while our team has direct account checkouts switched on for the business. */
+  directOnly?: boolean
 }
 
 const GROUPS: { label?: string; items: Item[] }[] = [
@@ -90,6 +93,7 @@ const GROUPS: { label?: string; items: Item[] }[] = [
       { label: 'Invoices', to: '/collect/invoices', icon: FileText },
       { label: 'Outlets', to: '/collect/outlets', icon: Store },
       { label: 'Deposit addresses', to: '/collect/addresses', icon: QrCode },
+      { label: 'Direct account', to: '/collect/direct', icon: Vault, directOnly: true },
     ],
   },
   {
@@ -205,7 +209,7 @@ export default function AppShell() {
               <div key={gi} className={gi > 0 ? 'mt-5' : 'mt-1'}>
                 {g.label && <div className="mb-1 px-2 text-[11.5px] font-medium text-dim">{g.label}</div>}
                 {g.items
-                  .filter((it) => owner || role === 'ADMIN' || !it.ownerOnly)
+                  .filter((it) => (owner || role === 'ADMIN' || !it.ownerOnly) && (!it.directOnly || !!business?.directAllowed))
                   .map((it) => (
                     <NavItem key={it.to} item={it} path={location.pathname} />
                   ))}

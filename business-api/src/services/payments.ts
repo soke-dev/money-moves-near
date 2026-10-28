@@ -36,6 +36,7 @@ import {
   toMinor,
 } from "../lib/money";
 import { canSimulate, railsFor } from "../rails";
+import { checkDirectDaily, directLimits, directOn, uniqueDirectAmount } from "../lib/direct";
 import { chainPaused, cryptoDefaults, effectiveChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, reviewLimits, type Platform } from "../lib/platform";
 import { floatSend, floatTxStatus, NotSent, type FloatChain, type Sent } from "../lib/float";
 import { stellarFromSolana } from "../lib/stellar";
@@ -94,6 +95,8 @@ export type Checkout = {
    * way. The Money Moves app is free, so nobody pays for it.
    */
   feePayer: Record<PayMethod, "BUSINESS" | "CUSTOMER">;
+  /** A direct account checkout: naira only, into the business's subaccount, no fee, settled by hand. */
+  direct: boolean;
 };
 
 /** A checkout's own choice covers every way to pay; without one, each way follows the business. */
@@ -101,15 +104,15 @@ const payers = (own: FeePayer | null, b: Business): Record<PayMethod, FeePayer> 
   own ? { NAIRA: own, CRYPTO: own, APP: own } : { NAIRA: b.feePayer, CRYPTO: b.feePayerCrypto, APP: "BUSINESS" };
 
 export const fromLink = (l: PaymentLink & { business: Business }): Checkout => ({
-  kind: "link", id: l.id, business: l.business, mode: l.mode, currency: l.currency, amountMinor: l.amountMinor, minMinor: l.minMinor, methods: l.methods, accept: l.accept, active: l.active && !l.deletedAt && !(l.expiresAt && l.expiresAt.getTime() <= Date.now()), feePayer: payers(l.feePayer, l.business),
+  kind: "link", id: l.id, business: l.business, mode: l.mode, currency: l.currency, amountMinor: l.amountMinor, minMinor: l.minMinor, methods: l.methods, accept: l.accept, active: l.active && !l.deletedAt && !(l.expiresAt && l.expiresAt.getTime() <= Date.now()), feePayer: payers(l.feePayer, l.business), direct: l.direct,
 });
 /** An invoice takes one payment, for its total, while it's waiting to be paid. */
 export const fromInvoice = (i: Invoice & { business: Business }): Checkout => ({
-  kind: "invoice", id: i.id, business: i.business, mode: i.mode, currency: i.currency, amountMinor: i.amountMinor, minMinor: null, methods: i.methods, accept: i.accept, active: i.status === "OPEN", feePayer: payers(i.feePayer, i.business),
+  kind: "invoice", id: i.id, business: i.business, mode: i.mode, currency: i.currency, amountMinor: i.amountMinor, minMinor: null, methods: i.methods, accept: i.accept, active: i.status === "OPEN", feePayer: payers(i.feePayer, i.business), direct: false,
 });
 /** An outlet: the customer types the amount. */
 export const fromOutlet = (o: Outlet & { business: Business }): Checkout => ({
-  kind: "outlet", id: o.id, business: o.business, mode: o.mode, currency: o.currency, amountMinor: null, minMinor: null, methods: o.methods, accept: o.accept, active: o.active && !o.deletedAt, feePayer: payers(o.feePayer, o.business),
+  kind: "outlet", id: o.id, business: o.business, mode: o.mode, currency: o.currency, amountMinor: null, minMinor: null, methods: o.methods, accept: o.accept, active: o.active && !o.deletedAt, feePayer: payers(o.feePayer, o.business), direct: false,
 });
 
 const CHANNEL = { link: "links", invoice: "invoices", outlet: "outlets" } as const;
@@ -157,7 +160,11 @@ export async function admit(c: Checkout, method: PayMethod, input: OpenInput) {
   if (!c.active) throw new HttpError(410, INACTIVE[c.kind], c.kind === "link" ? "link_inactive" : "checkout_inactive");
   if (c.business.status === "SUSPENDED") throw new HttpError(403, "This business isn't taking payments right now.", "business_suspended");
   if (!c.methods.includes(method)) throw new HttpError(400, METHOD_OFF[method], "method_off");
-  if (!(await methodsOpen(c.business, c.mode)).has(method)) throw new HttpError(400, METHOD_OFF[method], "method_off");
+  if (c.direct) {
+    // Its own account, its own rules: only naira, only while our team has it switched on for the business.
+    if (method !== "NAIRA" || c.mode !== "LIVE") throw new HttpError(400, METHOD_OFF[method], "method_off");
+    if (!directOn(c.business)) throw new HttpError(403, "This business isn't taking these payments right now.", "direct_off");
+  } else if (!(await methodsOpen(c.business, c.mode)).has(method)) throw new HttpError(400, METHOD_OFF[method], "method_off");
   // Live app payments need the app's side switched on; in test mode the simulator stands in.
   if (method === "APP" && c.mode === "LIVE" && !appPayReady()) throw new HttpError(503, "Paying with the Money Moves app isn't switched on yet. Use a bank transfer or stablecoins.", "method_unavailable");
   if (c.mode === "LIVE" && c.business.status !== "VERIFIED") throw new HttpError(403, "This business can't take payments yet.", "business_unverified");
@@ -165,7 +172,12 @@ export async function admit(c: Checkout, method: PayMethod, input: OpenInput) {
   if (!p.channels[CHANNEL[c.kind]]) throw new HttpError(503, PAUSED[c.kind], "channel_paused");
   if (!p.methods[method === "NAIRA" ? "naira" : method === "APP" ? "app" : "crypto"]) throw new HttpError(503, METHOD_PAUSED[method], "method_paused");
   const rate = await ngnPerUsd();
-  const price = priceFor(c, input, rate, limitsFor(p, c.business, c.mode, method));
+  const price = priceFor(c, input, rate, c.direct ? directLimits(p, c.business) : limitsFor(p, c.business, c.mode, method));
+  // No fee on a direct payment, so nothing to add whoever would pay it.
+  if (c.direct) {
+    await checkDirectDaily(c.business, price.amountKobo);
+    return { p, rate, ...price, customerFeeKobo: null as number | null };
+  }
   // The customer pays the fee: added on top, so the business receives its full price.
   if (c.feePayer[method] === "CUSTOMER") {
     const fee = feeOn(method, price.amountKobo, rate, await platform(), c.business);
@@ -212,6 +224,18 @@ export async function newPayment(c: Checkout, input: OpenInput, method: PayMetho
 
 export async function openNairaPayment(c: Checkout, input: OpenInput): Promise<Payment> {
   const price = await admit(c, "NAIRA", input);
+  if (c.direct) {
+    // A permanent number carries no reference: the exact amount is what tells this payment apart.
+    const amountKobo = await uniqueDirectAmount(c.business.id, price.amountKobo);
+    const b = c.business;
+    return newPayment(c, input, "NAIRA", { ...price, amountKobo, amountCents: koboToCents(amountKobo, price.rate) }, {
+      direct: true,
+      accountBank: b.psaAccountBank,
+      accountNumber: b.psaAccountNumber,
+      accountName: b.psaAccountName,
+      providerRef: `psa:${b.psaReference}`,
+    });
+  }
   const { amountKobo } = price;
   const rails = railsFor(c.mode);
   // The row first, so every account we ever open belongs to a payment we know about.
@@ -275,8 +299,10 @@ export async function checkPayment(p: Payment): Promise<Payment> {
   if (p.status !== "OPEN") return p;
   if (p.method === "NAIRA") {
     if (!p.accountNumber) return p;
-    const arrival = await railsFor(p.mode).findArrival(railRef(p.ref));
-    if (arrival) return confirmArrival(p, arrival);
+    if (!p.direct) {
+      const arrival = await railsFor(p.mode).findArrival(railRef(p.ref));
+      if (arrival) return confirmArrival(p, arrival);
+    }
   }
   // A live app payment: the app says once the customer's send is on chain.
   if (p.method === "APP" && p.mode === "LIVE" && p.providerRef) {
@@ -340,6 +366,8 @@ function feeOn(method: PayMethod, kobo: number, ngnPerUsd: number, plat: Awaited
 async function feeFor(p: Payment, receivedKobo: number): Promise<number> {
   // The customer paid it on top: that's the fee, and the business keeps its full price.
   if (p.customerFeeKobo != null) return p.customerFeeKobo;
+  // Direct account payments carry no fee: the business gets every naira, settled by our team by hand.
+  if (p.direct) return 0;
   const pricing = await prisma.business.findUniqueOrThrow({ where: { id: p.businessId }, select: OWN_FEES });
   return feeOn(p.method, receivedKobo, p.ngnPerUsd, await platform(), pricing);
 }
@@ -387,7 +415,8 @@ export async function confirmArrival(p: Payment, a: Arrival): Promise<Payment> {
         await tx.payment.update({ where: { id: p.id }, data: { feeKobo: 0 } });
       }
     }
-    if (moved.count === 1 && full && !duplicate) {
+    // A direct payment is settled by our team by hand, so nothing is queued to go out.
+    if (moved.count === 1 && full && !duplicate && !p.direct) {
       const { data, why: ruled } = await settlementFor(tx, p, a.amountKobo - feeKobo, feeKobo);
       // Sent well over what was asked (more than ₦100 or 1%): a person checks it, so a small checkout
       // can't carry a transfer past its limits or the business's payout review.

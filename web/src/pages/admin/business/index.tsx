@@ -14,7 +14,7 @@
  */
 import { useLayoutEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ArrowLeftRight, BadgeCheck, Building2, Coins, Landmark, LayoutDashboard, MessagesSquare, RotateCcw, ShieldAlert, ToggleLeft } from 'lucide-react'
+import { ArrowLeftRight, BadgeCheck, Banknote, Building2, Coins, Landmark, LayoutDashboard, MessagesSquare, RotateCcw, ShieldAlert, ToggleLeft } from 'lucide-react'
 import { scrollFor, type OpenRecord, type RecordKind } from './nav'
 import { Businesses, Overview, Payments, Settlements } from './sections'
 import { Applications, ApplicationPage } from './Application'
@@ -26,6 +26,7 @@ import { RefundPage, Refunds } from './Refunds'
 import { DisputePage, Disputes } from './Disputes'
 import { Support } from './Support'
 import { Crypto } from './Crypto'
+import { Direct } from './Direct'
 
 export { bizChanged } from './client'
 export { readRecord, useRecord } from './nav'
@@ -40,6 +41,7 @@ export const BUSINESS_SECTIONS = [
   { id: 'b_refunds', label: 'Refunds', Icon: RotateCcw },
   { id: 'b_disputes', label: 'Disputes', Icon: ShieldAlert },
   { id: 'b_crypto', label: 'Crypto', Icon: Coins },
+  { id: 'b_direct', label: 'Direct', Icon: Banknote },
   { id: 'b_support', label: 'Support', Icon: MessagesSquare },
   { id: 'b_services', label: 'Services', Icon: ToggleLeft },
 ] as const
@@ -75,6 +77,7 @@ export function BusinessConsole({ section, filter, onJump, record }: { section: 
         {section === 'b_refunds' && <Refunds initial={filter} />}
         {section === 'b_disputes' && <Disputes initial={filter} />}
         {section === 'b_crypto' && <Crypto />}
+        {section === 'b_direct' && <Direct />}
         {section === 'b_support' && <Support />}
         {section === 'b_services' && <Services />}
       </div>
