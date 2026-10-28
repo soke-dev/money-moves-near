@@ -66,7 +66,7 @@ const short = (a: string | null) => (!a ? '' : a.length > 16 ? `${a.slice(0, 8)}
 
 const columns: Column<Arrival>[] = [
   { key: 'what', head: 'Transfer', width: 'minmax(0,1.1fr)', cell: (x) => <span className="font-medium">{coins(x.back ?? x.amount, x.coin)} <span style={{ color: C.muted }}>on {x.network}</span></span>, phone: 'title' },
-  { key: 'why', head: 'Why', cell: (x) => <span style={{ color: C.muted }}>{x.kind === 'UNMATCHED' ? 'Matched no payment' : x.whyWords ?? 'Paid a payment'}</span>, phone: 'sub' },
+  { key: 'why', head: 'Why', cell: (x) => <span style={{ color: C.muted }}>{x.why === 'own' ? 'Our own transfer' : x.kind === 'UNMATCHED' ? 'Matched no payment' : x.whyWords ?? 'Paid a payment'}</span>, phone: 'sub' },
   { key: 'payment', head: 'Payment', width: '170px', cell: (x) => (x.payment ? <span>{x.payment.ref}</span> : <span style={{ color: C.dim }}>None</span>) },
   { key: 'state', head: 'State', width: '150px', cell: (x) => (x.status ? <Tag tone={STATUS[x.status]?.[1]}>{STATUS[x.status]?.[0] ?? x.status}</Tag> : <Tag tone="good">{x.swept ? 'Swept' : 'Paid'}</Tag>) },
   { key: 'when', head: 'Came in', width: '110px', align: 'right', cell: (x) => <When at={x.at} />, phone: 'meta' },

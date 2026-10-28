@@ -290,7 +290,11 @@ export async function checkPayment(p: Payment): Promise<Payment> {
        */
       const verified = await verifyAppTransfer({ chain: app.chain ?? "", asset: app.asset ?? "", txHash: app.txHash, micros: BigInt(p.amountCents) * 10_000n });
       if (verified === null) return p;
-      const reused = (await prisma.payment.count({ where: { payerSession: app.txHash, id: { not: p.id } } })) + (await prisma.refund.count({ where: { fundTx: app.txHash } }));
+      const reused =
+        (await prisma.payment.count({ where: { payerSession: app.txHash, id: { not: p.id } } })) +
+        (await prisma.refund.count({ where: { fundTx: app.txHash } })) +
+        // A business's own wallet send into the treasury is never a customer's app payment.
+        (await prisma.walletSend.count({ where: { txHash: { equals: app.txHash, mode: "insensitive" } } }));
       if (!verified || reused) {
         log.warn("[app-pay] the app reported a payment the chain doesn't back, not settled, for ops to look at", { ref: p.ref, chain: app.chain, asset: app.asset, tx: app.txHash, reused: reused > 0 });
         return p;

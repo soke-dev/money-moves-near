@@ -248,7 +248,10 @@ async function checkAppFunding(r: Refund): Promise<Refund> {
   if (app?.status === "PAID" && app.txHash) {
     const verified = await verifyAppTransfer({ chain: app.chain ?? "", asset: app.asset ?? "", txHash: app.txHash, micros: BigInt(r.fundCents) * 10_000n });
     if (verified === null) return touched(r);
-    const reused = (await prisma.payment.count({ where: { payerSession: app.txHash } })) + (await prisma.refund.count({ where: { fundTx: app.txHash, id: { not: r.id } } }));
+    const reused =
+      (await prisma.payment.count({ where: { payerSession: app.txHash } })) +
+      (await prisma.refund.count({ where: { fundTx: app.txHash, id: { not: r.id } } })) +
+      (await prisma.walletSend.count({ where: { txHash: { equals: app.txHash, mode: "insensitive" } } }));
     if (!verified || reused) {
       log.warn("[refund] the app reported funding the chain doesn't back, not moved, for ops to look at", { ref: r.ref, chain: app.chain, asset: app.asset, tx: app.txHash, reused: reused > 0 });
       return touched(r);

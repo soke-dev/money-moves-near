@@ -77,6 +77,8 @@ async function uniqueMicros(coin: Coin, network: Network, base: bigint): Promise
   const used = new Set(taken.map((t) => String(t.cryptoMicros)));
   for (let i = 1; i <= MAX_OFFSET; i++) {
     const candidate = base + BigInt(i) * OFFSET_STEP;
+    // Never a whole-cent amount: app payments and wallet sends move whole cents into the same treasury.
+    if (candidate % 10_000n === 0n) continue;
     if (!used.has(String(candidate))) return candidate;
   }
   throw new HttpError(503, "Too many people are paying this amount right now. Try again in a minute.", "crypto_busy");
@@ -152,6 +154,36 @@ function ownPaymentAt(network: Network, address: string) {
   return prisma.payment.findFirst({ where: { depositKind: "OWN", depositAddress: key, ...LIVE_CRYPTO, network: evmChain(network) ? { in: EVM_NETWORKS } : network } });
 }
 
+/**
+ * Our own money reaching the treasury: a business sending from its wallet (to
+ * its bank, or to fund a refund), or a Money Moves app payment. Each already
+ * has its own record, kept under the transaction's plain hash, and is handled
+ * there. It is no customer's stray money, so it is never matched to a checkout
+ * or sent back. Returns what it was, or null.
+ */
+async function ownTransfer(tx: string): Promise<string | null> {
+  const same = { equals: tx, mode: "insensitive" as const };
+  if (await prisma.walletSend.count({ where: { txHash: same } })) return "A business sending from its wallet to its bank or to fund a refund. That send is handled on its own.";
+  if (await prisma.payment.count({ where: { method: "APP", payerSession: same } })) return "A Money Moves app payment, already paid to the business.";
+  if (await prisma.refund.count({ where: { fundTx: same } })) return "Money that funded a refund.";
+  return null;
+}
+
+/**
+ * Transfers recorded as unmatched before their own record carried the hash
+ * (the chain can be quicker than the app telling us): put to rest as ours,
+ * never sent back. Runs with the scan, and catches anything recorded earlier.
+ */
+export async function settleOwnTransfers(): Promise<void> {
+  const waiting = await prisma.cryptoArrival.findMany({ where: { kind: "UNMATCHED", returnStatus: "MANUAL" }, select: { id: true, txHash: true }, take: 200 });
+  for (const x of waiting) {
+    const what = await ownTransfer(x.txHash);
+    if (!what) continue;
+    const done = await prisma.cryptoArrival.updateMany({ where: { id: x.id, returnStatus: "MANUAL" }, data: { returnStatus: "KEPT", returnWhy: "own", returnBy: "system", returnError: what } });
+    if (done.count) log.info("[crypto-in] an unmatched transfer was our own, put to rest", { id: x.id, tx: x.txHash });
+  }
+}
+
 /** A transfer to the treasury: by memo on Stellar and TON, by exact amount elsewhere. */
 async function treasuryPayment(a: Incoming): Promise<Payment | null> {
   if (MEMO_NETWORKS.includes(a.network)) {
@@ -178,6 +210,8 @@ export async function takeArrival(a: Incoming): Promise<boolean> {
   const toTreasury = !!treasury && addressKey(a.network, treasury) === addressKey(a.network, a.to);
   // Our own sweep landing in the treasury, not a customer.
   if (toTreasury && a.from && (await ownPaymentAt(a.network, a.from))) return false;
+  // A business wallet send or an app payment: handled by its own record, so never a checkout's money.
+  if (toTreasury && (await ownTransfer(a.tx))) return false;
   const p = toTreasury ? await treasuryPayment(a) : await ownPaymentAt(a.network, a.to);
   try {
     await prisma.cryptoArrival.create({

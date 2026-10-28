@@ -114,6 +114,7 @@ const WHY_WORDS: Record<string, string> = {
   wrong_coin: "in a coin or on a network the payment wasn't asking for",
   unmatched: "without anything to tell us which payment it was for",
   invoice_paid: "after the invoice had already been paid another way",
+  own: "as one of our own transfers, already handled",
 };
 export const whyWords = (why: string | null) => WHY_WORDS[why ?? ""] ?? "when it wasn't needed";
 
