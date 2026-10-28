@@ -507,12 +507,46 @@ function DetailsPanel({ data }: { data: BusinessDetail }) {
             !!app?.structure && ['Structure', STRUCTURE[app.structure] ?? app.structure],
             ['Country', countryName(b.country)],
             ['Payout name', b.nameOnRecord ?? <span style={{ color: C.amber }}>None on record yet</span>],
-            ['Crypto to', `${CHAIN[b.settleChain] ?? b.settleChain}, as USDC`],
+            !!b.settlement && ['Settles to', <SettlesTo b={b} />],
+            ['Settle chain', `${CHAIN[b.settleChain] ?? b.settleChain}, as USDC`],
             ['Last changed', <When at={b.updatedAt} />],
           ]}
         />
       )}
     </Panel>
+  )
+}
+
+/** Where the business's money goes now, and the live checkouts that send it somewhere else. */
+function SettlesTo({ b }: { b: Biz }) {
+  const s = b.settlement!
+  const chain = CHAIN[b.settleChain] ?? b.settleChain
+  const main =
+    s.now === 'BANK'
+      ? s.bank
+        ? `${s.bank.bankName} ••${s.bank.last4}`
+        : 'Bank account (none checked yet)'
+      : s.now === 'MONEY_MOVES'
+        ? s.moneyMoves
+          ? `Money Moves @${s.moneyMoves.username}`
+          : 'Money Moves account'
+        : s.walletMade
+          ? `Business wallet, USDC on ${chain}`
+          : 'Business wallet (not made yet)'
+  const elsewhere = (Object.entries(s.checkouts) as [keyof typeof DESTINATION, number][]).filter(([d, n]) => d !== s.now && n > 0)
+  return (
+    <span>
+      {main}
+      <span className="block text-[12px]" style={{ color: C.dim }}>
+        {s.justMe
+          ? 'Just me: always the business wallet'
+          : elsewhere.length
+            ? `Default. Some live checkouts pick their own: ${elsewhere.map(([d, n]) => `${n} to ${DESTINATION[d].toLowerCase()}`).join(', ')}`
+            : s.apiChoice
+              ? 'Chosen by the business'
+              : 'Default: first of a checked bank, Money Moves, the wallet'}
+      </span>
+    </span>
   )
 }
 

@@ -198,7 +198,9 @@ export function eventDetail(kind: string, d: Record<string, unknown> | null): st
   if (kind === 'settled') return String(d.note ?? '')
   if (kind === 'review' && d.reason === 'daily_limit') return `Past the business's daily limit of ₦${Number(d.dailyLimitNgn ?? 0).toLocaleString()} (₦${Number(d.takenTodayNgn ?? 0).toLocaleString()} taken today). A person checks it before it goes. The business sees it as on its way.`
   if (kind === 'review' && d.reason === 'deactivated') return 'The business is deactivated - a person decides whether this goes out. The business sees it as on its way.'
-  if (kind === 'review') return `Over ₦${Number(d.limitNgn ?? 0).toLocaleString()} - a person checks payouts this big before they go. The business sees it as on its way.`
+  if (kind === 'review' && d.reason === 'overpaid') return `The customer sent ₦${Number(d.receivedNgn ?? 0).toLocaleString()} for a ₦${Number(d.askedNgn ?? 0).toLocaleString()} payment. A person checks it before it goes: pay it out, or refund the extra. The business sees it as on its way.`
+  if (kind === 'review' && d.limitUsd != null) return `Over $${Number(d.limitUsd).toLocaleString()}. A person checks payouts this big before they go. The business sees it as on its way.`
+  if (kind === 'review') return `Over ₦${Number(d.limitNgn ?? 0).toLocaleString()}. A person checks payouts this big before they go. The business sees it as on its way.`
   if (kind === 'approved') return String(d.to ?? '')
   return ''
 }

@@ -466,6 +466,16 @@ export type BusinessDetail = {
     settleChain: string
     adminNote: string | null
     risk?: { ownLimitNgn: number | null; limitNgn: number; takenTodayNgn: number }
+    /** Where its live money goes: its default now, and how many live checkouts pick each place. */
+    settlement?: {
+      justMe: boolean
+      apiChoice: Destination | null
+      now: Destination
+      bank: { bankName: string; last4: string; accountName: string } | null
+      moneyMoves: { username: string } | null
+      walletMade: boolean
+      checkouts: Partial<Record<Destination, number>>
+    }
     /** One live checkout's least and most per way to pay, and the payout sizes that wait for a person: its own where set, the platform's, and what applies. */
     limits?: {
       own: { checkout: Partial<Record<Way, { minNgn?: number | null; maxNgn?: number | null }>>; reviewNairaAboveNgn: number | null; reviewCryptoAboveUsd: number | null }

@@ -371,7 +371,12 @@ export async function confirmArrival(p: Payment, a: Arrival): Promise<Payment> {
       }
     }
     if (moved.count === 1 && full && !duplicate) {
-      const { data, why } = await settlementFor(tx, p, a.amountKobo - feeKobo, feeKobo);
+      const { data, why: ruled } = await settlementFor(tx, p, a.amountKobo - feeKobo, feeKobo);
+      // Sent well over what was asked (more than ₦100 or 1%): a person checks it, so a small checkout
+      // can't carry a transfer past its limits or the business's payout review.
+      const over = p.mode === "LIVE" && a.amountKobo > p.amountKobo + Math.max(10_000, Math.round(p.amountKobo / 100));
+      const why = ruled ?? (over && data.status === "QUEUED" ? { reason: "overpaid", askedNgn: p.amountKobo / 100, receivedNgn: a.amountKobo / 100 } : null);
+      if (why && !ruled) data.status = "REVIEW";
       const s = await tx.settlement.create({ data });
       await tx.settlementEvent.create({ data: { settlementId: s.id, kind: "created", detail: { status: s.status, destination: s.destination, amountKobo: s.amountKobo, feeKobo } } });
       if (why) await tx.settlementEvent.create({ data: { settlementId: s.id, kind: "review", detail: why } });

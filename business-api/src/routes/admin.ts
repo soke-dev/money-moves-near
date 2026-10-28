@@ -25,8 +25,9 @@ import { REFUND_WITHIN_MS, markRefundSent } from "../services/refunds";
 import { requestShape } from "./requests";
 import adminSupportRoutes from "./admin-support";
 import { keepOneDefault, nameOnRecord, recheckBanks } from "../lib/banks";
-import { DEFAULT_CHAIN, NETWORKS, PLATFORM_DEFAULTS, WAYS, chainPaused, effectiveChain, kindLimitsNgn, nairaDefaults, ownCheckoutOf, ownCheckoutSchema, payoutsOn, platform, platformSchema, platformWithMeta, reviewLimits, savePlatform, type Way } from "../lib/platform";
+import { DEFAULT_CHAIN, NETWORKS, PLATFORM_DEFAULTS, WAYS, chainPaused, effectiveChain, kindLimitsNgn, nairaDefaults, ownCheckoutOf, ownCheckoutSchema, payoutsOn, platform, platformSchema, platformWithMeta, reviewLimits, savePlatform, type Platform, type Way } from "../lib/platform";
 import { wayLimitsNgn } from "./pay";
+import { defaultDestination } from "./v1";
 
 const WAY_LABEL: Record<Way, string> = { naira: "Bank transfer", crypto: "Stablecoins", app: "Money Moves app" };
 import { COIN_NETWORKS, liveReady, notLiveWhy } from "../lib/accept";
@@ -70,6 +71,40 @@ function paging(q: Request["query"]) {
 const pagination = (page: number, limit: number, total: number) => ({ page, pages: Math.max(1, Math.ceil(total / limit)), total });
 
 /** Everything an admin changes is written down, with who did it. */
+/**
+ * Where a business's live money goes. Just me: always its business wallet.
+ * A registered business: each checkout picks, and API payments go to its
+ * default; here, that default as it stands, and how many live checkouts pick
+ * somewhere else.
+ */
+async function settlementOf(b: { id: string; kind: string; apiSettleTo: string | null }, p: Platform) {
+  const justMe = b.kind === "INDIVIDUAL";
+  const now = justMe ? { destination: "WALLET" as const, bankAccountId: undefined } : await defaultDestination(b.id, "LIVE", p);
+  const live = { businessId: b.id, mode: "LIVE" as const };
+  const [bank, link, wallet, links, outlets, invoices] = await Promise.all([
+    now.destination === "BANK"
+      ? prisma.bankAccount.findFirst({ where: { businessId: b.id, removedAt: null, nameMatches: true, ...(now.bankAccountId ? { id: now.bankAccountId } : {}) }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] })
+      : null,
+    now.destination === "MONEY_MOVES" ? prisma.moneyMovesLink.findFirst({ where: { businessId: b.id, status: "LINKED" }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] }) : null,
+    prisma.businessWallet.findUnique({ where: { businessId: b.id }, select: { id: true } }),
+    justMe ? [] : prisma.paymentLink.groupBy({ by: ["destination"], where: { ...live, active: true, deletedAt: null }, _count: true }),
+    justMe ? [] : prisma.outlet.groupBy({ by: ["destination"], where: { ...live, active: true, deletedAt: null }, _count: true }),
+    justMe ? [] : prisma.invoice.groupBy({ by: ["destination"], where: { ...live, status: "OPEN" }, _count: true }),
+  ]);
+  const checkouts: Record<string, number> = {};
+  for (const g of [...links, ...outlets, ...invoices]) checkouts[g.destination] = (checkouts[g.destination] ?? 0) + g._count;
+  return {
+    justMe,
+    /** What the business chose for API payments; null leaves it to us. */
+    apiChoice: b.apiSettleTo,
+    now: now.destination,
+    bank: bank ? { bankName: bank.bankName, last4: bank.accountNumber.slice(-4), accountName: bank.accountName } : null,
+    moneyMoves: link ? { username: link.username } : null,
+    walletMade: !!wallet,
+    checkouts,
+  };
+}
+
 const record = (req: Request, action: string, businessId: string | null, detail: Record<string, unknown> = {}) =>
   audit(req, `admin_${action}`, { businessId: businessId ?? undefined, detail: { ...detail, admin: req.admin!.email } as Prisma.InputJsonValue });
 
@@ -396,6 +431,7 @@ router.get("/businesses/:id", async (req, res) => {
       adminNote: b.adminNote,
       referral: { code: b.referralCode, referredBy: referrer, referred: referredCount },
       /** Past this in a day, its live settlements wait for a person. */
+      settlement: await settlementOf(b, p),
       risk: { ownLimitNgn: b.dailyLimitNgn, limitNgn: dailyLimitNgn(b, p), takenTodayNgn: (await takenTodayKobo(prisma, b.id)) / 100 },
       /** One live checkout's least and most, and the payout sizes that wait for a person: its own where set, and what applies. */
       limits: {
@@ -522,7 +558,14 @@ router.patch("/businesses/:id", async (req, res) => {
   await prisma.business.update({ where: { id }, data });
   if (b.name !== undefined || b.kind !== undefined) await recheckBanks(id);
   const changed = Object.keys(data);
-  await record(req, "business_edited", id, { fields: changed, ...(b.name !== undefined ? { from: before.name, to: b.name } : {}) });
+  // Limits are money rules: the log keeps what they were and what they became.
+  const limitsWere = { ownCheckout: before.ownCheckout, reviewNairaAboveNgn: before.reviewNairaAboveNgn, reviewCryptoAboveUsd: before.reviewCryptoAboveUsd, dailyLimitNgn: before.dailyLimitNgn };
+  const limitsNow = { ownCheckout: data.ownCheckout === Prisma.DbNull ? null : data.ownCheckout, reviewNairaAboveNgn: data.reviewNairaAboveNgn, reviewCryptoAboveUsd: data.reviewCryptoAboveUsd, dailyLimitNgn: data.dailyLimitNgn };
+  await record(req, "business_edited", id, {
+    fields: changed,
+    ...(b.name !== undefined ? { from: before.name, to: b.name } : {}),
+    ...(ownLimits || b.dailyLimitNgn !== undefined ? { limits: { from: limitsWere, to: Object.fromEntries(Object.entries(limitsNow).filter(([, v]) => v !== undefined)) } } : {}),
+  });
   res.json({ ok: true, changed });
 });
 
