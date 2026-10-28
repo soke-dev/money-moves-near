@@ -332,7 +332,6 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   const [chain, setChain] = useState<Chain | null>(null)
   const [found, setFound] = useState(0)
   const [details, setDetails] = useState(false)
-  const [bigQr, setBigQr] = useState(false)
 
   const chains = useMemo(() => [...(coins.find((a) => a.asset === asset)?.chains ?? [])].sort(byNetworkOrder), [coins, asset])
   // A payment already open - an invoice picked up again - shows the way it was started.
@@ -822,7 +821,6 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
     if (a === asset && c === chain) return
     setAsset(a)
     setChain(c)
-    setBigQr(false)
     if (!live) return
     live.reset()
     void live.start('crypto', { ...startBody(), coin: a, network: c })
@@ -873,10 +871,10 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                   </div>
                   <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">{sendHint}</p>
 
-                  <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-t border-line pt-4">
+                  <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-line pt-4 sm:gap-4">
                     <div className="min-w-0">
                       <div className="text-[12px] text-dim">To this {NETWORK_NAME[chain] ?? chain} address</div>
-                      <div className="mt-1 break-all font-mono text-[14px] leading-relaxed tracking-[0.02em] text-fg">
+                      <div className="mt-1 break-all font-mono text-[13px] leading-relaxed tracking-[0.02em] text-fg sm:text-[14px]">
                         {groups(sendTo).map((g, i) => (
                           <span key={i} className="mr-[0.45em] inline-block">
                             {g}
@@ -887,11 +885,15 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                         <CopyChip value={sendTo} label="Copy address" />
                       </div>
                     </div>
-                    <div className="flex flex-col items-center gap-1.5 text-[11.5px] text-dim max-sm:hidden">
-                      <span className="rounded-[14px] ring-1 ring-line">
+                    {/* The code sits beside the address on every screen: smaller on a phone, so the address keeps its width. */}
+                    <div className="flex flex-col items-center gap-1.5 text-[11.5px] text-dim">
+                      <span className="rounded-[14px] ring-1 ring-line sm:hidden">
+                        <Qr value={sendTo} size={88} />
+                      </span>
+                      <span className="rounded-[14px] ring-1 ring-line max-sm:hidden">
                         <Qr value={sendTo} size={104} />
                       </span>
-                      Scan with a wallet
+                      Scan address
                     </div>
                   </div>
                   {dep?.memo && (
@@ -901,14 +903,6 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                         <span className="tabular font-mono text-[22px] font-semibold tracking-[0.08em] text-fg">{dep.memo}</span>
                         <CopyChip value={dep.memo} label={`Copy ${memoWord}`} />
                       </div>
-                    </div>
-                  )}
-                  <button onClick={() => setBigQr((v) => !v)} className="mt-3 text-[13px] font-medium text-fg underline underline-offset-4 sm:hidden">
-                    {bigQr ? 'Hide the code' : 'Show a code to scan'}
-                  </button>
-                  {bigQr && (
-                    <div className="rise mt-3 flex justify-center rounded-[12px] border border-line py-4 sm:hidden">
-                      <Qr value={sendTo} size={180} />
                     </div>
                   )}
 
