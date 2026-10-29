@@ -67,6 +67,8 @@ const speedOf = (_c: Chain) => '~fast'
 
 /** The order networks are offered in: ours first, then the busiest elsewhere. */
 const NETWORK_ORDER: Chain[] = ['Movement', 'Monad', 'Arc', 'Solana', 'Stellar', 'Base', 'BNB Chain', 'TON', 'Arbitrum', 'Optimism', 'Ethereum']
+/** The order ways to pay are shown in. */
+const METHOD_ORDER: Method[] = ['crypto', 'app', 'naira']
 const byNetworkOrder = (a: Chain, b: Chain) => (NETWORK_ORDER.indexOf(a) + 1 || 99) - (NETWORK_ORDER.indexOf(b) + 1 || 99)
 
 /** Ways to pay, each with a plain line icon - no tiles, no colour; the business's colour marks the one picked. */
@@ -305,7 +307,8 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   const allowed: Method[] = L
     ? L.link.methods.map((m) => METHOD_FROM_API[m])
     : invoice?.methods || (link && 'methods' in link && link.methods) || (outlet && 'methods' in outlet && outlet.methods) || defaultMethods || ['app', 'crypto', 'naira']
-  const offered = allowed.filter((m) => m !== 'crypto' || coins.length > 0)
+  // Always stablecoins, then the app, then bank transfer, whatever order the link stored them in.
+  const offered = allowed.filter((m) => m !== 'crypto' || coins.length > 0).sort((a, b) => METHOD_ORDER.indexOf(a) - METHOD_ORDER.indexOf(b))
   // Each way to pay has its own range: the amount box takes the widest of the ways offered here.
   const W = L?.wayLimits
   const maxNgn = W && offered.length ? Math.max(...offered.map((m) => W[m].maxNgn)) : (L?.limits.maxNgn ?? MAX_NGN)
