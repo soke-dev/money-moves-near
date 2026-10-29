@@ -18,7 +18,7 @@ import QRCode from "react-native-qrcode-svg";
 import { useVoucherShare } from "@/hooks/useVoucherShare";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { signMovementTransaction } from "@/services/wallet-core";
+import { signMovementTransaction, ensureSigningSession } from "@/services/wallet-core";
 import {
   prepareVoucher,
   submitVoucher,
@@ -119,6 +119,8 @@ export default function SendVoucherScreen() {
     setBusy(true);
     setErr("");
     try {
+      // A lapsed wallet session signs out here, before the server opens a row it couldn't then close.
+      await ensureSigningSession();
       const p = await prepareVoucher({
         pot: amount,
         winners: people,

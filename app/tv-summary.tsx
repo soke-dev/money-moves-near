@@ -25,7 +25,7 @@ import { StageTrack, STAGE_DONE, STAGE_PENDING } from "@/components/StageTrack";
 import { Keypad } from "@/components/Keypad";
 import { useApp } from "@/context/AppContext";
 import { prepareBill, submitBill } from "@/services/bills";
-import { signMovementTransaction, signSolanaTransaction, signTonTransaction, signEvmTransaction, getLocalAddresses } from "@/services/wallet-core";
+import { signMovementTransaction, signSolanaTransaction, signTonTransaction, signEvmTransaction, getLocalAddresses, ensureSigningSession } from "@/services/wallet-core";
 import { signStellarTransaction } from "@/services/stellar";
 import { assetLabel } from "@/constants/transfer";
 
@@ -226,6 +226,8 @@ export default function TVSummaryScreen() {
       setProcessingStep(1);
 
       // Phase 1: Prepare
+      // A lapsed wallet session signs out here, before the server opens a row it couldn't then close.
+      await ensureSigningSession();
       const prepareResult = await prepareBill({
         type: "cable",
         phone: smartcard,

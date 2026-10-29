@@ -47,7 +47,7 @@ async function saveRecentNumber(phone: string, network: string) {
     await AsyncStorage.setItem(RECENT_AIRTIME_KEY, JSON.stringify(list));
   } catch {}
 }
-import { signMovementTransaction, signSolanaTransaction, signTonTransaction, signEvmTransaction, getLocalAddresses } from "@/services/wallet-core";
+import { signMovementTransaction, signSolanaTransaction, signTonTransaction, signEvmTransaction, getLocalAddresses, ensureSigningSession } from "@/services/wallet-core";
 import { signStellarTransaction } from "@/services/stellar";
 
 import { SuccessMark, SUCCESS_HALO } from "@/components/SuccessMark";
@@ -282,6 +282,8 @@ export default function AirtimeSummaryScreen() {
       setProcessingStep(1);
 
       // Phase 1: Prepare bill (backend validates + returns signing message)
+      // A lapsed wallet session signs out here, before the server opens a row it couldn't then close.
+      await ensureSigningSession();
       const prepareResult = await prepareBill({
         type: type as "airtime" | "data",
         phone,

@@ -22,7 +22,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { CoinMark } from "@/components/SwapRoute";
 import { Keypad } from "@/components/Keypad";
-import { signSolanaTransaction, signEvmTransaction, signMovementTransaction } from "@/services/wallet-core";
+import { signSolanaTransaction, signEvmTransaction, signMovementTransaction, ensureSigningSession } from "@/services/wallet-core";
 import {
   getSwapConfig,
   cachedSwapConfig,
@@ -325,6 +325,8 @@ export default function SwapScreen() {
     setStep("sending");
     setSendError("");
     try {
+      // A lapsed wallet session signs out here, before the server opens a row it couldn't then close.
+      await ensureSigningSession();
       const prepared = await prepareSwap(from.id, to.id, amount);
       const sig = await signFor(prepared.chain, prepared.signingMessage, prepared.txRequest);
       const sent = await submitSwap({ swapId: prepared.swapId, ...sig });

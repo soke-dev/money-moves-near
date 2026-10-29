@@ -18,7 +18,7 @@ import { Keypad } from "@/components/Keypad";
 import { CHAIN_MARKS } from "@/constants/transfer";
 import { prepareWithdrawal, submitWithdrawal, abandonWithdraw } from "@/services/transactions";
 import { solanaSendFee } from "@/services/status";
-import { signMovementTransaction, signSolanaTransaction, signTonTransaction, signEvmTransaction, getLocalAddresses } from "@/services/wallet-core";
+import { signMovementTransaction, signSolanaTransaction, signTonTransaction, signEvmTransaction, getLocalAddresses, ensureSigningSession } from "@/services/wallet-core";
 import { signStellarTransaction } from "@/services/stellar";
 import { StageTrack, STAGE_DONE, STAGE_PENDING } from "@/components/StageTrack";
 import { showError } from "@/components/PausedSheet";
@@ -190,6 +190,8 @@ export default function WithdrawSummaryScreen() {
       // Gasless flow for ALL chains: prepare → sign → submit
       const localAddrs = await getLocalAddresses().catch(() => null);
       setProcessingStep(1);
+      // A lapsed wallet session signs out here, before the server opens a row it couldn't then close.
+      await ensureSigningSession();
       const { withdrawalId, signingMessage, txRequest } = (await prepareWithdrawal({
         asset: wToken,
         chain: wChain,

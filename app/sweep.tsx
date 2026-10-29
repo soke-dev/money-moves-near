@@ -23,7 +23,7 @@ import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
 import { useApp } from "@/context/AppContext";
 import { StageTrack, STAGE_DONE, STAGE_PENDING, STAGE_FAILED } from "@/components/StageTrack";
-import { signSolanaTransaction, signTonTransaction, signEvmTransaction } from "@/services/wallet-core";
+import { signSolanaTransaction, signTonTransaction, signEvmTransaction, ensureSigningSession } from "@/services/wallet-core";
 import { signStellarTransaction } from "@/services/stellar";
 import { assetLabel } from "@/constants/transfer";
 import {
@@ -499,6 +499,8 @@ export default function SweepSheet() {
 
     let prepared;
     try {
+      // A lapsed wallet session signs out here, before the server opens a row it couldn't then close.
+      await ensureSigningSession();
       prepared = await prepareSweep(
         selected.map((b) => ({ asset: b.asset, chain: b.chain, amount: amountFor(b) })),
       );
