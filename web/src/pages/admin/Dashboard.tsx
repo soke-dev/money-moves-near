@@ -2460,6 +2460,8 @@ function TxPage({ tx, from, onBack, onDone, onPerson }: { tx: any; from: string;
     !!meta.payoutStatus && ['Payout', meta.payoutStatus],
     !!meta.payoutError && ['Payout error', <span style={{ color: C.red }}>{meta.payoutError}</span>],
     !!meta.chainError && ['Chain error', <span style={{ color: C.red }}>{meta.chainError}</span>],
+    // Stopped on the phone before anything was sent: what the app said, and at which step.
+    !!meta.clientError && ['Why it stopped', <span style={{ color: C.red }}>{meta.clientError}{meta.clientStage ? ` (${meta.clientStage})` : ''}</span>],
     ['Reference', <span style={{ fontFamily: MONO }}>{tx.reference || ''}</span>],
     ['Created', new Date(tx.createdAt).toLocaleString('en-NG', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' })],
   ]
