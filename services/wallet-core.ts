@@ -25,7 +25,7 @@ import { hmac } from "@noble/hashes/hmac";
 // Static import: Expo's async-require cannot resolve dynamic import() in the
 // dev client (it throws "Cannot read property 'replace' of undefined" from
 // buildUrlForBundle), which silently broke every Dynamic wallet call.
-import { signEd25519Hex, signEvmTx } from "./dynamic-wallet";
+import { ensureSignerReady, signEd25519Hex, signEvmTx } from "./dynamic-wallet";
 import { stellarAddressFromSolana } from "./stellar-address";
 import { sha512 } from "@noble/hashes/sha2";
 
@@ -637,6 +637,19 @@ async function getMovementKeypair(opts?: SignerOptions): Promise<nacl.SignKeyPai
  * Sign a hex-encoded signing message with Movement Ed25519 key.
  * Returns hex-encoded signature (128 chars) and public key (64 chars).
  */
+/**
+ * Before a transfer is started: whether the wallet can still sign.
+ *
+ * Asked once signing time comes, an expired session signs the person out after
+ * the server has already opened a row for the transfer, and with them signed
+ * out the app can no longer close it, so it sat waiting and then read as
+ * failed with no reason. Asked first, nothing is opened. A wallet that keeps
+ * its key on the phone has no session to lose, so this is the embedded one only.
+ */
+export async function ensureSigningSession(): Promise<void> {
+  if (await hasDynamicWallet()) await ensureSignerReady();
+}
+
 export async function signMovementTransaction(
   signingMessageHex: string
 ): Promise<{ signature: string; publicKey: string }> {

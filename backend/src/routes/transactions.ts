@@ -1525,10 +1525,14 @@ router.post(
       }
 
       // ── Cancel any existing PENDING sell for this user (prevent race condition) ──
-      await prisma.transaction.updateMany({
-        where: { userId, type: "SELL", status: "PENDING" },
-        data: { status: "FAILED" },
-      });
+      // Each with a reason: the console otherwise shows a failed sell and nothing to say why.
+      const replaced = await prisma.transaction.findMany({ where: { userId, type: "SELL", status: "PENDING" }, select: { id: true, metadata: true } });
+      for (const old of replaced) {
+        await prisma.transaction.updateMany({
+          where: { id: old.id, status: "PENDING" },
+          data: { status: "FAILED", metadata: { ...((old.metadata as any) || {}), neverSigned: true, clientError: (old.metadata as any)?.clientError || "Replaced by a newer sell before it was signed" } },
+        });
+      }
 
       // ── Create PENDING sell tx ──────────────────────────
       // Neutral prefix: this string is shown on receipts and read out to
@@ -2969,16 +2973,21 @@ async function cleanupStaleTransactions() {
     if (count > 0) console.log(`[TX CLEANUP] Expired ${count} stale withdrawal(s)`);
 
     // Expire stale PENDING sell transactions (not submitted within 10 min)
-    const { count: sellPending } = await prisma.transaction.updateMany({
-      where: {
-        status: "PENDING",
-        type: "SELL",
-        createdAt: { lt: tenMinAgo },
-      },
-      // Marked as never signed, same as the ones the app reports itself: the
-      // difference is only whether the phone was still around to say so.
-      data: { status: "FAILED" },
+    // Marked as never signed, same as the ones the app reports itself: the
+    // difference is only whether the phone was still around to say so.
+    const staleSells = await prisma.transaction.findMany({
+      where: { status: "PENDING", type: "SELL", createdAt: { lt: tenMinAgo } },
+      select: { id: true, metadata: true },
     });
+    let sellPending = 0;
+    for (const row of staleSells) {
+      const meta = (row.metadata ?? {}) as any;
+      const r = await prisma.transaction.updateMany({
+        where: { id: row.id, status: "PENDING" },
+        data: { status: "FAILED", metadata: { ...meta, neverSigned: true, clientError: meta.clientError || "Not signed within 10 minutes" } },
+      });
+      sellPending += r.count;
+    }
     if (sellPending > 0) console.log(`[TX CLEANUP] Expired ${sellPending} stale PENDING sell(s) — never signed`);
 
     // Expire stale PENDING bill purchases (not submitted within 10 min).

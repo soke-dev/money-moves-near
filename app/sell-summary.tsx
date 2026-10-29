@@ -12,7 +12,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { ts, assetLabel, fmtAsset, SELL_FEE_RATE as FEE_RATE, SELL_PROCESSING_FEE as PROCESSING_FEE, splitSellFee, FONT_SCALE } from "@/constants/transfer";
 import { prepareSell, submitSell, getSellQuote, checkSellStatus, abandonSell, SellQuote } from "@/services/transactions";
-import { signMovementTransaction, signSolanaTransaction, signTonTransaction, signEvmTransaction, getLocalAddresses } from "@/services/wallet-core";
+import { signMovementTransaction, signSolanaTransaction, signTonTransaction, signEvmTransaction, getLocalAddresses, ensureSigningSession } from "@/services/wallet-core";
 import { signStellarTransaction } from "@/services/stellar";
 import { StageTrack, STAGE_DONE, STAGE_PENDING, STAGE_FAILED } from "@/components/StageTrack";
 import { Keypad } from "@/components/Keypad";
@@ -273,6 +273,8 @@ export default function SellSummaryScreen() {
     // Named out here so the catch can close the row it opened.
     let preparedId: string | undefined;
     try {
+      // A lapsed wallet session signs out here, before the server opens a sell it couldn't then close.
+      await ensureSigningSession();
       const localAddrs = await getLocalAddresses().catch(() => null);
       setProcessingStep(1);
 

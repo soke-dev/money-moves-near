@@ -336,7 +336,7 @@ function withTimeout<T>(work: Promise<T>, ms: number, what: string): Promise<T> 
  * after the session restores, and a signing attempt in that gap would otherwise
  * fail with a confusing "no wallet" when the wallet exists and is moments away.
  */
-async function ensureSignerReady(): Promise<void> {
+export async function ensureSignerReady(): Promise<void> {
   await withTimeout(dynamicClient.sdk.waitForReady(), READY_TIMEOUT_MS, "Secure signing");
 
   /**
@@ -372,6 +372,37 @@ async function ensureSignerReady(): Promise<void> {
 }
 
 /**
+ * Whether the signer turned us down because the sign-in behind it is no longer
+ * good, rather than for anything about the transaction.
+ *
+ * The token can still be on the phone after the session behind it has lapsed,
+ * so ensureSignerReady lets it through and the refusal only comes back from the
+ * signer itself. Read as an ordinary error, that marked the transfer failed,
+ * showed the signer's own words and left the person signed in, so the next try
+ * failed the same way.
+ */
+function signerSessionGone(e: unknown): boolean {
+  const err = e as { status?: number; code?: string | number; message?: string; response?: { status?: number } } | null;
+  const status = err?.status ?? err?.response?.status;
+  if (status === 401) return true;
+  const words = `${err?.code ?? ""} ${err?.message ?? ""}`.toLowerCase();
+  return /unauthori[sz]ed|unauthenticated|not authenticated|jwt|session (has )?expired|expired session|token (has )?expired|expired token|invalid token|session not found|no active session|login required|sign ?in again|log ?in again/.test(words);
+}
+
+/** Runs one signing call; a refusal for the sign-in ends the session the same way ensureSignerReady does. */
+async function signing<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (e) {
+    if (signerSessionGone(e)) {
+      endSession("wallet");
+      throw new SessionEndedError("Your secure session has expired. Please sign in again.");
+    }
+    throw e;
+  }
+}
+
+/**
  * Sign a hex-encoded message with the Ed25519 (Solana) key — used for BOTH
  * Movement and Solana, since Movement shares that key. Returns hex signature +
  * hex public key, matching the shape the backend expects.
@@ -387,10 +418,8 @@ export async function signEd25519Hex(
   let res: any;
   setDynamicWebViewVisible(true);
   try {
-    res = await withTimeout(
-      dynamicClient.wallets.signMessage({ wallet: sol, message: hexMessage }),
-      SIGN_TIMEOUT_MS,
-      "Signing"
+    res = await signing(() =>
+      withTimeout(dynamicClient.wallets.signMessage({ wallet: sol, message: hexMessage }), SIGN_TIMEOUT_MS, "Signing")
     );
   } finally {
     // finally, not after the await: a timeout or rejection must still put the
@@ -476,7 +505,7 @@ export async function signEvmTx(txRequest: any): Promise<{ signedRaw: string; ad
   let signedRaw: string;
   setDynamicWebViewVisible(true);
   try {
-    signedRaw = await withTimeout(account.signTransaction(tx), SIGN_TIMEOUT_MS, "Signing");
+    signedRaw = await signing(() => withTimeout(account.signTransaction(tx), SIGN_TIMEOUT_MS, "Signing"));
   } finally {
     setDynamicWebViewVisible(false);
   }
