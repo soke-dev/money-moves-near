@@ -5,7 +5,7 @@
  *
  * Keys follow the mode in the sidebar: test keys in test mode, live keys live.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useLocation } from 'react-router-dom'
 import { AlertTriangle, Check, Copy, MoreHorizontal, Pencil, Plus, RefreshCw, RotateCcw, Send, Trash2, X } from '@/components/icons'
@@ -1054,22 +1054,48 @@ function EventPicker({ value, onChange, groups = EVENT_GROUPS }: { value: string
   )
 }
 
+/**
+ * A row's "more" menu, drawn over the page rather than inside the table: the
+ * table scrolls sideways on narrow screens, and a box that scrolls clips
+ * whatever spills out of it, so with one row the menu was cut off under its
+ * button. Opens upwards when there isn't room below.
+ */
 function RowMenu({ items }: { items: { label: string; icon: ReactNode; onClick: () => void; danger?: boolean }[] }) {
-  const [open, setOpen] = useState(false)
+  const [at, setAt] = useState<{ top?: number; bottom?: number; right: number } | null>(null)
+  const button = useRef<HTMLButtonElement>(null)
+  const close = () => setAt(null)
+  const toggle = () => {
+    if (at) return close()
+    const r = button.current?.getBoundingClientRect()
+    if (!r) return
+    const tall = items.length * 36 + 12
+    const right = window.innerWidth - r.right
+    setAt(window.innerHeight - r.bottom < tall + 8 && r.top > tall + 8 ? { bottom: window.innerHeight - r.top + 4, right } : { top: r.bottom + 4, right })
+  }
+  useEffect(() => {
+    if (!at) return
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+    }
+  }, [at])
   return (
-    <div className="relative inline-block" onClick={(e) => e.stopPropagation()}>
-      <button onClick={() => setOpen((o) => !o)} className="flex size-8 items-center justify-center rounded-[7px] text-dim hover:bg-raise hover:text-fg" aria-label="More">
+    <div className="inline-block" onClick={(e) => e.stopPropagation()}>
+      <button ref={button} onClick={toggle} className="flex size-8 items-center justify-center rounded-[7px] text-dim hover:bg-raise hover:text-fg" aria-label="More">
         <MoreHorizontal className="size-4" />
       </button>
-      {open && (
-        <>
-          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-9 z-20 w-48 overflow-hidden rounded-[10px] border border-line bg-card py-1 text-left shadow-[0_12px_32px_-12px_rgba(18,18,16,0.25)]">
+      {at &&
+        createPortal(
+        <div onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 z-40" onClick={close} />
+          <div style={{ top: at.top, bottom: at.bottom, right: at.right }} className="fixed z-50 w-48 overflow-hidden rounded-[10px] border border-line bg-card py-1 text-left shadow-[0_12px_32px_-12px_rgba(18,18,16,0.25)]">
             {items.map((it) => (
               <button
                 key={it.label}
                 onClick={() => {
-                  setOpen(false)
+                  close()
                   it.onClick()
                 }}
                 className={cx('flex w-full items-center gap-2.5 px-3 py-2 text-left text-[13px] hover:bg-raise', it.danger ? 'text-red' : 'text-fg')}
@@ -1079,8 +1105,9 @@ function RowMenu({ items }: { items: { label: string; icon: ReactNode; onClick: 
               </button>
             ))}
           </div>
-        </>
-      )}
+        </div>,
+          document.body,
+        )}
     </div>
   )
 }
