@@ -653,19 +653,27 @@ export default function HomeScreen() {
       });
       return;
     }
-    if (hasWallet) {
-      // Server has addresses but device has no mnemonic — restore needed
-      setShowWalletRecovery(true);
-    }
+    /**
+     * Not a 12-word restore any more.
+     *
+     * Every sign-in is by email now, so the wallet is the email wallet and it
+     * sets itself up in the background. An account from before 2.0 still
+     * carries the old wallet type, so this used to open "Restore Wallet" for
+     * a phrase the phone never had - and every button afterwards opened it
+     * again, leaving the person stuck. The old wallet is reached through its
+     * own export, never through this.
+     */
   }, [user, walletReady, hasWallet, walletSkipped, walletType, backupKey]);
+
+  // The wallet came through while a restore sheet was open: it has nothing left to do.
+  useEffect(() => {
+    if (walletReady) setShowWalletRecovery(false);
+  }, [walletReady]);
 
   const requireWallet = (action: () => void) => {
     if (!walletReady) {
-      if (hasWallet) {
-        setShowWalletRecovery(true);
-      } else {
-        setShowWalletErrorSheet(true);
-      }
+      // The email wallet is still setting up, or it failed: say so, with a way to try again.
+      setShowWalletErrorSheet(true);
       return;
     }
     action();

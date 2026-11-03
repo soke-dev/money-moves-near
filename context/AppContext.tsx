@@ -556,8 +556,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (dynAddr) {
         try { await initializeWallets(); } catch {}
         // In the background: it waits for the email wallet's session to come
-        // back after launch, and the app must not wait with it.
-        void saveWalletAddresses(formatAddressesForSave(dynAddr), { waitForToken: true }).catch((e: any) =>
+        // back after launch, and the app must not wait with it. The type goes
+        // first, so an account from before 2.0 still marked as a 12-word wallet
+        // takes these addresses instead of keeping its old ones.
+        void (async () => {
+          if (user?.walletType !== "EMBEDDED") {
+            try { await saveWalletType("EMBEDDED"); } catch {}
+            setUser((prev) => (prev ? { ...prev, walletType: "EMBEDDED" } : prev));
+          }
+          await saveWalletAddresses(formatAddressesForSave(dynAddr), { waitForToken: true });
+        })().catch((e: any) =>
           console.warn("[wallet] address save failed:", e?.response?.data?.code || e?.message || e),
         );
         setHasWallet(true);
@@ -578,8 +586,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               await saveDynamicAddresses(addr);
               await setLocalWalletType("EMBEDDED");
               try { await initializeWallets(); } catch {}
-              try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
+              // The type first, so an account from before 2.0 takes the email wallet's addresses.
               try { await saveWalletType("EMBEDDED"); } catch {}
+              try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
               setUser((prev) => (prev ? { ...prev, walletType: "EMBEDDED" } : prev));
               setHasWallet(true);
               setWalletReady(true);
@@ -759,8 +768,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await saveDynamicAddresses(addr, userId);
       await setLocalWalletType("EMBEDDED", userId);
       try { await initializeWallets(); } catch {}
-      try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
+      // The type first: an account from before 2.0 is still marked as a 12-word wallet, and the
+      // server keeps that kind of account's old addresses rather than take the email wallet's.
       try { await saveWalletType("EMBEDDED"); } catch {}
+      try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
       setUser((prev) => (prev ? { ...prev, walletType: "EMBEDDED" } : prev));
       setWalletError(null);
       setWalletReady(true);
@@ -797,8 +808,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await saveDynamicAddresses(addr);
       await setLocalWalletType("EMBEDDED");
       try { await initializeWallets(); } catch {}
-      try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
+      // The type first: an account from before 2.0 is still marked as a 12-word wallet, and the
+      // server keeps that kind of account's old addresses rather than take the email wallet's.
       try { await saveWalletType("EMBEDDED"); } catch {}
+      try { await saveWalletAddresses(formatAddressesForSave(addr), { waitForToken: true }); } catch {}
       setUser((prev) => (prev ? { ...prev, walletType: "EMBEDDED" } : prev));
       setWalletReady(true);
       setHasWallet(true);
