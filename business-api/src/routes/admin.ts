@@ -45,6 +45,7 @@ import { LockedDocument, checkEveryDocument, open as openDocument, vaultState } 
 import { diditReady, getDecision } from "../lib/didit";
 import { approvedEmail, decisionEmail, sendEmail } from "../lib/email";
 import { DOCS, answersSchema, applyDecision, gaps, needsBack, ownersOf, payoutPlaces } from "../services/application";
+import { PARTS, asked, currentFiles, decide as decideIdentity, partsFor } from "../services/identity";
 import { invoiceShape } from "./invoices";
 import { outletShape, outletStats } from "./outlets";
 import { approveChange, changeShape, currentDetails, declineChange } from "../services/detail-changes";
@@ -248,7 +249,7 @@ router.get("/overview", async (req, res) => {
   const since = new Date(now - 86_400_000);
   const week = new Date(now - 7 * 86_400_000);
   const stuckBefore = new Date(now - STUCK_MS);
-  const [byStatus, newThisWeek, failed, held, stuck, testFailed, waitingBanks, paidToday, settledToday, recent, applications, review, refundsToSend, chatsWaiting, detailChanges, cryptoReturns, disputesOpen] = await Promise.all([
+  const [byStatus, newThisWeek, failed, held, stuck, testFailed, waitingBanks, paidToday, settledToday, recent, applications, review, refundsToSend, chatsWaiting, detailChanges, cryptoReturns, disputesOpen, identityWaiting] = await Promise.all([
     prisma.business.groupBy({ by: ["status"], _count: { _all: true } }),
     prisma.business.count({ where: { createdAt: { gte: week } } }),
     prisma.settlement.count({ where: { mode: "LIVE", status: "FAILED" } }),
@@ -269,6 +270,8 @@ router.get("/overview", async (req, res) => {
     prisma.cryptoArrival.count({ where: { returnStatus: { in: ["MANUAL", "FAILED"] } } }),
     // Live disputes still open: customers waiting on a business, bank claims waiting on the bank's word.
     prisma.dispute.count({ where: { mode: "LIVE", status: { in: ["NEEDS_REPLY", "UNDER_REVIEW"] } } }),
+    // Manual identity checks sent and waiting for a decision.
+    prisma.identityCheck.count({ where: { provider: "manual", status: "IN_REVIEW" } }),
   ]);
   const unusual = (await unusualToday(await platform())).length;
   const count = (s: BusinessStatus) => byStatus.find((x) => x.status === s)?._count._all ?? 0;
@@ -278,7 +281,7 @@ router.get("/overview", async (req, res) => {
   };
   res.json({
     businesses: { total: byStatus.reduce((a, x) => a + x._count._all, 0), unverified: count("UNVERIFIED"), inReview: count("IN_REVIEW"), verified: count("VERIFIED"), suspended: count("SUSPENDED"), newThisWeek },
-    attention: { failed, held, stuck, review, refundsToSend, chatsWaiting, detailChanges, cryptoReturns, disputesOpen, unusual, inReview: count("IN_REVIEW"), applications, waitingBanks, testFailed, documentsLocked: vaultState().state === "locked" },
+    attention: { failed, held, stuck, review, refundsToSend, chatsWaiting, detailChanges, cryptoReturns, disputesOpen, identityWaiting, unusual, inReview: count("IN_REVIEW"), applications, waitingBanks, testFailed, documentsLocked: vaultState().state === "locked" },
     mode: mode.toLowerCase(),
     today: { live: day("LIVE"), test: day("TEST"), settled: { count: settledToday._count._all, amountNgn: (settledToday._sum.amountKobo ?? 0) / 100 } },
     recent: recent.map(paymentView),
@@ -953,6 +956,9 @@ const APPLICATION_ACTIONS = new Set([
   "admin_document_rejected",
   "admin_document_viewed",
   "identity_started",
+  "admin_identity_approve",
+  "admin_identity_redo",
+  "admin_identity_decline",
 ]);
 
 router.get("/applications/:businessId", async (req, res) => {
@@ -992,7 +998,7 @@ router.get("/applications/:businessId", async (req, res) => {
         }),
     ],
     documents: docs.map((d) => ({ ...d, uploadedBy: emailOf(d.uploadedBy) })),
-    identity: checks.map((c) => ({ id: c.id, status: c.status, providerStatus: c.providerStatus, firstName: c.firstName, lastName: c.lastName, dateOfBirth: c.dateOfBirth, documentLast4: c.documentLast4, warnings: c.warnings, sessionId: c.sessionId, startedBy: emailOf(c.userId), checkedAt: c.checkedAt, createdAt: c.createdAt })),
+    identity: checks.map((c) => ({ id: c.id, method: c.provider === "manual" ? "manual" : "auto", status: c.status, providerStatus: c.providerStatus, firstName: c.firstName, lastName: c.lastName, dateOfBirth: c.dateOfBirth, documentLast4: c.documentLast4, warnings: c.warnings, sessionId: c.sessionId, startedBy: emailOf(c.userId), checkedAt: c.checkedAt, createdAt: c.createdAt, idType: c.idType, submittedAt: c.submittedAt, reviewNote: c.reviewNote, reviewedBy: c.reviewedBy })),
     identityReady: diditReady(),
     bankAccounts: banks.map(bankView),
     gaps: gaps(answers, active, checks[0] ?? null, places),
@@ -1042,9 +1048,129 @@ router.post("/documents/:id/verdict", async (req, res) => {
 router.post("/identity/:id/refresh", async (req, res) => {
   const check = await prisma.identityCheck.findUnique({ where: { id: String(req.params.id) } });
   if (!check) throw new HttpError(404, "No identity check with that id.", "not_found");
+  if (check.provider === "manual") throw new HttpError(400, "This check is decided in ID checks, not by the partner.", "manual_check");
   if (!diditReady()) throw new HttpError(503, "Identity checks aren't connected on this server.", "identity_unavailable");
   await applyDecision(check, await getDecision(check.sessionId));
   res.json({ ok: true });
+});
+
+// ─── ID checks: manual identity checks, decided by our team ───────────────
+//
+// The person sent ID photos, a selfie and a smile video. Opening any of them
+// is written to the audit log, like documents. Approving and declining take
+// the action password; asking for a redo doesn't.
+
+const IDENTITY_VIEWS: Record<string, Prisma.IdentityCheckWhereInput> = {
+  waiting: { status: "IN_REVIEW" },
+  redo: { status: "PENDING", submittedAt: { not: null } },
+  approved: { status: "APPROVED" },
+  declined: { status: "DECLINED" },
+  all: {},
+};
+
+router.get("/identity-checks", async (req, res) => {
+  const { page, limit, skip } = paging(req.query);
+  const view = String(req.query.view ?? "waiting");
+  const where: Prisma.IdentityCheckWhereInput = { provider: "manual", ...(IDENTITY_VIEWS[view] ?? IDENTITY_VIEWS.waiting!) };
+  const [total, rows, counts] = await Promise.all([
+    prisma.identityCheck.count({ where }),
+    prisma.identityCheck.findMany({ where, orderBy: view === "waiting" ? { submittedAt: "asc" } : { updatedAt: "desc" }, skip, take: limit, include: { business: { select: { id: true, name: true, kind: true } } } }),
+    Promise.all(["waiting", "redo"].map((v) => prisma.identityCheck.count({ where: { provider: "manual", ...IDENTITY_VIEWS[v]! } }))),
+  ]);
+  const people = await prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.userId))] } }, select: { id: true, email: true, firstName: true, lastName: true } });
+  const tries = await prisma.identityCheck.groupBy({ by: ["businessId"], where: { provider: "manual", businessId: { in: rows.map((r) => r.businessId) }, submittedAt: { not: null } }, _count: { _all: true } });
+  res.json({
+    checks: rows.map((c) => {
+      const u = people.find((p) => p.id === c.userId);
+      return {
+        id: c.id,
+        status: c.status,
+        idType: c.idType,
+        person: [u?.firstName, u?.lastName].filter(Boolean).join(" ") || null,
+        email: u?.email ?? null,
+        business: { id: c.business.id, name: c.business.name, kind: c.business.kind },
+        submittedAt: c.submittedAt,
+        reviewedAt: c.reviewedAt,
+        reviewedBy: c.reviewedBy,
+        tries: tries.find((x) => x.businessId === c.businessId)?._count._all ?? 1,
+      };
+    }),
+    counts: { waiting: counts[0], redo: counts[1] },
+    pagination: pagination(page, limit, total),
+  });
+});
+
+router.get("/identity-checks/:id", async (req, res) => {
+  const c = await prisma.identityCheck.findUnique({ where: { id: String(req.params.id) }, include: { business: { select: { id: true, name: true, kind: true, merchantId: true, status: true } } } });
+  if (!c || c.provider !== "manual") throw new HttpError(404, "No manual identity check with that id.", "not_found");
+  const [u, files, earlier, app] = await Promise.all([
+    prisma.user.findUnique({ where: { id: c.userId }, select: { email: true, firstName: true, lastName: true } }),
+    currentFiles(c.id),
+    prisma.identityCheck.findMany({ where: { businessId: c.businessId, id: { not: c.id } }, orderBy: { createdAt: "desc" }, take: 10, select: { id: true, provider: true, status: true, reviewNote: true, createdAt: true } }),
+    prisma.application.findUnique({ where: { businessId: c.businessId }, select: { status: true, answers: true } }),
+  ]);
+  const answers = answersSchema.parse(app?.answers ?? {});
+  res.json({
+    check: {
+      id: c.id,
+      status: c.status,
+      idType: c.idType,
+      submittedAt: c.submittedAt,
+      reviewedAt: c.reviewedAt,
+      reviewedBy: c.reviewedBy,
+      reviewNote: c.reviewNote,
+      firstName: c.firstName,
+      lastName: c.lastName,
+      documentLast4: c.documentLast4,
+      redo: Array.isArray(c.redo) ? c.redo : [],
+      need: partsFor(c.idType),
+      asked: asked(c),
+      createdAt: c.createdAt,
+    },
+    person: { name: [u?.firstName, u?.lastName].filter(Boolean).join(" ") || null, firstName: u?.firstName ?? null, lastName: u?.lastName ?? null, email: u?.email ?? null, phone: answers.phone ?? null },
+    business: { ...c.business, legalName: answers.legalName ?? null, application: app?.status ?? null },
+    files: files.map((f) => ({ id: f.id, part: f.part, mime: f.mime, size: f.size, createdAt: f.createdAt })),
+    earlier: earlier.map((e) => ({ id: e.id, method: e.provider === "manual" ? "manual" : "auto", status: e.status, note: e.reviewNote, createdAt: e.createdAt })),
+  });
+});
+
+/** One photo or the video, decrypted, for an admin to look at. Every opening is logged. */
+router.get("/identity-files/:id", async (req, res) => {
+  const f = await prisma.identityFile.findUnique({ where: { id: String(req.params.id) }, include: { check: { select: { businessId: true } } } });
+  if (!f) throw new HttpError(404, "No file with that id.", "not_found");
+  let file: Buffer;
+  try {
+    file = openDocument(Buffer.from(f.data));
+  } catch (e) {
+    if (e instanceof LockedDocument) throw new HttpError(423, e.message, "document_locked");
+    throw e;
+  }
+  await record(req, "identity_file_viewed", f.check.businessId, { fileId: f.id, checkId: f.checkId, part: f.part });
+  res.setHeader("Content-Type", f.mime);
+  res.setHeader("Content-Disposition", "inline");
+  res.setHeader("Cache-Control", "no-store");
+  res.send(file);
+});
+
+router.post("/identity-checks/:id/decision", async (req, res) => {
+  const b = body(
+    z.object({
+      decision: z.enum(["approve", "redo", "decline"]),
+      parts: z.array(z.enum(PARTS)).max(4).optional(),
+      note: z.string().trim().max(1000).optional(),
+      /** Approving: the name as it is on the ID. It becomes the name on their profile. */
+      firstName: z.string().trim().max(80).optional(),
+      lastName: z.string().trim().max(80).optional(),
+      /** Approving: the NIN, passport or licence number on the ID. Only its last four are kept. */
+      documentNumber: z.string().trim().max(40).optional(),
+      password: z.string().max(200).optional(),
+    }),
+    req,
+  );
+  if (b.decision !== "redo") await needActionPassword(req, b.password, `identity_${b.decision}`);
+  const c = await decideIdentity(String(req.params.id), { decision: b.decision, parts: b.parts, note: b.note, firstName: b.firstName, lastName: b.lastName, documentNumber: b.documentNumber }, req.admin!.email);
+  await record(req, `identity_${b.decision}`, c.businessId, { checkId: c.id, parts: b.parts ?? null, note: b.note || null, ...(b.decision === "approve" ? { name: `${c.firstName ?? ""} ${c.lastName ?? ""}`.trim() } : {}) });
+  res.json({ status: c.status });
 });
 
 const decisionInput = z.object({
@@ -1071,7 +1197,7 @@ router.post("/applications/:businessId/decision", async (req, res) => {
   if (b.decision === "approve") {
     // The account representative's identity has to be approved - asked again now if it's still being decided.
     let check = await prisma.identityCheck.findFirst({ where: { businessId }, orderBy: { createdAt: "desc" } });
-    if (check && check.status !== "APPROVED" && check.status !== "DECLINED" && diditReady()) {
+    if (check && check.provider !== "manual" && check.status !== "APPROVED" && check.status !== "DECLINED" && diditReady()) {
       const before = check;
       check = await getDecision(before.sessionId)
         .then((d) => applyDecision(before, d))
@@ -1084,7 +1210,9 @@ router.post("/applications/:businessId/decision", async (req, res) => {
           ? "The account representative hasn't done an identity check. Ask for changes so they complete it."
           : check.status === "DECLINED"
             ? "Their identity check was declined. Ask for changes so they complete it again, then approve."
-            : "Their identity check isn't approved yet. Wait for the result, or ask for changes so they finish it.",
+            : check.provider === "manual"
+              ? "Their identity check isn't approved yet. Decide it in ID checks first."
+              : "Their identity check isn't approved yet. Wait for the result, or ask for changes so they finish it.",
         "identity_not_approved",
       );
   }

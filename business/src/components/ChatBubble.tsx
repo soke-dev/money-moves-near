@@ -70,7 +70,8 @@ export default function ChatBubble() {
   openRef.current = open
   const businessId = business?.id ?? null
   const live = LIVE && !!user
-  const hidden = pathname.startsWith('/pay/') || pathname === '/checkout-preview'
+  // Not over a checkout, and not over the camera on the phone side of an identity check.
+  const hidden = pathname.startsWith('/pay/') || pathname === '/checkout-preview' || pathname.startsWith('/verify/id/')
   const q = businessId ? `?businessId=${encodeURIComponent(businessId)}` : ''
 
   const markRead = useCallback(() => {

@@ -620,6 +620,12 @@ export type DocRow = {
 
 export type IdentityRow = {
   id: string
+  /** auto: the identity partner. manual: photos the team decides in ID checks. */
+  method?: 'auto' | 'manual'
+  idType?: string | null
+  submittedAt?: string | null
+  reviewNote?: string | null
+  reviewedBy?: string | null
   status: IdStatus
   providerStatus: string
   firstName: string | null
@@ -651,6 +657,8 @@ export type Platform = {
   maintenance: boolean
   methods: { naira: boolean; app: boolean; crypto: boolean }
   channels: { links: boolean; invoices: boolean; outlets: boolean; api: boolean }
+  /** On: the account representative sends ID photos, a selfie and a smile video, decided in ID checks. Off: the identity partner. */
+  identity: { manual: boolean; nin: boolean; passport: boolean; licence: boolean }
   destinations: { bank: boolean; moneyMoves: boolean; wallet: boolean }
   settleChains: { MOVEMENT: boolean; ARC: boolean; MONAD: boolean; SOLANA: boolean; STELLAR: boolean }
   coins: { USDC: boolean; USDT: boolean }

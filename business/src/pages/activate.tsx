@@ -43,6 +43,7 @@ import { Badge, Button, Checkbox, Field, Input, Modal, OptionCard, Select, Texta
 import { BLANK_WALLET, ChannelSettlement, WalletTargetForm, type WalletTarget } from '@/components/Settlement'
 import { COUNTRIES, idTypesFor } from '@/lib/countries'
 import { MoneyMovesLinker } from '@/components/MoneyMovesLinker'
+import { ManualIdentity } from '@/components/ManualIdentity'
 import { bankAccountsPath, bankLabel, banksOf, mmsOf, targetsStore, useTargets, type BankAccount } from '@/state/targets'
 import { ApiError, LIVE, api, applicationPath, uploadFile, type ApiApplication, type Me } from '@/lib/api'
 import { reload, useApi } from '@/lib/useApi'
@@ -285,7 +286,7 @@ const MAX_WORDS = 500
  * Everything still missing, step by step, in words a person would use. Live,
  * the server checks it all again on submit - this is only the quick view.
  */
-function missing(d: Draft, live?: { banks: number; linked: number; waiting: number; identity: 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'DECLINED' | null }): { step: StepId; label: string }[] {
+function missing(d: Draft, live?: { banks: number; linked: number; waiting: number; identity: 'PENDING' | 'IN_REVIEW' | 'APPROVED' | 'DECLINED' | null; unsent?: boolean }): { step: StepId; label: string }[] {
   const out: { step: StepId; label: string }[] = []
   const need = (step: StepId, ok: unknown, label: string) => !ok && out.push({ step, label })
   need('setup', d.kind, 'Whether you are a registered business')
@@ -300,7 +301,8 @@ function missing(d: Draft, live?: { banks: number; linked: number; waiting: numb
   }
   // The preview does no identity check, so it can't ask for one.
   // Started is enough to submit - our team sees the result before approving. Declined has to be done again.
-  if (live) need('you', !!live.identity && live.identity !== 'DECLINED', 'Identity check')
+  // A manual check counts once it has been sent; one still being taken on a phone doesn't.
+  if (live) need('you', !!live.identity && live.identity !== 'DECLINED' && !live.unsent, 'Identity check')
   need('you', d.phone.replace(/\D/g, '').length >= 10, 'Your phone number')
   need('you', d.street && d.city && d.state, 'Your home address')
   if (d.kind === 'registered') {
@@ -338,6 +340,13 @@ type LiveApp = {
   application: ApiApplication['application']
   identity: ApiApplication['identity']
   identityReady: boolean
+  /** How a new check is done: the partner's page, or photos from a phone. */
+  identityMethod: 'auto' | 'manual'
+  /** The application's API path, and a way to read it again - for the manual check's panel. */
+  path: string
+  reloadApp: () => Promise<unknown>
+  /** Owners and admins do the identity check. */
+  canManage: boolean
   documents: ApiApplication['documents']
   banks: BankAccount[]
   /** Money Moves accounts asked for: linked, or waiting for the owner's approval. */
@@ -432,7 +441,7 @@ export function Activate() {
   const steps = stepsFor(d.kind)
   const i = Math.max(0, steps.indexOf(at))
   const mmList = mmsOf(targets)
-  const gaps = missing(d, LIVE ? { banks: banks.length, linked: mmList.filter((m) => m.linked).length, waiting: mmList.filter((m) => !m.linked).length, identity: identity?.status ?? null } : undefined)
+  const gaps = missing(d, LIVE ? { banks: banks.length, linked: mmList.filter((m) => m.linked).length, waiting: mmList.filter((m) => !m.linked).length, identity: identity?.status ?? null, unsent: identity?.method === 'manual' && identity.status === 'PENDING' && !identity.submittedAt } : undefined)
   const go = (s: StepId) => {
     set({ visited: d.visited.includes(s) ? d.visited : [...d.visited, s] })
     setAt(s)
@@ -452,6 +461,10 @@ export function Activate() {
           application: app.data.application,
           identity,
           identityReady: app.data.identityReady,
+          identityMethod: app.data.identityMethod ?? 'auto',
+          path,
+          reloadApp: () => app.reload(),
+          canManage: business.role === 'OWNER' || business.role === 'ADMIN',
           documents,
           banks,
           mms: mmList,
@@ -938,9 +951,11 @@ function YouStep({ d, set, me, email, live, onBack, onNext }: StepProps & { me: 
   const role = d.structure ? PEOPLE[d.structure] : PEOPLE.LTD
   const id = live?.identity
   const status = id?.status
+  const partnerUnderWay = !!id && id.method !== 'manual' && (status === 'PENDING' || status === 'IN_REVIEW')
+  const manual = !!live && (id?.method === 'manual' || (live.identityMethod === 'manual' && !partnerUnderWay && status !== 'APPROVED'))
   // Live, while Didit is still deciding, ask again every few seconds.
   useEffect(() => {
-    if (!live?.identityReady || (status !== 'PENDING' && status !== 'IN_REVIEW')) return
+    if (!live?.identityReady || manual || (status !== 'PENDING' && status !== 'IN_REVIEW')) return
     const t = setInterval(() => void live.refreshIdentity().catch(() => {}), 8000)
     return () => clearInterval(t)
   }, [live?.identityReady, status]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -956,7 +971,7 @@ function YouStep({ d, set, me, email, live, onBack, onNext }: StepProps & { me: 
     }
   }
   // Live: what the card says, from Didit's real decision.
-  const card = !live
+  const card = !live || manual
     ? null
     : !live.identityReady
       ? { title: 'Identity checks open soon', sub: "They're being switched on. Fill in everything else meanwhile. We'll email you when you can do this step.", action: null }
@@ -979,6 +994,13 @@ function YouStep({ d, set, me, email, live, onBack, onNext }: StepProps & { me: 
         title={registered ? 'Account representative' : 'Your identity'}
         sub={registered ? 'The person opening this account. Only you are checked now, nobody else on the filing.' : "Who's behind the account. It takes about two minutes."}
       />
+
+      {/* Manual checks: photos from a phone (or this computer), checked before approval. */}
+      {manual && live && status !== 'APPROVED' && (
+        <div className="mt-8">
+          <ManualIdentity path={live.path} identity={id ?? null} reload={live.reloadApp} canManage={live.canManage} />
+        </div>
+      )}
 
       {/* Live: the real identity check, and its real decision. */}
       {card && (
@@ -1031,7 +1053,9 @@ function YouStep({ d, set, me, email, live, onBack, onNext }: StepProps & { me: 
             </div>
             <p className="mt-1 text-[13px] leading-relaxed text-muted">
               {d.didit === 'done'
-                ? 'Your ID checked out and your face matched it. Your name and date of birth come from it, so there is nothing to type.'
+                ? id?.method === 'manual'
+                  ? 'Your ID checked out and your face matched it. Nothing more to do here.'
+                  : 'Your ID checked out and your face matched it. Your name and date of birth come from it, so there is nothing to type.'
                 : "Photograph your ID and take a short selfie video. We check the ID is genuine and that it's you."}
             </p>
             {!live && d.didit !== 'done' && (
@@ -1041,7 +1065,7 @@ function YouStep({ d, set, me, email, live, onBack, onNext }: StepProps & { me: 
             )}
           </div>
         </div>
-        {d.didit === 'done' && (
+        {d.didit === 'done' && id?.method !== 'manual' && (
           <div className="grid grid-cols-1 border-t border-line bg-raise text-[13px] sm:grid-cols-3">
             {[
               ['Name', me.name],

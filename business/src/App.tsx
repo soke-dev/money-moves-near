@@ -20,6 +20,7 @@ import { Reports } from '@/pages/reports'
 import { InvitePage } from '@/pages/invite'
 import { ApiKeys, DocsRedirect, Events, Logs, Webhooks } from '@/pages/developers'
 import { DirectAccount } from '@/pages/direct'
+import { VerifyId } from '@/pages/verify-id'
 import { Checkout, CheckoutPreviewFrame } from '@/pages/checkout'
 import { ReceiptPage } from '@/pages/receipt'
 import { GiveBackPage } from '@/pages/give-back'
@@ -99,6 +100,7 @@ export default function App() {
       <Route path="/otp" element={<Otp />} />
       <Route path="/onboarding" element={<Activate />} />
       <Route path="/verify" element={<Activate />} />
+      <Route path="/verify/id/:code" element={<VerifyId />} />
       <Route path="/business/new" element={<CreateBusiness />} />
       <Route path="/pay/:slug" element={<Checkout />} />
       <Route path="/pay/o/:slug" element={<Checkout outlet />} />

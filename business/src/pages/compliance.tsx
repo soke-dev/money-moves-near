@@ -15,6 +15,7 @@ import { ago, date } from '@/lib/format'
 import { ApiError, LIVE, api, applicationPath, requestsPath, uploadFile, type ApiApplication, type ApiInfoRequest } from '@/lib/api'
 import { reload, useApi } from '@/lib/useApi'
 import { SUPPORT_EMAIL } from '@/lib/links'
+import { ManualIdentity } from '@/components/ManualIdentity'
 
 /**
  * Live: what the application itself says - nothing to do but activate, a
@@ -33,7 +34,9 @@ function tasksFrom(a: ApiApplication | null | undefined, verified: boolean, regi
   if (status === 'APPROVED') return checked('done', 'done')
   // Verified by our team without an application: nothing to do, and no checks to claim.
   if (verified) return []
-  if (status === 'SUBMITTED' || status === 'IN_REVIEW') return checked('review', a?.identity?.status === 'APPROVED' ? 'done' : 'review')
+  // A manual check asked to be redone, or declined, is theirs to do again.
+  const idAgain = a?.identity?.method === 'manual' && (a.identity.status === 'DECLINED' || (a.identity.status === 'PENDING' && !!a.identity.submittedAt))
+  if (status === 'SUBMITTED' || status === 'IN_REVIEW') return checked('review', a?.identity?.status === 'APPROVED' ? 'done' : idAgain ? 'action' : 'review')
   const note = a?.application.decisionNote
   if (status === 'CHANGES_REQUESTED') return [task('activate', 'activate', 'Our review team asked for a change', note || 'Open activation to see what to change, then send it again.', 'action')]
   if (status === 'REJECTED')
@@ -96,6 +99,11 @@ export function Compliance() {
   const { business } = useSession()
   const [tasks, setTasks] = useBusinessTasks()
   const status = useApplicationStatus()
+  const appPath = LIVE && business ? applicationPath(business.id) : null
+  const app = useApi<ApiApplication>(appPath)
+  const idv = app.data?.identity
+  // Asked to redo, or declined, after the application went in: the identity panel, right here.
+  const idAgain = !!appPath && idv?.method === 'manual' && (idv.status === 'DECLINED' || (idv.status === 'PENDING' && !!idv.submittedAt)) && (status === 'SUBMITTED' || status === 'IN_REVIEW')
   const [tab, setTab] = useState<Tab>('action')
   const [openId, setOpenId] = useState<string | null>(null)
   if (!business) return null
@@ -151,6 +159,14 @@ export function Compliance() {
           ))}
         </div>
       </Card>
+
+      {idAgain && appPath && (
+        <section className="mb-9">
+          <h2 className="mb-1 text-[17px] font-semibold tracking-[-0.01em] text-fg">Your identity check</h2>
+          <p className="mb-4 text-[13.5px] text-muted">{idv?.status === 'DECLINED' ? "It couldn't be verified. Start it again below." : 'Redo just what is listed, from your phone or this computer.'}</p>
+          <ManualIdentity path={appPath} identity={idv ?? null} reload={() => app.reload()} canManage={business.role === 'OWNER' || business.role === 'ADMIN'} />
+        </section>
+      )}
 
       <Tabs
         value={tab}

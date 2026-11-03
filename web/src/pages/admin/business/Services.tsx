@@ -133,7 +133,7 @@ export function Services() {
     setDraft((d) => (d ? ({ ...d, [group]: typeof d[group] === 'object' ? { ...(d[group] as object), [key]: value } : value } as Platform) : d))
   const flip = (group: keyof Platform, key: string) => (v: boolean) => set(group, key, v)
 
-  const TABS: readonly (readonly [Tab, string, string[]])[] = [["switches","Switches",["payouts","newBusinesses","maintenance"]],["pay","Ways to pay",["methods","coins","networks"]],["checkouts","Checkouts",["channels"]],["settle","Settlement",["destinations","settleChains"]],["fees","Fees",["fees"]],["limits","Limits & review",["limits","review","risk"]]]
+  const TABS: readonly (readonly [Tab, string, string[]])[] = [["switches","Switches",["payouts","newBusinesses","maintenance","identity"]],["pay","Ways to pay",["methods","coins","networks"]],["checkouts","Checkouts",["channels"]],["settle","Settlement",["destinations","settleChains"]],["fees","Fees",["fees"]],["limits","Limits & review",["limits","review","risk"]]]
   // Each tab counts the changes waiting to be saved in it.
   const waiting = (keys: string[]) => [...diff].filter((d) => keys.includes(d.split('.')[0]!)).length
 
@@ -162,6 +162,21 @@ export function Services() {
           changed={diff.has('payouts')}
         />
         <SwitchRow label="New businesses" sub="Off: nobody can open a new business. Existing ones carry on." on={draft.newBusinesses} onChange={(v) => setDraft({ ...draft, newBusinesses: v })} changed={diff.has('newBusinesses')} />
+      </Group>
+      )}
+
+      {tab === 'switches' && (
+      <Group title="Identity checks" sub="How the account representative proves who they are. Only new checks follow a change: ones under way finish the way they began, and approved ones stay approved. Businesses never see which is in use.">
+        <SwitchRow
+          label="Manual review"
+          sub="On: they send ID photos (front and back), a selfie and a 3 second smile video, from their phone or computer, and you decide them in ID checks. Off: the automatic check by the identity partner."
+          on={draft.identity?.manual ?? false}
+          onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, manual: v } })}
+          changed={diff.has('identity.manual')}
+        />
+        <SwitchRow label="Accepts NIN slip or card" sub="Front and back." on={draft.identity?.nin ?? true} onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, nin: v } })} changed={diff.has('identity.nin')} />
+        <SwitchRow label="Accepts international passport" sub="The photo page." on={draft.identity?.passport ?? true} onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, passport: v } })} changed={diff.has('identity.passport')} />
+        <SwitchRow label="Accepts driver's licence" sub="Front and back. At least one ID has to stay on." on={draft.identity?.licence ?? true} onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, licence: v } })} changed={diff.has('identity.licence')} />
       </Group>
       )}
 

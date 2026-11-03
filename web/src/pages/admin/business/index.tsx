@@ -14,7 +14,7 @@
  */
 import { useLayoutEffect } from 'react'
 import { useLocation } from 'react-router-dom'
-import { ArrowLeftRight, BadgeCheck, Banknote, Building2, Coins, Landmark, LayoutDashboard, MessagesSquare, RotateCcw, ShieldAlert, ToggleLeft } from 'lucide-react'
+import { ArrowLeftRight, BadgeCheck, Banknote, Building2, Coins, ScanFace, Landmark, LayoutDashboard, MessagesSquare, RotateCcw, ShieldAlert, ToggleLeft } from 'lucide-react'
 import { scrollFor, type OpenRecord, type RecordKind } from './nav'
 import { Businesses, Overview, Payments, Settlements } from './sections'
 import { Applications, ApplicationPage } from './Application'
@@ -27,6 +27,7 @@ import { DisputePage, Disputes } from './Disputes'
 import { Support } from './Support'
 import { Crypto } from './Crypto'
 import { Direct } from './Direct'
+import { IdentityChecks } from './IdentityChecks'
 
 export { bizChanged } from './client'
 export { readRecord, useRecord } from './nav'
@@ -36,6 +37,7 @@ export const BUSINESS_SECTIONS = [
   { id: 'b_overview', label: 'Overview', Icon: LayoutDashboard },
   { id: 'b_businesses', label: 'Businesses', Icon: Building2 },
   { id: 'b_kyc', label: 'KYC', Icon: BadgeCheck },
+  { id: 'b_identity', label: 'ID checks', Icon: ScanFace },
   { id: 'b_settlements', label: 'Settlements', Icon: Landmark },
   { id: 'b_payments', label: 'Payments', Icon: ArrowLeftRight },
   { id: 'b_refunds', label: 'Refunds', Icon: RotateCcw },
@@ -72,6 +74,7 @@ export function BusinessConsole({ section, filter, onJump, record }: { section: 
         {section === 'b_overview' && <Overview onJump={onJump} />}
         {section === 'b_businesses' && <Businesses initial={filter} />}
         {section === 'b_kyc' && <Applications initial={filter} />}
+        {section === 'b_identity' && <IdentityChecks />}
         {section === 'b_settlements' && <Settlements initial={filter} />}
         {section === 'b_payments' && <Payments />}
         {section === 'b_refunds' && <Refunds initial={filter} />}

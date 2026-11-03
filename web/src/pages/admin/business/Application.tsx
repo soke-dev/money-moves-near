@@ -797,12 +797,14 @@ function IdentityPanel({ checks, ready }: { checks: IdentityRow[]; ready: boolea
   const c = checks[0] ?? null
   const { busy, said, run } = useAction()
   const warnings = Array.isArray(c?.warnings) ? (c!.warnings as unknown[]).map(String) : []
+  const manual = c?.method === 'manual'
   return (
     <Panel
       title="Identity"
-      sub="The ID document and a liveness check."
+      sub={manual ? "ID photos, a selfie and a smile video, decided by the team in ID checks." : "The ID document and a liveness check."}
       action={
         c &&
+        !manual &&
         ready && (
           <TextButton disabled={busy} onClick={() => void run(() => biz(`/identity/${c.id}/refresh`, { method: 'POST' }), "The latest answer is in.")}>
             {busy ? 'Asking…' : 'Check again'}
@@ -814,6 +816,18 @@ function IdentityPanel({ checks, ready }: { checks: IdentityRow[]; ready: boolea
         <p className="text-[13px] leading-relaxed" style={{ color: C.muted }}>
           Not started.{!ready && " Identity checks aren't connected on this server yet."}
         </p>
+      ) : manual ? (
+        <Facts
+          rows={[
+            ['Result', <IdState status={c.status} />],
+            ['Method', 'Manual review, in ID checks'],
+            ['ID', c.idType ?? null],
+            ['Sent', c.submittedAt ? <When at={c.submittedAt} /> : 'Not sent yet'],
+            !!c.reviewedBy && ['Decided by', c.reviewedBy],
+            !!c.reviewNote && ['Note sent', c.reviewNote],
+            ['Started by', c.startedBy],
+          ]}
+        />
       ) : (
         <>
           <Facts

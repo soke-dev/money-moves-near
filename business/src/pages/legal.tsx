@@ -11,7 +11,7 @@ import { Logo } from '@/components/brand'
  * No provider is named here. Each is described by what it does for us.
  */
 
-const UPDATED = '18 October 2026'
+const UPDATED = '3 November 2026'
 const COMPANY = 'Movers Digital Technologies Ltd'
 const SUPPORT = 'support@usemoneymoves.xyz'
 
@@ -183,6 +183,7 @@ const TERMS: Section[] = [
     body: [
       'Before you can take live payments, we verify your business. This includes checking the identity of the person who represents it and reviewing the business details and documents you give us. We may ask for more at any time, such as a BVN, further documents or answers to questions, and these appear as tasks in your Compliance page. You must answer them truthfully and on time.',
       'We may refuse to verify a business, limit what it can do, or withdraw verification, at our discretion and where the law requires. We do not have to tell you why. We never simulate identity checks or document reviews.',
+      'We decide how identity checks are carried out, which identity documents we accept, and whether to use a verification provider, and we may change any of these at any time. The person representing the business must give photos of their own valid identity document, a selfie and a short video taken live, and confirms that these are genuine, current and theirs. We may ask for any part again, and keep what was given before. Giving a false, altered or borrowed document, or someone else’s face, ends your access and may be reported to the authorities. Our decision on an identity check is final, and we are not liable for any loss caused by the time a check takes, or by refusing or withdrawing verification in good faith.',
     ],
   },
   {
@@ -460,7 +461,7 @@ const PRIVACY: Section[] = [
     id: 'who',
     title: 'Who we are',
     body: [
-      `${COMPANY}, trading as Money Moves, is responsible for the personal data described here. This policy covers Money Moves Business: the people who use the dashboard, the people who represent a business, and the customers who pay a business through our checkout. We process personal data in line with the Nigeria Data Protection Act 2023 and other laws that apply.`,
+      `${COMPANY}, trading as Money Moves, is responsible for the personal data described here. This policy covers Money Moves Business: the people who use the dashboard, the people who represent a business, and the customers who pay a business through our checkout. We process personal data in line with the Nigeria Data Protection Act 2023 and other laws that apply, and we are registered with the Nigeria Data Protection Commission as a data controller.`,
       'For the details a customer gives at a business’s checkout, we act for that business. For verification, fraud prevention, security and our legal obligations, we decide how data is used ourselves.',
     ],
   },
@@ -472,7 +473,7 @@ const PRIVACY: Section[] = [
         list: [
           'Account details: your name, email address, phone number, how you sign in, and the businesses and roles you have.',
           'Business details: the business name, type, registration details, address, what it sells, and the documents you upload.',
-          'Identity of the business representative: the result of an identity check, including a selfie and an identity document. We keep the result and the last four characters of the document number, not the selfie. Where we ask for a BVN, we keep it encrypted.',
+          'Identity of the business representative: photos of an identity document, a selfie and a short video, or the result of a check by an identity verification provider. We keep the result, the name on the document and the last four characters of its number, never the full number. Photos and video are encrypted when stored. Where we ask for a BVN, we keep it encrypted.',
           'Bank and wallet details: the bank accounts and wallets you pay out to, and the names their banks hold for them.',
           'Payments: amounts, references, times, and, for your customers, the name, email and phone they give at checkout and the name and bank of the account they paid from.',
           'Support: the messages and photos you send us in the help chat or by email.',
@@ -497,6 +498,7 @@ const PRIVACY: Section[] = [
         ],
       },
       'We rely on our contract with you, our legal obligations, our legitimate interests in running a safe service, and, where it is needed, your consent. We do not sell personal data.',
+      'Identity checks compare the face in your selfie and video with the photo on your identity document, and confirm the document is genuine and that a real person is present. We do this only to verify you and prevent fraud, because the law requires us to know who we deal with, and with your consent, which you give when you send them. We never use them for anything else, and never share them except with an identity verification provider acting for us or where the law requires.',
       'We use automated checks to spot fraud and risk. A decision to refuse verification or close an account is made or reviewed by a person. We send product news only if you agree, and you can turn it off at any time; service messages continue while your account is open.',
     ],
   },
@@ -542,7 +544,7 @@ const PRIVACY: Section[] = [
     id: 'security',
     title: 'How we protect it',
     body: [
-      'Documents and BVNs are encrypted when stored. Passwords and sign-in codes are stored only in a form that cannot be read back. Access is limited to the people who need it, every look at a sealed BVN is recorded, and important actions are logged. No system is perfectly secure, so tell us at once if you think your account has been compromised. If a breach is likely to put your rights at risk, we tell the Nigeria Data Protection Commission within 72 hours of learning of it, and tell you without undue delay.',
+      'Documents, identity photos and videos, and BVNs are encrypted when stored. Passwords and sign-in codes are stored only in a form that cannot be read back. Access is limited to the people who need it, every look at a sealed BVN is recorded, and important actions are logged. No system is perfectly secure, so tell us at once if you think your account has been compromised. If a breach is likely to put your rights at risk, we tell the Nigeria Data Protection Commission within 72 hours of learning of it, and tell you without undue delay.',
     ],
   },
   {

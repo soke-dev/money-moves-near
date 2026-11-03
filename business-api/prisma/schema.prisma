@@ -926,14 +926,54 @@ model IdentityCheck {
   warnings       Json?
   checkedAt      DateTime?      @map("checked_at")
 
+  // ─── A manual check (provider "manual"): photos the person took, judged by our team ───
+  /// nin, passport or licence. A passport needs no back.
+  idType           String?   @map("id_type")
+  /// Sent for review: every part was in. Null while still being taken.
+  submittedAt      DateTime? @map("submitted_at")
+  /// The parts our team asked to be taken again: front, back, selfie, video. Null when nothing is asked.
+  redo             Json?
+  /// What our team told the person with a redo or a decline. They see this.
+  reviewNote       String?   @map("review_note")
+  reviewedBy       String?   @map("reviewed_by")
+  reviewedAt       DateTime? @map("reviewed_at")
+  /// The phone link's code, hashed: it lets a phone add photos to this check and nothing else.
+  handoffHash      String?   @unique @map("handoff_hash")
+  handoffExpiresAt DateTime? @map("handoff_expires_at")
+  /// When a phone (or this computer) opened the link, so the computer can say it's connected.
+  handoffOpenedAt  DateTime? @map("handoff_opened_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  business Business @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  business Business       @relation(fields: [businessId], references: [id], onDelete: Restrict)
+  files    IdentityFile[]
 
   @@index([businessId])
   @@index([status])
+  @@index([provider, status])
   @@map("identity_checks")
+}
+
+/// A photo or the smile video of a manual identity check. Encrypted the same
+/// way as documents (lib/vault). Replaced, never deleted, when it's taken again.
+model IdentityFile {
+  id         String    @id @default(cuid())
+  checkId    String    @map("check_id")
+  /// front, back, selfie or video.
+  part       String
+  mime       String
+  size       Int
+  sha256     String
+  /// AES-256-GCM: 12-byte IV, 16-byte tag, then the ciphertext.
+  data       Bytes
+  createdAt  DateTime  @default(now()) @map("created_at")
+  replacedAt DateTime? @map("replaced_at")
+
+  check IdentityCheck @relation(fields: [checkId], references: [id], onDelete: Restrict)
+
+  @@index([checkId, part])
+  @@map("identity_files")
 }
 
 // ─── The platform's switches ──────────────────────────────────────────────

@@ -160,6 +160,7 @@ async function readCounts(): Promise<Counts> {
     counts.b_disputes = { n: a.disputesOpen ?? 0 }
     counts.b_support = { n: a.chatsWaiting ?? 0 }
     counts.b_crypto = { n: a.cryptoReturns ?? 0 }
+    counts.b_identity = { n: a.identityWaiting ?? 0 }
   }
   return counts
 }

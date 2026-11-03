@@ -467,13 +467,42 @@ export interface ApiApplication {
     documentLast4: string | null
     startedBy: string | null
     checkedAt: string | null
+    /** auto: the partner's page. manual: photos sent from a phone or this computer. */
+    method?: 'auto' | 'manual'
+    idType?: 'nin' | 'passport' | 'licence' | null
+    submittedAt?: string | null
+    /** Parts asked for again: front, back, selfie, video. */
+    redo?: string[]
+    /** What was said with a redo or a decline. */
+    note?: string | null
+    /** Of the parts asked for, the ones in. */
+    parts?: string[]
+    need?: string[]
+    /** A phone opened the link and it is still good. */
+    phoneConnected?: boolean
   } | null
+  /** How a new check is done: the partner's page, or photos from a phone. */
+  identityMethod?: 'auto' | 'manual'
   /** Whether identity checks are switched on on this server at all. */
   identityReady: boolean
   gaps: { step: string; label: string }[]
 }
 
 export const applicationPath = (businessId: string) => `/businesses/${businessId}/application`
+
+/** What the phone sees through a handoff link. */
+export interface ApiHandoff {
+  business: string | null
+  name: string | null
+  idType: 'nin' | 'passport' | 'licence' | null
+  /** The IDs that can be chosen right now. */
+  idTypes?: ('nin' | 'passport' | 'licence')[]
+  need: string[]
+  have: string[]
+  redo: boolean
+  note: string | null
+  expiresAt: string
+}
 
 /** Something our review team asked for after (or alongside) the application. */
 export interface ApiInfoRequest {

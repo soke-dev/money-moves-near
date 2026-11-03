@@ -127,7 +127,7 @@ export async function payoutPlaces(businessId: string): Promise<PayoutPlaces> {
 }
 
 /** Everything still missing, step by step, in words a person would use. */
-export function gaps(a: Answers, docs: { kind: string }[], identity: Pick<IdentityCheck, "status"> | null, places: PayoutPlaces): Gap[] {
+export function gaps(a: Answers, docs: { kind: string }[], identity: Pick<IdentityCheck, "status" | "provider" | "submittedAt"> | null, places: PayoutPlaces): Gap[] {
   const out: Gap[] = [];
   const need = (step: string, ok: unknown, label: string) => {
     if (!ok) out.push({ step, label });
@@ -144,7 +144,9 @@ export function gaps(a: Answers, docs: { kind: string }[], identity: Pick<Identi
     for (const doc of a.structure ? DOCS[a.structure]! : []) need("documents", docs.some((d) => d.kind === doc.kind), doc.label);
   }
   // Started is enough to submit: the team sees the result, and approving needs it approved. Declined has to be done again.
-  need("you", identity && identity.status !== "DECLINED", "Identity check");
+  // A manual check counts once it has been sent; one still being taken on a phone doesn't.
+  const unsent = identity?.provider === "manual" && identity.status === "PENDING" && !identity.submittedAt;
+  need("you", identity && identity.status !== "DECLINED" && !unsent, "Identity check");
   need("you", (a.phone ?? "").replace(/\D/g, "").length >= 10, "Your phone number");
   need("you", has(a.street) && has(a.city) && has(a.state), "Your home address");
   if (a.kind === "registered") {

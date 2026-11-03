@@ -36,6 +36,7 @@ import refundRoutes from "./routes/refunds";
 import requestRoutes from "./routes/requests";
 import detailChangeRoutes from "./routes/detail-changes";
 import imageRoutes from "./routes/images";
+import identityHandoffRoutes from "./routes/identity-handoff";
 import appCheckoutRoutes from "./routes/app-checkouts";
 import apiKeyRoutes from "./routes/api-keys";
 import directRoutes from "./routes/direct";
@@ -88,6 +89,7 @@ if (env.APP_ENV !== "production") {
 }
 
 app.use("/api/images", imageRoutes);
+app.use("/api/identity-handoff", identityHandoffRoutes);
 app.use("/api/internal/app-checkouts", appCheckoutRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/banks", banksRouter);

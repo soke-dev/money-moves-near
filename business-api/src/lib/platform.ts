@@ -31,6 +31,14 @@ export const platformSchema = z.object({
   maintenance: on,
   methods: z.object({ naira: on, app: on, crypto: on }),
   channels: z.object({ links: on, invoices: on, outlets: on, api: on }),
+  /**
+   * How the account representative proves who they are. Off: the identity
+   * partner checks it on its own page. On: they send ID photos, a selfie and a
+   * smile video, and our team approves them in the console. Only new checks
+   * follow a change; ones under way finish the way they began. nin, passport
+   * and licence: which IDs a manual check accepts - at least one.
+   */
+  identity: z.object({ manual: on, nin: on, passport: on, licence: on }).refine((i) => i.nin || i.passport || i.licence, "Accept at least one kind of ID."),
   destinations: z.object({ bank: on, moneyMoves: on, wallet: on }),
   /**
    * Movement is the default: a business on another chain switched off is moved to it. Movement itself
@@ -105,6 +113,7 @@ export const PLATFORM_DEFAULTS: Platform = {
   maintenance: false,
   methods: { naira: true, app: true, crypto: true },
   channels: { links: true, invoices: true, outlets: true, api: true },
+  identity: { manual: false, nin: true, passport: true, licence: true },
   destinations: { bank: true, moneyMoves: true, wallet: true },
   settleChains: { MOVEMENT: true, ARC: true, MONAD: true, SOLANA: true, STELLAR: true },
   coins: { USDC: true, USDT: true },

@@ -22,6 +22,7 @@ import { createSession, diditReady, getDecision } from "../lib/didit";
 import { recheckBanks } from "../lib/banks";
 import { requireMember } from "../middleware/auth";
 import { EDITABLE, isDocKind, answersSchema, applyDecision, gaps, ownersOf, payoutPlaces, type Answers } from "../services/application";
+import { asked, currentFiles, manualOn, startHandoff } from "../services/identity";
 
 const router = Router({ mergeParams: true });
 const MANAGE = ["OWNER", "ADMIN"] as const;
@@ -29,7 +30,7 @@ const MAX_FILE = 10 * 1024 * 1024;
 
 const docShape = (d: Document) => ({ id: d.id, kind: d.kind, filename: d.filename, mime: d.mime, size: d.size, verdict: d.verdict, verdictNote: d.verdictNote, createdAt: d.createdAt });
 
-const identityShape = (c: IdentityCheck | null, startedBy?: string | null) =>
+const identityShape = (c: IdentityCheck | null, startedBy?: string | null, parts?: string[]) =>
   c && {
     status: c.status,
     providerStatus: c.providerStatus,
@@ -39,6 +40,18 @@ const identityShape = (c: IdentityCheck | null, startedBy?: string | null) =>
     documentLast4: c.documentLast4,
     startedBy: startedBy ?? null,
     checkedAt: c.checkedAt,
+    /** auto: the partner's page. manual: photos sent from a phone or this computer. */
+    method: c.provider === "manual" ? ("manual" as const) : ("auto" as const),
+    idType: c.idType,
+    submittedAt: c.submittedAt,
+    /** The parts asked for again, if any, and what was said about them. */
+    redo: Array.isArray(c.redo) ? (c.redo as string[]) : [],
+    note: c.status === "PENDING" || c.status === "DECLINED" ? c.reviewNote : null,
+    /** Which of the parts asked for are in. */
+    parts: parts ?? [],
+    need: c.provider === "manual" ? asked(c) : [],
+    /** A phone opened the link, and it's still good: the computer says it's connected. */
+    phoneConnected: !!c.handoffOpenedAt && !!c.handoffExpiresAt && c.handoffExpiresAt.getTime() > Date.now(),
   };
 
 /** The application, created empty the first time anyone looks. */
@@ -55,13 +68,19 @@ async function editable(businessId: string) {
 
 async function view(businessId: string) {
   const [app, docs, identity, places] = await Promise.all([applicationFor(businessId), activeDocs(businessId), latestIdentity(businessId), payoutPlaces(businessId)]);
-  const starter = identity ? await prisma.user.findUnique({ where: { id: identity.userId }, select: { email: true } }) : null;
+  const [starter, files, manual] = await Promise.all([
+    identity ? prisma.user.findUnique({ where: { id: identity.userId }, select: { email: true } }) : null,
+    identity?.provider === "manual" ? currentFiles(identity.id) : [],
+    manualOn(),
+  ]);
   const answers = answersSchema.parse(app.answers ?? {});
   return {
     application: { status: app.status, answers, submittedAt: app.submittedAt, reviewedAt: app.reviewedAt, decisionNote: app.decisionNote },
     documents: docs.map(docShape),
-    identity: identityShape(identity, starter?.email),
-    identityReady: diditReady(),
+    identity: identityShape(identity, starter?.email, files.map((f) => f.part)),
+    /** How a new check is done. One already under way finishes the way it began. */
+    identityMethod: manual ? ("manual" as const) : ("auto" as const),
+    identityReady: manual || diditReady(),
     gaps: gaps(answers, docs, identity, places),
   };
 }
@@ -126,6 +145,9 @@ function returnTo(req: Request) {
 router.post("/identity", requireMember(...MANAGE), limited(30), async (req, res) => {
   const businessId = req.member!.businessId;
   await editable(businessId);
+  // With manual checks on, a new check is photos from a phone; one already started on the partner's page can still be finished.
+  const latest = await latestIdentity(businessId);
+  if ((await manualOn()) && !(latest && latest.provider !== "manual" && latest.status === "PENDING")) throw new HttpError(409, "Use the code on the identity step to verify with your phone or this computer.", "manual_identity");
   const user = await prisma.user.findUniqueOrThrow({ where: { id: req.auth!.userId } });
   const session = await createSession({ businessId, userId: user.id, email: user.email, callback: returnTo(req) });
   await prisma.identityCheck.upsert({
@@ -137,13 +159,28 @@ router.post("/identity", requireMember(...MANAGE), limited(30), async (req, res)
   res.json({ url: session.url });
 });
 
-/** Back from Didit, or waiting on it: ask Didit what it decided. */
-router.post("/identity/refresh", requireMember(), limited(120), async (req, res) => {
+/** Back from Didit, or waiting on it: ask Didit what it decided. A manual check just reads where it's at. */
+router.post("/identity/refresh", requireMember(), limited(240), async (req, res) => {
   const businessId = req.member!.businessId;
   const check = await latestIdentity(businessId);
   if (!check) throw new HttpError(404, "No identity check has been started yet.", "not_started");
-  if (diditReady()) await applyDecision(check, await getDecision(check.sessionId));
+  if (check.provider !== "manual" && diditReady()) await applyDecision(check, await getDecision(check.sessionId));
   res.json(await view(businessId));
+});
+
+/**
+ * A link for the manual check: shown as a QR code to carry on on a phone, or
+ * opened here to use this computer. A new one replaces the last.
+ */
+router.post("/identity/handoff", requireMember(...MANAGE), limited(60), async (req, res) => {
+  const businessId = req.member!.businessId;
+  const app = await applicationFor(businessId);
+  if (app.status === "APPROVED" || app.status === "REJECTED") throw new HttpError(409, "This application is already decided.", "decided");
+  const { code, expiresAt } = await startHandoff(businessId, req.auth!.userId);
+  const origin = req.get("origin");
+  const base = origin && env.ALLOWED_ORIGINS.includes(origin) ? origin : (env.ALLOWED_ORIGINS[0] ?? "http://localhost:5174");
+  await audit(req, "identity_started", { businessId, detail: { method: "manual" } });
+  res.json({ url: `${base}/verify/id/${code}`, expiresAt });
 });
 
 router.post("/submit", requireMember(...MANAGE), async (req, res) => {

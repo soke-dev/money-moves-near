@@ -393,3 +393,60 @@ export function submittedEmail(businessName: string) {
     }),
   };
 }
+
+/** How to get each part right the second time. */
+const IDENTITY_PART_TIPS: Record<string, string> = { front: "Flat, in good light, all four corners in the frame.", back: "Flat, in good light, all four corners in the frame.", selfie: "Face the light, with nothing covering your face.", video: "A straight face, then a smile, for three seconds." };
+
+/** The parts of a manual identity check, as the person knows them. */
+export const IDENTITY_PART_WORDS: Record<string, string> = { front: "Photo of your ID, front", back: "Photo of your ID, back", selfie: "Selfie", video: "Smile video" };
+
+/**
+ * What came of a manual identity check. Never says how it was checked: only
+ * that it was, and what to do next.
+ */
+export function identityEmail(kind: "approved" | "redo" | "declined", o: { businessName: string; note?: string | null; parts?: string[] }) {
+  const where = dashboardUrl("/verify");
+  if (kind === "approved")
+    return {
+      subject: "Your identity is verified",
+      text: `Your identity is verified for ${o.businessName}. Nothing more to do for this step: ${where}`,
+      html: shell({
+        label: "Identity",
+        preheader: "Nothing more to do for this step.",
+        body: `${heading("Your identity is verified", `That's the identity step done for ${esc(o.businessName)}.`)}
+          ${button("Open your dashboard", where)}
+          ${fine(supportLine())}`,
+      }),
+    };
+  if (kind === "redo") {
+    const list = (o.parts ?? []).map((p) => IDENTITY_PART_WORDS[p] ?? p);
+    const lines = list.map((l) => `- ${l}`).join("\n");
+    return {
+      subject: "One more try at your identity check",
+      text: `We need ${list.length === 1 ? "one part" : "a few parts"} of your identity check again for ${o.businessName}:\n\n${lines}${o.note ? `\n\n${o.note}` : ""}\n\nEverything else is kept. Redo just these from your dashboard: ${where}`,
+      html: shell({
+        label: "Identity",
+        preheader: "Everything else is kept. Just redo these.",
+        body: `${heading("One more try", `We need ${list.length === 1 ? "this part" : "these parts"} of your identity check again for ${esc(o.businessName)}:`)}
+          ${steps((o.parts ?? []).map((p) => [IDENTITY_PART_WORDS[p] ?? p, IDENTITY_PART_TIPS[p] ?? ""] as [string, string]))}
+          ${o.note ? quote(o.note, "warn") : ""}
+          ${para("Everything else is kept. Redo just these, and it goes straight back for checking.")}
+          ${button("Redo it", where)}
+          ${fine(supportLine())}`,
+      }),
+    };
+  }
+  return {
+    subject: "We couldn't verify your identity",
+    text: `We couldn't verify your identity for ${o.businessName}.${o.note ? `\n\n${o.note}` : ""}\n\nYou can start the check again from your dashboard: ${where}`,
+    html: shell({
+      label: "Identity",
+      preheader: "You can start the check again from your dashboard.",
+      body: `${heading("We couldn't verify your identity", `For ${esc(o.businessName)}.`)}
+        ${o.note ? quote(o.note) : ""}
+        ${para("Use a valid ID, photographed flat and in good light, and keep your face clear for the selfie. Then start again.")}
+        ${button("Start again", where)}
+        ${fine(supportLine())}`,
+    }),
+  };
+}
