@@ -22,7 +22,7 @@ import { createSession, diditReady, getDecision } from "../lib/didit";
 import { recheckBanks } from "../lib/banks";
 import { requireMember } from "../middleware/auth";
 import { EDITABLE, isDocKind, answersSchema, applyDecision, gaps, ownersOf, payoutPlaces, type Answers } from "../services/application";
-import { asked, currentFiles, manualOn, startHandoff } from "../services/identity";
+import { acceptedIds, asked, currentFiles, manualOn, startHandoff } from "../services/identity";
 
 const router = Router({ mergeParams: true });
 const MANAGE = ["OWNER", "ADMIN"] as const;
@@ -51,7 +51,7 @@ const identityShape = (c: IdentityCheck | null, startedBy?: string | null, parts
     parts: parts ?? [],
     need: c.provider === "manual" ? asked(c) : [],
     /** A phone opened the link, and it's still good: the computer says it's connected. */
-    phoneConnected: !!c.handoffOpenedAt && !!c.handoffExpiresAt && c.handoffExpiresAt.getTime() > Date.now(),
+    phoneConnected: c.status === "PENDING" && !!c.handoffOpenedAt && !!c.handoffExpiresAt && c.handoffExpiresAt.getTime() > Date.now(),
   };
 
 /** The application, created empty the first time anyone looks. */
@@ -68,10 +68,11 @@ async function editable(businessId: string) {
 
 async function view(businessId: string) {
   const [app, docs, identity, places] = await Promise.all([applicationFor(businessId), activeDocs(businessId), latestIdentity(businessId), payoutPlaces(businessId)]);
-  const [starter, files, manual] = await Promise.all([
+  const [starter, files, manual, ids] = await Promise.all([
     identity ? prisma.user.findUnique({ where: { id: identity.userId }, select: { email: true } }) : null,
     identity?.provider === "manual" ? currentFiles(identity.id) : [],
     manualOn(),
+    acceptedIds(),
   ]);
   const answers = answersSchema.parse(app.answers ?? {});
   return {
@@ -80,6 +81,8 @@ async function view(businessId: string) {
     identity: identityShape(identity, starter?.email, files.map((f) => f.part)),
     /** How a new check is done. One already under way finishes the way it began. */
     identityMethod: manual ? ("manual" as const) : ("auto" as const),
+    /** The IDs a new manual check takes, in the order they are offered. */
+    identityIds: ids,
     identityReady: manual || diditReady(),
     gaps: gaps(answers, docs, identity, places),
   };

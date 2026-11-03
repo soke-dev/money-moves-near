@@ -35,8 +35,8 @@ export const HANDOFF_MS = 30 * 60_000;
 export const MAX_IMAGE = 12 * 1024 * 1024;
 export const MAX_VIDEO = 25 * 1024 * 1024;
 
-/** Which parts a check needs: a passport has no back worth photographing. */
-export const partsFor = (idType: string | null | undefined): Part[] => (idType === "passport" ? ["front", "selfie", "video"] : ["front", "back", "selfie", "video"]);
+/** Which parts a check needs: the back only for a driver's licence. A NIN and a passport's photo page are one side. */
+export const partsFor = (idType: string | null | undefined): Part[] => (idType === "licence" ? ["front", "back", "selfie", "video"] : ["front", "selfie", "video"]);
 
 /** The IDs a manual check accepts right now, from the console's Services. */
 export async function acceptedIds(): Promise<IdType[]> {

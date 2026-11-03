@@ -25,7 +25,7 @@ import * as Linking from "expo-linking";
 import { LinearGradient } from "expo-linear-gradient";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
-import { startDiditVerification, getDiditStatus } from "@/services/kyc";
+import { startDiditVerification, getDiditStatus, getManualKyc, startManualKyc, type ManualKyc } from "@/services/kyc";
 
 /**
  * What the server allows in a day, said here so nobody meets it by surprise.
@@ -38,7 +38,17 @@ import { startDiditVerification, getDiditStatus } from "@/services/kyc";
 const ATTEMPTS_PER_DAY = 3;
 
 // Must match DIDIT_CALLBACK_URL on the backend AND a real route in this app.
+// The page our own checks are taken on sends the browser here too once it's sent.
 const RETURN_URL = "money-moves://account/kyc";
+
+const ID_NAMES: Record<string, string> = { nin: "NIN slip or card", passport: "international passport", licence: "driver’s licence" };
+const PART_NAMES: Record<string, string> = { front: "Photo of your ID", back: "Back of your ID", selfie: "Selfie", video: "Smile video" };
+
+/** "A, B or C", for the IDs a check takes. */
+function orList(items: string[]) {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+}
 
 /**
  * The sheet's primary action.
@@ -142,6 +152,8 @@ export default function KYCScreen() {
   );
   const [failureReason, setFailureReason] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /** How checks are taken now, and where one taken on our page stands. */
+  const [manual, setManual] = useState<ManualKyc | null>(null);
 
   /**
    * Android runs the check inside the app, not in a browser tab.
@@ -206,9 +218,10 @@ export default function KYCScreen() {
     async (showSpinner = true) => {
       if (showSpinner) setLoading(true);
       try {
-        const s = await getDiditStatus();
+        const [s, m] = await Promise.all([getDiditStatus(), getManualKyc().catch(() => null)]);
         setKycStatus(s.kycStatus);
         setFailureReason(s.failureReason ?? null);
+        setManual(s.manual ?? m);
         refreshUser().catch(() => {});
       } catch (e: any) {
         const msg = String(e?.response?.data?.error || e?.message || "");
@@ -272,16 +285,34 @@ export default function KYCScreen() {
     return () => sub.remove();
   }, [refresh]);
 
+  /**
+   * The page to open: our own when checks are taken there (or one is being
+   * taken or redone there), else the partner's. The server has the last word:
+   * if it says the check is ours now, ours it is.
+   */
+  const pageUrl = async (): Promise<string> => {
+    const m = manual ?? (await getManualKyc().catch(() => null));
+    const c = m?.check;
+    const carryOn = !!c && c.status === "PENDING" && (!c.submittedAt || c.redo.length > 0);
+    if (m && (m.method === "manual" || carryOn)) return (await startManualKyc()).url;
+    try {
+      return (await startDiditVerification()).url;
+    } catch (e: any) {
+      if (e?.response?.data?.code === "manual_identity") return (await startManualKyc()).url;
+      throw e;
+    }
+  };
+
   const begin = async () => {
     if (busy) return;
     setBusy(true);
     setErr(null);
     try {
-      const session = await startDiditVerification();
+      const url = await pageUrl();
       if (Platform.OS === "android") {
         // The page needs the camera; asked for here so the check does not stall on it.
         if (!camPerm?.granted) await requestCamPerm().catch(() => null);
-        setWebUrl(session.url);
+        setWebUrl(url);
         return;
       }
       // openBrowserAsync, NOT openAuthSessionAsync. The latter is built on
@@ -291,7 +322,7 @@ export default function KYCScreen() {
       // cookies with Safari for SSO - something a hosted KYC page has no use
       // for. Dropping to a plain in-app browser loses nothing and removes the
       // interruption.
-      await WebBrowser.openBrowserAsync(session.url, {
+      await WebBrowser.openBrowserAsync(url, {
         presentationStyle: WebBrowser.WebBrowserPresentationStyle.FULL_SCREEN,
         controlsColor: colors.primary,
         toolbarColor: colors.card,
@@ -302,7 +333,12 @@ export default function KYCScreen() {
       await refresh(false);
     } catch (e: any) {
       const msg = e?.response?.data?.error || e?.message || "Couldn't start verification.";
-      if (e?.response?.status === 409) {
+      const code = e?.response?.data?.code;
+      if (code === "in_review") {
+        // Already sent and waiting: show where it stands rather than an error.
+        setKycStatus("PENDING");
+        refresh(false);
+      } else if (e?.response?.status === 409 && (!code || code === "already_verified")) {
         setKycStatus("VERIFIED");
       } else {
         setErr(msg);
@@ -333,8 +369,23 @@ export default function KYCScreen() {
   // documents cannot succeed, so this state hides the steps and the Begin button.
   const duplicate = declined && failureReason === "DUPLICATE_IDENTITY";
 
+  // A check taken on our own page: being taken, sent back for a redo, or waiting for its answer.
+  const mCheck = manual?.check ?? null;
+  const ours = manual?.method === "manual" || !!mCheck;
+  const redo = inProgress && mCheck?.status === "PENDING" && mCheck.redo.length > 0 ? mCheck.redo : null;
+  const taking = inProgress && mCheck?.status === "PENDING" && !mCheck.submittedAt;
+  const waitingOurs = inProgress && !!mCheck?.submittedAt && !redo;
+  // Steps, not stages, while there is still something to take.
+  const showSteps = !verified && !duplicate && (!inProgress || taking);
+  const idWords = orList((manual?.idTypes?.length ? manual.idTypes : ["nin", "passport"]).map((t) => ID_NAMES[t] ?? t));
+  const idLine = idWords.charAt(0).toUpperCase() + idWords.slice(1);
+
   const title = verified
     ? "You’re all set"
+    : redo
+    ? "One more try"
+    : taking
+    ? "Pick up where you left off"
     : inProgress
     ? "We’re checking your details"
     : duplicate
@@ -345,10 +396,18 @@ export default function KYCScreen() {
 
   const subtitle = verified
     ? "Your identity is confirmed and your full limits are live."
+    : redo
+    ? mCheck?.note || "Something didn’t come out clearly. Take it again and everything else stays as it is."
+    : taking
+    ? "What you’ve taken so far is saved."
+    : waitingOurs
+    ? "We’ll let you know as soon as it’s done. Carry on using the app and your limits lift the moment you’re cleared."
     : inProgress
     ? "Usually a few minutes. Carry on using the app and your limits lift the moment you’re cleared."
     : duplicate
     ? "This ID has already verified another Money Moves account. Each person can hold one verified account. Reach out to support if you think this is wrong."
+    : declined && ours && mCheck?.note
+    ? `${mCheck.note} Try again with a valid ID, in good light.`
     : declined
     ? "We couldn’t read your ID clearly. Try again in good light, with the whole document in frame."
     // Not "keeps your money safe" — the wallet is self-custodial, so implying we
@@ -406,7 +465,23 @@ export default function KYCScreen() {
           </View>
         ) : (
           <>
-            {!verified && !inProgress && !duplicate && (
+            {redo && (
+              <View
+                style={[
+                  styles.stepsCard,
+                  { backgroundColor: colors.background, borderColor: colors.border },
+                ]}
+              >
+                {redo.map((p, i) => (
+                  <React.Fragment key={p}>
+                    {i > 0 && <View style={[styles.divider, { backgroundColor: colors.border }]} />}
+                    <Stage colors={colors} running title={PART_NAMES[p] ?? p} body="Take it again." />
+                  </React.Fragment>
+                ))}
+              </View>
+            )}
+
+            {showSteps && (
               <>
                 <View
                   style={[
@@ -420,12 +495,11 @@ export default function KYCScreen() {
                     index="1"
                     title="Your ID"
                     body={
-                      // NIN slip or Nigerian passport only. Both carry the
-                      // National Identity Number, which the bank requires to open
-                      // a payment account - a driver's licence may not, and
-                      // accepting one lets a user pass KYC and then be blocked
-                      // from funding, which is the worst moment to find out.
-                      "NIN slip or Nigerian passport. All four corners in frame."
+                      // The partner's check takes a NIN slip or Nigerian passport
+                      // only. Both carry the National Identity Number, which the
+                      // bank requires to open a payment account. Our own page
+                      // takes whichever IDs the console allows.
+                      ours ? `${idLine}. Flat, in good light, all four corners in.` : "NIN slip or Nigerian passport. All four corners in frame."
                     }
                   />
                   <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -433,14 +507,14 @@ export default function KYCScreen() {
                     colors={colors}
                     source={require("@/assets/images/photo-camera-interface-symbol-for-button.png")}
                     index="2"
-                    title="Face scan and liveness check"
-                    body={"Look straight at the camera. It matches your face to the ID and checks a real person is holding it."}
+                    title={ours ? "A selfie and a smile video" : "Face scan and liveness check"}
+                    body={ours ? "Look straight at the camera, then smile for three seconds." : "Look straight at the camera. It matches your face to the ID and checks a real person is holding it."}
                   />
                 </View>
               </>
             )}
 
-            {inProgress && (
+            {inProgress && !redo && !taking && (
               <>
                 <View
                   style={[
@@ -448,24 +522,36 @@ export default function KYCScreen() {
                     { backgroundColor: colors.background, borderColor: colors.border },
                   ]}
                 >
-                  <Stage
-                    colors={colors}
-                    title="Document received"
-                    body="Your NIN slip or passport is in."
-                  />
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <Stage
-                    colors={colors}
-                    title="Face matched"
-                    body="A real person, holding that document."
-                  />
-                  <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                  <Stage
-                    colors={colors}
-                    running
-                    title="Being checked"
-                    body="With the partner who verifies IDs for us."
-                  />
+                  {waitingOurs ? (
+                    <>
+                      <Stage colors={colors} title="ID received" body={mCheck?.idType ? `Your ${ID_NAMES[mCheck.idType] ?? "ID"} is in.` : "Your ID is in."} />
+                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                      <Stage colors={colors} title="Selfie and video received" body="Both are in." />
+                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                      <Stage colors={colors} running title="Being checked" body="Your ID against your selfie and video." />
+                    </>
+                  ) : (
+                    <>
+                      <Stage
+                        colors={colors}
+                        title="Document received"
+                        body="Your NIN slip or passport is in."
+                      />
+                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                      <Stage
+                        colors={colors}
+                        title="Face matched"
+                        body="A real person, holding that document."
+                      />
+                      <View style={[styles.divider, { backgroundColor: colors.border }]} />
+                      <Stage
+                        colors={colors}
+                        running
+                        title="Being checked"
+                        body="With the partner who verifies IDs for us."
+                      />
+                    </>
+                  )}
                 </View>
 
                 {/* A line, not a panel. What it says is worth reading once and
@@ -489,11 +575,13 @@ export default function KYCScreen() {
                 It sits with the steps rather than under the button, because it
                 is something to know before starting rather than a caveat on
                 the thing you are about to tap. */}
-            {!verified && !duplicate && !inProgress && (
+            {showSteps && (
               <View style={styles.noteLine}>
                 <Feather name="info" size={14} color={colors.mutedForeground} style={{ marginTop: 2 }} />
                 <Text style={[styles.noteText, { color: colors.mutedForeground }]}>
-                  {`You get ${ATTEMPTS_PER_DAY} attempts every 24 hours. Good light and the whole ID in frame is what usually makes the difference.`}
+                  {ours
+                    ? "Good light and the whole ID in frame is what usually makes the difference."
+                    : `You get ${ATTEMPTS_PER_DAY} attempts every 24 hours. Good light and the whole ID in frame is what usually makes the difference.`}
                 </Text>
               </View>
             )}
@@ -529,13 +617,17 @@ export default function KYCScreen() {
                   busy={busy}
                   mark
                   label={
-                    inProgress
+                    redo
+                      ? "Take it again"
+                      : waitingOurs
+                      ? "Check again"
+                      : inProgress
                       ? "Resume verification"
                       : declined
                       ? "Try again"
                       : "Start verification"
                   }
-                  onPress={begin}
+                  onPress={waitingOurs ? () => refresh(true) : begin}
                 />
 
                 <TouchableOpacity style={styles.skipBtn} onPress={close} disabled={busy}>

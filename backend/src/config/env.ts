@@ -280,6 +280,15 @@ const envSchema = z.object({
   // which does not exist, so the deep-link handoff back from Didit misfired.
   DIDIT_CALLBACK_URL: z.string().default("money-moves://account/kyc"),
 
+  // Manual identity checks: the photos and smile video are encrypted with this
+  // (32 bytes, base64). Without it nothing can be uploaded, and the console says
+  // so. Never change it on its own: files sealed with the old key stop opening -
+  // put the old one in KYC_FILES_KEYS_OLD (comma-separated) first.
+  KYC_FILES_KEY: z.string().trim().optional(),
+  KYC_FILES_KEYS_OLD: z.string().trim().optional(),
+  // The page a manual check is taken on: the Business dashboard serves it.
+  KYC_PAGE_URL: z.string().url().default("https://business.usemoneymoves.xyz/verify/me"),
+
   // Treasury wallets (private keys for sending crypto to users after Paystack payment)
   MOVEMENT_TREASURY_PRIVATE_KEY: z.string().min(1),
   MOVEMENT_TREASURY_ADDRESS: z.string().min(1),

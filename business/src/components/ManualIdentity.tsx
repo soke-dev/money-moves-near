@@ -1,6 +1,7 @@
 /**
- * The identity step when checks are manual: carry on on a phone by scanning a
- * code, or use this computer. While the phone is busy this page follows along
+ * The identity step when checks are manual: first what it takes and a Verify
+ * button. On a phone that goes straight to the check; on a computer it shows a
+ * code to carry on on a phone, or the way to use this computer. While the phone is busy this page follows along
  * by itself; once sent it says it's being checked, and if a redo is asked for
  * it lists only what to take again.
  *
@@ -18,7 +19,7 @@ export const PART_WORDS: Record<string, string> = { front: 'Photo of your ID, fr
 export const ID_WORDS: Record<string, string> = { nin: 'NIN slip or card', passport: 'International passport', licence: "Driver's licence" }
 
 /** The panel. `path` is the application's API path; `reload` reads the application again. */
-export function ManualIdentity({ path, identity, reload, canManage = true }: { path: string; identity: ApiApplication['identity']; reload: () => Promise<unknown>; canManage?: boolean }) {
+export function ManualIdentity({ path, identity, ids, reload, canManage = true }: { path: string; identity: ApiApplication['identity']; ids?: ApiApplication['identityIds']; reload: () => Promise<unknown>; canManage?: boolean }) {
   const status = identity?.method === 'manual' ? identity.status : null
   const redo = identity?.method === 'manual' && status === 'PENDING' && (identity.redo?.length ?? 0) > 0
 
@@ -52,7 +53,7 @@ export function ManualIdentity({ path, identity, reload, canManage = true }: { p
       )}
       {redo && <RedoList identity={identity!} />}
       {canManage ? (
-        <Handoff path={path} identity={identity} redo={redo} />
+        <Handoff path={path} identity={identity} ids={ids} redo={redo} />
       ) : (
         <p className="rounded-xl border border-line p-5 text-[13.5px] text-muted">The owner or an admin of this business does the identity check.</p>
       )}
@@ -122,35 +123,93 @@ function RedoList({ identity }: { identity: Identity }) {
   )
 }
 
-/** The code for the phone, and the way to use this computer instead. */
-function Handoff({ path, identity, redo }: { path: string; identity: ApiApplication['identity']; redo: boolean }) {
+/** A phone or tablet: the check is taken right here, no code to scan. */
+const onPhone = () => /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+
+/** What the check takes, and the button that starts it. */
+/** "A, B or C". */
+const orList = (items: string[]) => (items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`)
+
+function Summary({ ids, redo, busy, error, onStart }: { ids?: ApiApplication['identityIds']; redo: boolean; busy: boolean; error: string; onStart: () => void }) {
+  const names = orList((ids?.length ? ids : (['nin', 'passport', 'licence'] as const)).map((t, i) => (i === 0 ? ID_WORDS[t] : ID_WORDS[t].replace(/^International/, 'international'))))
+  const steps = [
+    ['A photo of your ID', `${names}. Flat, in good light, every corner in.`],
+    ['A selfie', 'Your face clear, no hat or glasses.'],
+    ['A 3 second smile video', 'Look at the camera and smile.'],
+  ]
+  return (
+    <div className="overflow-hidden rounded-xl border border-line">
+      <div className="px-5 pb-2 pt-5">
+        <div className="text-[17px] font-semibold tracking-[-0.01em] text-fg">{redo ? 'Take them again' : 'Verify your identity'}</div>
+        <p className="mt-1 text-[13.5px] text-muted">{redo ? 'Only what is listed above. It takes a minute.' : "You'll need these. It takes about two minutes."}</p>
+      </div>
+      {!redo && (
+        <ol className="mt-2">
+          {steps.map(([title, sub], i) => (
+            <li key={title} className="flex gap-4 border-t border-line px-5 py-3.5">
+              <span className="w-4 text-[14px] font-semibold text-dim">{i + 1}</span>
+              <div className="min-w-0">
+                <div className="text-[14px] font-medium text-fg">{title}</div>
+                <div className="mt-0.5 text-[13px] text-muted">{sub}</div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 border-t border-line bg-side px-5 py-4">
+        <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px] text-dim">
+          <Lock className="size-3.5 shrink-0" /> Encrypted, and used only to verify you
+        </div>
+        <Button variant="primary" onClick={onStart} disabled={busy}>
+          {busy ? 'Opening…' : redo ? 'Redo now' : 'Verify'}
+        </Button>
+      </div>
+      {error && <p className="border-t border-line px-5 py-3 text-[13px] text-red">{error}</p>}
+    </div>
+  )
+}
+
+/** Verify first; then on a computer, the code for the phone and the way to use this computer instead. */
+function Handoff({ path, identity, ids, redo }: { path: string; identity: ApiApplication['identity']; ids?: ApiApplication['identityIds']; redo: boolean }) {
   const [link, setLink] = useState<{ url: string; expiresAt: string } | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
-  const asked = useRef(false)
+  const phone = useRef(onPhone()).current
+  // A phone already on it (from an earlier visit) shows the code panel straight away.
+  const taking = identity?.method === 'manual' && identity.status === 'PENDING' && !redo
+  const started = taking && (!!identity.phoneConnected || (identity.parts?.length ?? 0) > 0)
+  const [open, setOpen] = useState(started && !phone)
   const make = async () => {
     setBusy(true)
     setError('')
     try {
-      setLink(await api<{ url: string; expiresAt: string }>('POST', `${path}/identity/handoff`))
+      const l = await api<{ url: string; expiresAt: string }>('POST', `${path}/identity/handoff`)
+      setLink(l)
+      return l
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Couldn't make a code. Try again.")
+      setError(e instanceof ApiError ? e.message : "Couldn't start the check. Try again.")
+      return null
     } finally {
       setBusy(false)
     }
   }
+  const start = async () => {
+    if (!phone) return setOpen(true)
+    const l = await make()
+    if (l) window.location.assign(l.url)
+  }
   useEffect(() => {
-    if (asked.current) return
-    asked.current = true
-    void make()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    if (open && !link) void make()
+  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
   // A code that ran out is replaced on its own while the page is open.
   useEffect(() => {
-    if (!link) return
+    if (!open || !link) return
     const left = new Date(link.expiresAt).getTime() - Date.now() - 15_000
     const t = setTimeout(() => void make(), Math.max(5_000, left))
     return () => clearTimeout(t)
-  }, [link]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, link]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (!open) return <Summary ids={ids} redo={redo} busy={busy} error={error} onStart={() => void start()} />
 
   const connected = !!identity?.phoneConnected
   const took = identity?.method === 'manual' ? (identity.parts?.length ?? 0) : 0

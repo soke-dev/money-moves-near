@@ -71,7 +71,7 @@ export default function ChatBubble() {
   const businessId = business?.id ?? null
   const live = LIVE && !!user
   // Not over a checkout, and not over the camera on the phone side of an identity check.
-  const hidden = pathname.startsWith('/pay/') || pathname === '/checkout-preview' || pathname.startsWith('/verify/id/')
+  const hidden = pathname.startsWith('/pay/') || pathname === '/checkout-preview' || pathname.startsWith('/verify/id/') || pathname.startsWith('/verify/me/')
   const q = businessId ? `?businessId=${encodeURIComponent(businessId)}` : ''
 
   const markRead = useCallback(() => {

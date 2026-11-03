@@ -32,6 +32,7 @@ import beneficiaryRoutes from "./routes/beneficiaries";
 import cryptoContactRoutes from "./routes/crypto-contacts";
 import ratesRoutes from "./routes/rates";
 import kycRoutes from "./routes/kyc";
+import identityHandoffRoutes from "./routes/identity-handoff";
 import adminRoutes from "./routes/admin";
 import fundingRoutes from "./routes/funding";
 import routedDepositRoutes from "./routes/routed-deposits";
@@ -97,6 +98,8 @@ const allowedOrigins = [
   "https://app.usemoneymoves.xyz",
   "https://web.usemoneymoves.xyz",
   "https://moneymovesmobile.netlify.app",
+  // The Business dashboard serves the page app users take a manual identity check on.
+  "https://business.usemoneymoves.xyz",
   "http://localhost:8081",
 ];
 app.use(
@@ -304,6 +307,8 @@ app.use("/api/beneficiaries", beneficiaryRoutes);
 app.use("/api/crypto-contacts", cryptoContactRoutes);
 app.use("/api/rates", ratesRoutes);
 app.use("/api/kyc", kycRoutes);
+// The page a manual identity check is taken on; the link's code is its only key.
+app.use("/api/identity-handoff", identityHandoffRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/funding", fundingRoutes);
 app.use("/api/routed-deposits", routedDepositRoutes);

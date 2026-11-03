@@ -15,11 +15,13 @@ import QRCode from 'qrcode'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowLeftRight, BadgeCheck, Banknote, Users, MessageSquare,
-  Megaphone, PiggyBank, ToggleLeft, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins,
+  Megaphone, PiggyBank, ToggleLeft, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins, ScanFace,
 } from 'lucide-react'
 import { PersonalCrypto } from './PersonalCrypto'
 import { SwapSettings } from './SwapSettings'
 import { LimitsSettings } from './LimitsSettings'
+import { IdentitySettings } from './IdentitySettings'
+import { IdentityChecks } from './business/IdentityChecks'
 import {
   C, MONO, H1, Label, Mono, Card, Row, MetaBit, Status, Empty, Loading,
   Btn, Chips, Search, Field, Input, Textarea, Modal, Detail, Pager,
@@ -70,6 +72,7 @@ const SECTIONS = [
   { id: 'overview', label: 'Overview', Icon: LayoutDashboard },
   { id: 'transactions', label: 'Transactions', Icon: ArrowLeftRight },
   { id: 'kyc', label: 'Verification', Icon: BadgeCheck },
+  { id: 'identity', label: 'ID checks', Icon: ScanFace },
   { id: 'deposits', label: 'Deposits', Icon: Banknote },
   { id: 'crypto', label: 'Crypto', Icon: Coins },
   { id: 'users', label: 'People', Icon: Users },
@@ -441,6 +444,7 @@ export default function Dashboard() {
             {section === 'overview' && <Overview key={nonce} onJump={jump} />}
             {section === 'transactions' && <Transactions key={nonce} initial={filter} />}
             {section === 'kyc' && <Kyc key={nonce} initial={filter} />}
+            {section === 'identity' && <IdentityChecks key={nonce} side="app" />}
             {section === 'deposits' && <Deposits key={nonce} />}
             {section === 'crypto' && <PersonalCrypto key={nonce} />}
             {section === 'users' && <People key={nonce} initial={filter} />}
@@ -682,9 +686,9 @@ function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: 
   )
 }
 
-type ServicesTab = 'pause' | 'providers' | 'rates' | 'converted' | 'swap' | 'limits' | 'emails'
+type ServicesTab = 'pause' | 'providers' | 'rates' | 'converted' | 'swap' | 'limits' | 'identity' | 'emails'
 
-const SERVICES_TABS: ServicesTab[] = ['pause', 'providers', 'rates', 'converted', 'swap', 'limits', 'emails']
+const SERVICES_TABS: ServicesTab[] = ['pause', 'providers', 'rates', 'converted', 'swap', 'limits', 'identity', 'emails']
 
 function Services() {
   // The tab is the second part of the address (#services/swap), so a refresh keeps it.
@@ -793,6 +797,7 @@ function Services() {
           ['converted', 'Converted'],
           ['swap', 'Swap'],
           ['limits', 'Limits'],
+          ['identity', 'Identity'],
           ['emails', 'Emails'],
         ]}
       />
@@ -1006,6 +1011,8 @@ function Services() {
       {tab === 'swap' && <SwapSettings />}
 
       {tab === 'limits' && <LimitsSettings />}
+
+      {tab === 'identity' && <IdentitySettings />}
 
       {tab === 'emails' && (
         <Panel

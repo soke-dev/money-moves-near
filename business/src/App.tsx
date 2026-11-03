@@ -101,6 +101,7 @@ export default function App() {
       <Route path="/onboarding" element={<Activate />} />
       <Route path="/verify" element={<Activate />} />
       <Route path="/verify/id/:code" element={<VerifyId />} />
+      <Route path="/verify/me/:code" element={<VerifyId app />} />
       <Route path="/business/new" element={<CreateBusiness />} />
       <Route path="/pay/:slug" element={<Checkout />} />
       <Route path="/pay/o/:slug" element={<Checkout outlet />} />

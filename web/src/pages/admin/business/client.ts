@@ -10,6 +10,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 const BASE = import.meta.env.VITE_BUSINESS_API_URL || '/business-api'
+/** The app's backend: the few Personal screens built from these same parts (ID checks) read from it instead. */
+const APP_BASE = `${import.meta.env.VITE_API_URL || ''}/api`
+export type Side = 'business' | 'app'
+const baseOf = (side?: Side) => (side === 'app' ? APP_BASE : BASE)
+const offline = (side?: Side) => `Can't reach the ${side === 'app' ? 'app backend' : 'business API'}. Check the connection and try again.`
 
 export class BizError extends Error {
   code?: string
@@ -21,17 +26,17 @@ export class BizError extends Error {
 
 const token = () => localStorage.getItem('mm_admin_token')
 
-export async function biz<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+export async function biz<T>(path: string, init?: { method?: string; body?: unknown; side?: Side }): Promise<T> {
   let res: Response
   try {
     const t = token()
-    res = await fetch(`${BASE}/admin${path}`, {
+    res = await fetch(`${baseOf(init?.side)}/admin${path}`, {
       method: init?.method ?? 'GET',
       headers: { 'Content-Type': 'application/json', ...(t ? { Authorization: `Bearer ${t}` } : {}) },
       body: init?.body === undefined ? undefined : JSON.stringify(init.body),
     })
   } catch {
-    throw new BizError("Can't reach the business API. Check the connection and try again.", 'offline')
+    throw new BizError(offline(init?.side), 'offline')
   }
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new BizError(data.error || `That didn't work (${res.status}).`, data.code)
@@ -39,13 +44,13 @@ export async function biz<T>(path: string, init?: { method?: string; body?: unkn
 }
 
 /** A stored document, decrypted by the API, as a local address this page can show. Revoke it when done. */
-export async function bizFile(path: string): Promise<{ url: string; type: string }> {
+export async function bizFile(path: string, side?: Side): Promise<{ url: string; type: string }> {
   let res: Response
   try {
     const t = token()
-    res = await fetch(`${BASE}/admin${path}`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
+    res = await fetch(`${baseOf(side)}/admin${path}`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
   } catch {
-    throw new BizError("Can't reach the business API. Check the connection and try again.", 'offline')
+    throw new BizError(offline(side), 'offline')
   }
   if (!res.ok) {
     const data = await res.json().catch(() => ({}))
@@ -189,25 +194,28 @@ const seen = new Map<string, unknown>()
  * whose money is still moving, so it shows the payout landing without a
  * refresh. Null stops.
  */
-export function useLoad<T>(path: string | null, opts?: { every?: (data: T) => number | null }) {
+export function useLoad<T>(path: string | null, opts?: { every?: (data: T) => number | null; side?: Side }) {
   const everyRef = useRef(opts?.every)
   everyRef.current = opts?.every
-  const [data, setData] = useState<T | null>(() => (path != null ? ((seen.get(path) as T | undefined) ?? null) : null))
+  const side = opts?.side
+  // The same path on the two sides is two different answers.
+  const key = path == null ? null : side === 'app' ? `app:${path}` : path
+  const [data, setData] = useState<T | null>(() => (key != null ? ((seen.get(key) as T | undefined) ?? null) : null))
   const [error, setError] = useState<BizError | null>(null)
-  const [loading, setLoading] = useState(path != null && !seen.has(path))
+  const [loading, setLoading] = useState(key != null && !seen.has(key))
   // Only the latest answer counts: typing in a search box sends several.
   const latest = useRef(0)
   const reload = useCallback(
     async (quiet = false) => {
-      if (path == null) return
+      if (path == null || key == null) return
       const n = ++latest.current
       if (!quiet) {
         setLoading(true)
         setError(null)
       }
       try {
-        const next = await biz<T>(path)
-        seen.set(path, next)
+        const next = await biz<T>(path, { side })
+        seen.set(key, next)
         if (n === latest.current) {
           setData(next)
           setError(null)
@@ -218,14 +226,14 @@ export function useLoad<T>(path: string | null, opts?: { every?: (data: T) => nu
         if (n === latest.current) setLoading(false)
       }
     },
-    [path],
+    [path, key, side],
   )
   useEffect(() => {
-    if (path == null) return
-    const known = seen.get(path) as T | undefined
+    if (key == null) return
+    const known = seen.get(key) as T | undefined
     if (known !== undefined) setData(known)
     void reload(known !== undefined)
-  }, [path, reload])
+  }, [key, reload])
   useEffect(() => {
     const on = () => reload(true)
     listeners.add(on)

@@ -447,14 +447,51 @@ model KycVerification {
   rawResponse   Json?   @map("raw_response")
   failureReason String? @map("failure_reason")
 
+  // ─── A manual check (provider "manual"): photos taken in the app, decided in the console ───
+  /// Sent for review: every part asked for was in. Null while still being taken.
+  submittedAt      DateTime? @map("submitted_at")
+  /// The parts asked for again: front, back, selfie, video. Null when nothing is asked.
+  redo             Json?
+  /// What the reviewer told the person with a redo or a decline. They see this.
+  reviewNote       String?   @map("review_note")
+  reviewedBy       String?   @map("reviewed_by")
+  reviewedAt       DateTime? @map("reviewed_at")
+  /// The link's code, hashed: it lets the page add photos to this check and nothing else.
+  handoffHash      String?   @unique @map("handoff_hash")
+  handoffExpiresAt DateTime? @map("handoff_expires_at")
+  handoffOpenedAt  DateTime? @map("handoff_opened_at")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  files KycFile[]
 
   @@index([userId])
   @@index([metamapRef])
+  @@index([provider, status])
   @@map("kyc_verifications")
+}
+
+/// A photo or the smile video of a manual identity check, encrypted with
+/// KYC_FILES_KEY (lib/kyc-vault). Replaced, never deleted, when it's taken again.
+model KycFile {
+  id             String    @id @default(cuid())
+  verificationId String    @map("verification_id")
+  /// front, back, selfie or video.
+  part           String
+  mime           String
+  size           Int
+  sha256         String
+  /// AES-256-GCM: "MMK1", key id, 12-byte IV, 16-byte tag, then the ciphertext.
+  data           Bytes
+  createdAt      DateTime  @default(now()) @map("created_at")
+  replacedAt     DateTime? @map("replaced_at")
+
+  verification KycVerification @relation(fields: [verificationId], references: [id], onDelete: Cascade)
+
+  @@index([verificationId, part])
+  @@map("kyc_files")
 }
 
 /// One row per real-world identifier proven by a completed KYC check.

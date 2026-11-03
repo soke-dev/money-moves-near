@@ -53,7 +53,7 @@ function Row({ label, sub, changed, later, children }: { label: string; sub?: st
 }
 
 /** One switch, with what it does. "Not live yet", with why, marks a switch for something that can't work live yet. */
-function SwitchRow({ label, sub, on, onChange, later, changed }: { label: string; sub?: string; on: boolean; onChange: (v: boolean) => void; later?: string | null; changed?: boolean }) {
+export function SwitchRow({ label, sub, on, onChange, later, changed }: { label: string; sub?: string; on: boolean; onChange: (v: boolean) => void; later?: string | null; changed?: boolean }) {
   return (
     <Row label={label} sub={sub} later={later} changed={changed}>
       <Switch on={on} onChange={onChange} label={label} />
@@ -169,12 +169,12 @@ export function Services() {
       <Group title="Identity checks" sub="How the account representative proves who they are. Only new checks follow a change: ones under way finish the way they began, and approved ones stay approved. Businesses never see which is in use.">
         <SwitchRow
           label="Manual review"
-          sub="On: they send ID photos (front and back), a selfie and a 3 second smile video, from their phone or computer, and you decide them in ID checks. Off: the automatic check by the identity partner."
+          sub="On: they send a photo of their ID (the back too for a driver's licence), a selfie and a 3 second smile video, from their phone or computer, and you decide them in ID checks. Off: the automatic check by the identity partner."
           on={draft.identity?.manual ?? false}
           onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, manual: v } })}
           changed={diff.has('identity.manual')}
         />
-        <SwitchRow label="Accepts NIN slip or card" sub="Front and back." on={draft.identity?.nin ?? true} onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, nin: v } })} changed={diff.has('identity.nin')} />
+        <SwitchRow label="Accepts NIN slip or card" sub="The front." on={draft.identity?.nin ?? true} onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, nin: v } })} changed={diff.has('identity.nin')} />
         <SwitchRow label="Accepts international passport" sub="The photo page." on={draft.identity?.passport ?? true} onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, passport: v } })} changed={diff.has('identity.passport')} />
         <SwitchRow label="Accepts driver's licence" sub="Front and back. At least one ID has to stay on." on={draft.identity?.licence ?? true} onChange={(v) => setDraft({ ...draft, identity: { ...draft.identity, licence: v } })} changed={diff.has('identity.licence')} />
       </Group>

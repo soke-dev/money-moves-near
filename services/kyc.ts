@@ -60,6 +60,41 @@ export interface DiditStatusResponse {
    * tied to another account — final, so the UI must not invite a retry.
    */
   failureReason: string | null;
+  /** Present when the newest check is one taken on our own page. */
+  manual?: ManualKyc;
+}
+
+/**
+ * Checks taken on our own page: photos of the ID, a selfie and a smile video,
+ * sent from a browser opened inside the app.
+ */
+export type ManualPart = "front" | "back" | "selfie" | "video";
+export interface ManualKyc {
+  /** How a new check is done right now. */
+  method: "auto" | "manual";
+  kycStatus: "NONE" | "PENDING" | "VERIFIED" | "REJECTED";
+  idTypes?: ("nin" | "passport" | "licence")[];
+  check: {
+    status: "PENDING" | "VERIFIED" | "REJECTED";
+    idType: string | null;
+    submittedAt: string | null;
+    /** Parts asked for again. */
+    redo: ManualPart[];
+    note: string | null;
+    have: ManualPart[];
+    need: ManualPart[];
+  } | null;
+}
+
+export async function getManualKyc(): Promise<ManualKyc> {
+  const { data } = await api.get("/kyc/manual");
+  return data;
+}
+
+/** A fresh link to the page the check is taken on. */
+export async function startManualKyc(): Promise<{ url: string; expiresAt: string }> {
+  const { data } = await api.post("/kyc/manual/handoff");
+  return data;
 }
 
 /** Start (or resume) a hosted Didit verification and get the URL to open. */

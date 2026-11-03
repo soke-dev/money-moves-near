@@ -5,7 +5,7 @@ import path from "path";
 import fs from "fs";
 import jwt from "jsonwebtoken";
 import { prisma } from "../lib/prisma";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { env } from "../config/env";
 import { validate } from "../middleware/validate";
 import { sendAdminLoginCode, sendAccountClosedEmail } from "../lib/email";
@@ -44,6 +44,8 @@ import { fetchRates, invalidateRatesCache } from "./rates";
 import { dollarNgn, postedNgn } from "../lib/ngn-rate";
 import { RATE_KEYS, ensureRateSettings, rateSettings, rateSources, railwayRateSettings, setRateSetting } from "../lib/rate-settings";
 import { checkActionPassword } from "../lib/action-password";
+import { KycError, PARTS as MANUAL_PARTS, asked as manualAsked, currentFiles as manualCurrentFiles, decide as decideManual, identitySettings, identitySettingsMeta, partsFor as manualPartsFor, setIdentitySettings, waitingWhere as manualWaitingWhere } from "../lib/manual-kyc";
+import { kycVaultReady, openKycFile } from "../lib/kyc-vault";
 import { listServices, setService, isServiceKey } from "../lib/service-status";
 import { PAYOUT_PROVIDERS, PAYOUT_LABELS, configured as payoutConfigured, bankCodeByName, resolveAccount } from "../lib/payout";
 import { psBalance } from "../lib/paystack";
@@ -3037,6 +3039,176 @@ router.post("/vouchers/batch", requireAdmin, async (req: Request, res: Response)
   } catch (err: any) {
     console.error("[VOUCHER] batch failed:", err?.message);
     return res.status(400).json({ error: err?.message || "Could not do that." });
+  }
+});
+
+// ─── ID checks: manual identity checks in the app ─────────────────────────
+//
+// Same shape as the Business console's, so one screen serves both. Opening a
+// photo or the video is logged; approving and declining take the action
+// password; asking for a redo doesn't.
+
+const statusWord = (v: { status: string; submittedAt: Date | null; redo: unknown }) =>
+  v.status === "VERIFIED" ? "APPROVED" : v.status === "REJECTED" ? "DECLINED" : v.submittedAt && !(Array.isArray(v.redo) && v.redo.length) ? "IN_REVIEW" : "PENDING";
+
+const IDENTITY_VIEWS: Record<string, Prisma.KycVerificationWhereInput> = {
+  waiting: manualWaitingWhere,
+  redo: { provider: "manual", status: "PENDING", submittedAt: { not: null }, NOT: { redo: { equals: Prisma.DbNull } } },
+  approved: { provider: "manual", status: "VERIFIED" },
+  declined: { provider: "manual", status: "REJECTED" },
+};
+
+router.get("/identity-settings", requireAdmin, async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json({ settings: await identitySettings(), ...(await identitySettingsMeta()), ready: kycVaultReady() });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/identity-settings", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const by = String((req as any).adminEmail || "admin");
+    const b = z.object({ manual: z.boolean(), nin: z.boolean(), passport: z.boolean(), licence: z.boolean(), password: z.string().max(200).optional() }).safeParse(req.body);
+    if (!b.success) return res.status(400).json({ error: "Send all four switches." });
+    const gate = await checkActionPassword(by, b.data.password, "identity_settings");
+    if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
+    const { password: _pw, ...s } = b.data;
+    void _pw;
+    const settings = await setIdentitySettings(s, by);
+    console.log(`[ADMIN] identity checks set by ${by}: ${JSON.stringify(settings)}`);
+    res.json({ settings, ...(await identitySettingsMeta()), ready: kycVaultReady() });
+  } catch (err) {
+    if (err instanceof KycError) return res.status(err.status).json({ error: err.message, code: err.code });
+    next(err);
+  }
+});
+
+router.get("/identity-checks", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const view = String(req.query.view ?? "waiting");
+    const where = IDENTITY_VIEWS[view] ?? IDENTITY_VIEWS.waiting!;
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = 50;
+    const [total, rows, waiting, redo] = await Promise.all([
+      prisma.kycVerification.count({ where }),
+      prisma.kycVerification.findMany({
+        where,
+        orderBy: view === "waiting" ? { submittedAt: "asc" } : { updatedAt: "desc" },
+        skip: (page - 1) * limit,
+        take: limit,
+        include: { user: { select: { id: true, username: true, email: true, firstName: true, lastName: true } } },
+      }),
+      prisma.kycVerification.count({ where: IDENTITY_VIEWS.waiting! }),
+      prisma.kycVerification.count({ where: IDENTITY_VIEWS.redo! }),
+    ]);
+    const tries = await prisma.kycVerification.groupBy({ by: ["userId"], where: { provider: "manual", userId: { in: rows.map((r) => r.userId) }, submittedAt: { not: null } }, _count: { _all: true } });
+    res.json({
+      checks: rows.map((v) => ({
+        id: v.id,
+        status: statusWord(v),
+        idType: v.documentType || null,
+        person: [v.user.firstName, v.user.lastName].filter(Boolean).join(" ") || null,
+        email: v.user.email,
+        business: { id: v.user.id, name: `@${v.user.username}`, kind: "PERSON" },
+        submittedAt: v.submittedAt,
+        reviewedAt: v.reviewedAt,
+        reviewedBy: v.reviewedBy,
+        tries: tries.find((t) => t.userId === v.userId)?._count._all ?? 1,
+      })),
+      counts: { waiting, redo },
+      pagination: { page, pages: Math.max(1, Math.ceil(total / limit)), total },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.get("/identity-checks/:id", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const v = await prisma.kycVerification.findUnique({ where: { id: String(req.params.id) }, include: { user: { select: { id: true, username: true, email: true, phone: true, firstName: true, lastName: true, kycStatus: true } } } });
+    if (!v || v.provider !== "manual") return res.status(404).json({ error: "No manual identity check with that id." });
+    const [files, earlier] = await Promise.all([
+      manualCurrentFiles(v.id),
+      prisma.kycVerification.findMany({ where: { userId: v.userId, id: { not: v.id } }, orderBy: { createdAt: "desc" }, take: 10, select: { id: true, provider: true, status: true, submittedAt: true, redo: true, reviewNote: true, failureReason: true, createdAt: true } }),
+    ]);
+    const u = v.user;
+    res.json({
+      check: {
+        id: v.id,
+        status: statusWord(v),
+        idType: v.documentType || null,
+        firstName: v.firstName,
+        lastName: v.lastName,
+        documentLast4: v.status === "VERIFIED" && v.documentNumber ? v.documentNumber.slice(-4) : null,
+        submittedAt: v.submittedAt,
+        reviewedAt: v.reviewedAt,
+        reviewedBy: v.reviewedBy,
+        reviewNote: v.reviewNote,
+        redo: Array.isArray(v.redo) ? v.redo : [],
+        need: manualPartsFor(v.documentType),
+        asked: manualAsked(v),
+        createdAt: v.createdAt,
+      },
+      person: { name: [u.firstName, u.lastName].filter(Boolean).join(" ") || null, firstName: u.firstName, lastName: u.lastName, email: u.email, phone: u.phone },
+      business: { id: u.id, name: `@${u.username}`, kind: "PERSON", merchantId: u.username, status: u.kycStatus, legalName: null, application: null },
+      files: files.map((f) => ({ id: f.id, part: f.part, mime: f.mime, size: f.size, createdAt: f.createdAt })),
+      earlier: earlier.map((e) => ({ id: e.id, method: e.provider === "manual" ? "manual" : "auto", status: statusWord(e), note: e.reviewNote ?? e.failureReason, createdAt: e.createdAt })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** One photo or the video, decrypted, for an admin to look at. Every opening is logged. */
+router.get("/identity-files/:id", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const f = await prisma.kycFile.findUnique({ where: { id: String(req.params.id) }, include: { verification: { select: { userId: true } } } });
+    if (!f) return res.status(404).json({ error: "No file with that id." });
+    let file: Buffer;
+    try {
+      file = openKycFile(Buffer.from(f.data));
+    } catch (e: any) {
+      return res.status(423).json({ error: e?.message || "That file can't be opened." });
+    }
+    console.log(`[ADMIN] identity file viewed by ${String((req as any).adminEmail || "admin")}: ${f.part} of ${f.verificationId} (user ${f.verification.userId})`);
+    res.setHeader("Content-Type", f.mime);
+    res.setHeader("Content-Disposition", "inline");
+    res.setHeader("Cache-Control", "no-store");
+    res.send(file);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post("/identity-checks/:id/decision", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const by = String((req as any).adminEmail || "admin");
+    const b = z
+      .object({
+        decision: z.enum(["approve", "redo", "decline"]),
+        parts: z.array(z.enum(MANUAL_PARTS)).max(4).optional(),
+        note: z.string().trim().max(1000).optional(),
+        firstName: z.string().trim().max(80).optional(),
+        lastName: z.string().trim().max(80).optional(),
+        documentNumber: z.string().trim().max(40).optional(),
+        nin: z.string().trim().max(20).optional(),
+        password: z.string().max(200).optional(),
+      })
+      .safeParse(req.body);
+    if (!b.success) return res.status(400).json({ error: "That decision isn't complete." });
+    if (b.data.decision !== "redo") {
+      const gate = await checkActionPassword(by, b.data.password, `identity_${b.data.decision}`);
+      if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
+    }
+    const { password: _pw, ...d } = b.data;
+    void _pw;
+    const v = await decideManual(String(req.params.id), d, by);
+    console.log(`[ADMIN] identity ${b.data.decision} by ${by}: check ${v.id}, user ${v.userId}${b.data.parts ? `, parts ${b.data.parts.join(",")}` : ""}`);
+    res.json({ status: statusWord(v) });
+  } catch (err) {
+    if (err instanceof KycError) return res.status(err.status).json({ error: err.message, code: err.code });
+    next(err);
   }
 });
 

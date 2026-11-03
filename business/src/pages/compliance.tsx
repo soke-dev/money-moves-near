@@ -164,7 +164,7 @@ export function Compliance() {
         <section className="mb-9">
           <h2 className="mb-1 text-[17px] font-semibold tracking-[-0.01em] text-fg">Your identity check</h2>
           <p className="mb-4 text-[13.5px] text-muted">{idv?.status === 'DECLINED' ? "It couldn't be verified. Start it again below." : 'Redo just what is listed, from your phone or this computer.'}</p>
-          <ManualIdentity path={appPath} identity={idv ?? null} reload={() => app.reload()} canManage={business.role === 'OWNER' || business.role === 'ADMIN'} />
+          <ManualIdentity path={appPath} identity={idv ?? null} ids={app.data?.identityIds} reload={() => app.reload()} canManage={business.role === 'OWNER' || business.role === 'ADMIN'} />
         </section>
       )}
 

@@ -9,6 +9,10 @@
  * can't be done, and the page says how to allow it. Only the ID can be
  * uploaded from the gallery.
  *
+ * The same page serves app users at /verify/me/:code: the app opens it in its
+ * own browser, it talks to the app's backend instead, and when it's sent it
+ * sends the browser back to the app, which closes it and reads the result.
+ *
  * Wording rule: say that we check it, never how.
  */
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
@@ -22,17 +26,38 @@ type Part = 'front' | 'back' | 'selfie' | 'video'
 type Step = 'type' | Part | 'review' | 'sent'
 
 const ID_CHOICES: { id: IdType; title: string; sides: string; tall?: boolean }[] = [
-  { id: 'nin', title: 'NIN slip or card', sides: 'Front and back' },
+  { id: 'nin', title: 'NIN slip or card', sides: 'The front' },
   { id: 'passport', title: 'International passport', sides: 'The photo page', tall: true },
   { id: 'licence', title: "Driver's licence", sides: 'Front and back' },
 ]
 const ID_NAME: Record<IdType, string> = { nin: 'NIN slip', passport: 'passport', licence: "driver's licence" }
 const PART_LABEL: Record<Part, string> = { front: 'ID, front', back: 'ID, back', selfie: 'Selfie', video: 'Smile video' }
 
-async function put(code: string, part: Part, blob: Blob) {
+/** The app's backend, for app users' checks. */
+const APP_API = (import.meta.env.VITE_APP_API_URL as string | undefined) || 'https://backend-production-6f042.up.railway.app'
+/** Where the app picks up again once the check is sent. */
+const APP_RETURN = 'money-moves://account/kyc'
+
+/** Where this check's link answers: the Business API, or the app's backend. */
+const baseFor = (app: boolean) => (app ? `${APP_API}/api/identity-handoff` : '/api/identity-handoff')
+
+async function call<T = unknown>(base: string, method: 'GET' | 'PUT' | 'POST', path: string, body?: unknown): Promise<T> {
+  if (!base.startsWith('http')) return api<T>(method, `${base.replace(/^\/api/, '')}${path}`, body)
   let r: Response
   try {
-    r = await fetch(`/api/identity-handoff/${code}/files/${part}`, { method: 'PUT', headers: { 'content-type': blob.type || 'application/octet-stream' }, body: blob })
+    r = await fetch(`${base}${path}`, { method, headers: body === undefined ? undefined : { 'content-type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) })
+  } catch {
+    throw new ApiError(0, "Can't reach Money Moves right now. Check your connection and try again.", 'offline')
+  }
+  const data = (await r.json().catch(() => ({}))) as { error?: string; code?: string }
+  if (!r.ok) throw new ApiError(r.status, data.error ?? 'Something went wrong. Try again in a moment.', data.code)
+  return data as T
+}
+
+async function put(base: string, code: string, part: Part, blob: Blob) {
+  let r: Response
+  try {
+    r = await fetch(`${base}/${code}/files/${part}`, { method: 'PUT', headers: { 'content-type': blob.type || 'application/octet-stream' }, body: blob })
   } catch {
     throw new ApiError(0, "Can't reach Money Moves right now. Check your connection and try again.", 'offline')
   }
@@ -189,6 +214,7 @@ function PhotoStep({
   onBack,
   onDone,
   code,
+  base,
 }: {
   part: Part
   facing: 'user' | 'environment'
@@ -199,6 +225,7 @@ function PhotoStep({
   onBack?: () => void
   onDone: (blob: Blob) => void
   code: string
+  base: string
 }) {
   const [shot, setShot] = useState<Blob | null>(null)
   const [busy, setBusy] = useState(false)
@@ -217,7 +244,7 @@ function PhotoStep({
     setBusy(true)
     setError('')
     try {
-      await put(code, part, shot)
+      await put(base, code, part, shot)
       onDone(shot)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "That didn't upload. Try again.")
@@ -299,7 +326,7 @@ function useObjectUrl(blob: Blob | null) {
 }
 
 /** The smile video: three seconds from the front camera. */
-function SmileStep({ stepNo, of, onBack, onDone, code }: { stepNo: number; of: number; onBack?: () => void; onDone: (blob: Blob) => void; code: string }) {
+function SmileStep({ stepNo, of, onBack, onDone, code, base }: { stepNo: number; of: number; onBack?: () => void; onDone: (blob: Blob) => void; code: string; base: string }) {
   const [clip, setClip] = useState<Blob | null>(null)
   const [sec, setSec] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
@@ -338,7 +365,7 @@ function SmileStep({ stepNo, of, onBack, onDone, code }: { stepNo: number; of: n
     setBusy(true)
     setError('')
     try {
-      await put(code, 'video', clip)
+      await put(base, code, 'video', clip)
       onDone(clip)
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "That didn't upload. Try again.")
@@ -416,8 +443,10 @@ function Wordmark() {
   )
 }
 
-export function VerifyId() {
+export function VerifyId({ app = false }: { app?: boolean }) {
   const { code = '' } = useParams()
+  const base = baseFor(app)
+  const again = app ? 'Start the check again in the app.' : 'Scan the code on your computer again.'
   const [info, setInfo] = useState<ApiHandoff | null>(null)
   const [dead, setDead] = useState('')
   const [step, setStep] = useState<Step>('type')
@@ -430,17 +459,17 @@ export function VerifyId() {
 
   const load = useCallback(async () => {
     try {
-      const d = await api<ApiHandoff>('GET', `/identity-handoff/${code}`)
+      const d = await call<ApiHandoff>(base, 'GET', `/${code}`)
       setInfo(d)
       // Their choice if they made one, else the first ID that's accepted.
       const first = d.idType ?? d.idTypes?.[0]
       if (first) setIdType(first)
       return d
     } catch (e) {
-      setDead(e instanceof ApiError ? e.message : "This link didn't open. Scan the code on your computer again.")
+      setDead(e instanceof ApiError ? e.message : `This link didn't open. ${again}`)
       return null
     }
-  }, [code])
+  }, [code, base, again])
   useEffect(() => {
     void load().then((d) => {
       if (!d) return
@@ -492,7 +521,7 @@ export function VerifyId() {
       setBusy(true)
       setError('')
       try {
-        const r = await api<{ need: string[]; have: string[] }>('PUT', `/identity-handoff/${code}/id-type`, { idType })
+        const r = await call<{ need: string[]; have: string[] }>(base, 'PUT', `/${code}/id-type`, { idType })
         setInfo({ ...info, idType, need: r.need, have: r.have })
         go((r.need[0] as Part) ?? 'review')
       } catch (e) {
@@ -561,6 +590,7 @@ export function VerifyId() {
       <PhotoStep
         key={step}
         code={code}
+        base={base}
         part={step}
         facing="environment"
         stepNo={camNo(step)}
@@ -573,16 +603,17 @@ export function VerifyId() {
     )
   }
   if (step === 'selfie')
-    return <PhotoStep key="selfie" code={code} part="selfie" facing="user" stepNo={camNo('selfie')} of={camSteps} onBack={back} onDone={done('selfie')} title="Now a selfie" sub="Face the light. No cap, glasses or mask, and nobody else in the shot." />
-  if (step === 'video') return <SmileStep code={code} stepNo={camNo('video')} of={camSteps} onBack={back} onDone={done('video')} />
+    return <PhotoStep key="selfie" code={code} base={base} part="selfie" facing="user" stepNo={camNo('selfie')} of={camSteps} onBack={back} onDone={done('selfie')} title="Now a selfie" sub="Face the light. No cap, glasses or mask, and nobody else in the shot." />
+  if (step === 'video') return <SmileStep code={code} base={base} stepNo={camNo('video')} of={camSteps} onBack={back} onDone={done('video')} />
 
   if (step === 'review') {
     const send = async () => {
       setBusy(true)
       setError('')
       try {
-        await api('POST', `/identity-handoff/${code}/submit`)
+        await call(base, 'POST', `/${code}/submit`)
         go('sent')
+        if (app) setTimeout(() => window.location.assign(APP_RETURN), 1500)
       } catch (e) {
         setError(e instanceof ApiError ? e.message : "That didn't send. Try again.")
         void load()
@@ -614,7 +645,7 @@ export function VerifyId() {
         <div className="flex flex-col gap-3 pb-8 pt-8">
           <label className="flex items-start gap-2.5 text-[13px] leading-relaxed text-muted">
             <input type="checkbox" checked={agree} onChange={(e) => setAgree(e.target.checked)} className="mt-0.5 size-[18px] shrink-0 accent-fg" />
-            <span>These are mine, and I agree Money Moves can check them to verify {info.business ?? 'this business'}.</span>
+            <span>These are mine, and I agree Money Moves can check them to verify {app ? 'my account' : (info.business ?? 'this business')}.</span>
           </label>
           {error && <p className="text-[13.5px] text-red">{error}</p>}
           <button type="button" onClick={() => void send()} disabled={busy || !agree} className="h-[54px] rounded-full bg-fg text-[16px] font-semibold text-white disabled:opacity-50">
@@ -632,10 +663,13 @@ export function VerifyId() {
         <span className="flex size-16 items-center justify-center rounded-full bg-lime">
           <Check className="size-7 text-[#0F2419]" strokeWidth={3} />
         </span>
-        <h1 className="text-[34px] font-bold leading-[1.05] tracking-[-1px]">Sent. You're done here.</h1>
-        <p className="text-[15.5px] leading-relaxed text-muted">If you started on a computer, it has already moved on. Finish there.</p>
+        <h1 className="text-[34px] font-bold leading-[1.05] tracking-[-1px]">{app ? 'Sent. Taking you back.' : "Sent. You're done here."}</h1>
+        <p className="text-[15.5px] leading-relaxed text-muted">{app ? 'You can carry on using Money Moves while we check.' : 'If you started on a computer, it has already moved on. Finish there.'}</p>
         <ol className="mt-3 border-t border-line">
-          {['We check your ID against your selfie and video.', "We email you either way. If a photo is unclear we'll say which one to redo.", 'Once your business is approved, live payments open.'].map((s, i) => (
+          {(app
+            ? ['We check your ID against your selfie and video.', "We let you know in the app either way. If a photo is unclear we'll say which one to redo.", "Once you're verified, your full limits open."]
+            : ['We check your ID against your selfie and video.', "We email you either way. If a photo is unclear we'll say which one to redo.", 'Once your business is approved, live payments open.']
+          ).map((s, i) => (
             <li key={s} className="flex gap-3.5 border-b border-line py-3.5 text-[14.5px]">
               <span className="w-[18px] font-semibold text-dim">{i + 1}</span>
               <span>{s}</span>
@@ -644,8 +678,8 @@ export function VerifyId() {
         </ol>
       </div>
       <div className="flex flex-col items-center gap-2 pb-8">
-        <a href="/verify" className="text-[14px] font-medium text-fg underline underline-offset-2">
-          Back to your dashboard
+        <a href={app ? APP_RETURN : '/verify'} className="text-[14px] font-medium text-fg underline underline-offset-2">
+          {app ? 'Back to the app' : 'Back to your dashboard'}
         </a>
         <span className="flex items-center gap-1.5 text-[12px] text-dim">
           <Lock className="size-3" /> Encrypted, and used only to verify you

@@ -342,6 +342,8 @@ type LiveApp = {
   identityReady: boolean
   /** How a new check is done: the partner's page, or photos from a phone. */
   identityMethod: 'auto' | 'manual'
+  /** The IDs a new manual check takes. */
+  identityIds?: ApiApplication['identityIds']
   /** The application's API path, and a way to read it again - for the manual check's panel. */
   path: string
   reloadApp: () => Promise<unknown>
@@ -462,6 +464,7 @@ export function Activate() {
           identity,
           identityReady: app.data.identityReady,
           identityMethod: app.data.identityMethod ?? 'auto',
+          identityIds: app.data.identityIds,
           path,
           reloadApp: () => app.reload(),
           canManage: business.role === 'OWNER' || business.role === 'ADMIN',
@@ -998,7 +1001,7 @@ function YouStep({ d, set, me, email, live, onBack, onNext }: StepProps & { me: 
       {/* Manual checks: photos from a phone (or this computer), checked before approval. */}
       {manual && live && status !== 'APPROVED' && (
         <div className="mt-8">
-          <ManualIdentity path={live.path} identity={id ?? null} reload={live.reloadApp} canManage={live.canManage} />
+          <ManualIdentity path={live.path} identity={id ?? null} ids={live.identityIds} reload={live.reloadApp} canManage={live.canManage} />
         </div>
       )}
 

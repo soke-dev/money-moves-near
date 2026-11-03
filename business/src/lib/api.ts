@@ -483,6 +483,8 @@ export interface ApiApplication {
   } | null
   /** How a new check is done: the partner's page, or photos from a phone. */
   identityMethod?: 'auto' | 'manual'
+  /** The IDs a new manual check takes. */
+  identityIds?: ('nin' | 'passport' | 'licence')[]
   /** Whether identity checks are switched on on this server at all. */
   identityReady: boolean
   gaps: { step: string; label: string }[]

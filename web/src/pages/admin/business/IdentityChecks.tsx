@@ -7,10 +7,13 @@
  * audit log. Approving and declining take the action password; asking for a
  * redo names the parts to take again and keeps the rest. The person is
  * emailed either way, and never told how it was checked.
+ *
+ * The same screen serves the app's users on the Personal side (side="app"):
+ * their checks live in the app's backend, which answers in the same shapes.
  */
 import { useEffect, useState } from 'react'
 import { C } from '../ui'
-import { biz, bizFile, useLoad, type Paged } from './client'
+import { biz, bizFile, useLoad, type Paged, type Side } from './client'
 import { ActionPanel, Button, Facts, Field, Input, ListLoading, Notice, Panel, PasswordInput, Problem, Said, Segmented, Table, Tag, Textarea, useAction, When, type Column } from './kit'
 import { useRecord } from './nav'
 
@@ -46,9 +49,9 @@ const STATUS: Record<Status, [string, 'good' | 'warn' | 'bad' | 'info' | undefin
 /** What to look at, in order, before deciding. */
 const CHECKS = ['Name on the ID matches the account', 'The selfie is the person on the ID', 'The ID is readable and not expired', 'The video is live: they move and smile']
 
-const columns: Column<Row>[] = [
+const columnsFor = (side: Side): Column<Row>[] => [
   { key: 'who', head: 'Person', width: 'minmax(0,1.2fr)', cell: (r) => <span className="font-medium">{r.person ?? r.email ?? 'Unknown'}</span>, phone: 'title' },
-  { key: 'biz', head: 'Business', cell: (r) => <span style={{ color: C.muted }}>{r.business.name}</span>, phone: 'sub' },
+  { key: 'biz', head: side === 'app' ? 'Username' : 'Business', cell: (r) => <span style={{ color: C.muted }}>{r.business.name}</span>, phone: 'sub' },
   { key: 'id', head: 'ID', width: '170px', cell: (r) => <span style={{ color: C.muted }}>{r.idType ? ID_WORDS[r.idType] : 'Not chosen'}{r.tries > 1 ? ` · try ${r.tries}` : ''}</span>, phone: 'hide' },
   { key: 'state', head: 'State', width: '120px', cell: (r) => <Tag tone={STATUS[r.status][1]}>{STATUS[r.status][0]}</Tag> },
   { key: 'when', head: 'Sent', width: '110px', align: 'right', cell: (r) => <When at={r.submittedAt ?? r.reviewedAt} />, phone: 'meta' },
@@ -61,12 +64,12 @@ const VIEWS = [
   ['declined', 'Declined'],
 ] as const
 
-export function IdentityChecks() {
+export function IdentityChecks({ side = 'business' }: { side?: Side }) {
   const [view, setView] = useState<string>('waiting')
   const [picked, setPicked] = useState<string | null>(null)
   const [done, setDone] = useState('')
   // New checks arrive while the queue is open: look again every 20 seconds.
-  const { data, error, loading, reload } = useLoad<{ checks: Row[]; counts: { waiting: number; redo: number } } & Paged>(`/identity-checks?view=${view}`, { every: () => 20_000 })
+  const { data, error, loading, reload } = useLoad<{ checks: Row[]; counts: { waiting: number; redo: number } } & Paged>(`/identity-checks?view=${view}`, { every: () => 20_000, side })
   const items = VIEWS.map(([k, label]) => [k, label, k === 'waiting' ? data?.counts.waiting : k === 'redo' ? data?.counts.redo : undefined] as const)
   return (
     <div className="space-y-5">
@@ -74,7 +77,7 @@ export function IdentityChecks() {
         <Segmented value={view} onChange={(v) => { setView(v); setPicked(null); setDone('') }} items={items as unknown as readonly (readonly [string, string, number?])[]} />
       </div>
       {done && <Notice tone="good" title={done} />}
-      {picked && <Review key={picked} id={picked} onClose={() => setPicked(null)} onDone={(words) => { setPicked(null); setDone(words); void reload() }} />}
+      {picked && <Review key={picked} id={picked} side={side} onClose={() => setPicked(null)} onDone={(words) => { setPicked(null); setDone(words); void reload() }} />}
       <Panel flush>
         {loading && !data ? (
           <ListLoading />
@@ -84,7 +87,7 @@ export function IdentityChecks() {
           <Table
             busy={loading}
             rows={data?.checks ?? []}
-            columns={columns}
+            columns={columnsFor(side)}
             rowKey={(r) => r.id}
             flag={(r) => (r.status === 'IN_REVIEW' ? 'warn' : undefined)}
             onRow={(r) => setPicked(r.id === picked ? null : r.id)}
@@ -97,14 +100,14 @@ export function IdentityChecks() {
 }
 
 /** One decrypted file: a photo, or the video with its controls. */
-function Media({ file, label }: { file: Detail['files'][number] | undefined; label: string }) {
+function Media({ file, label, side }: { file: Detail['files'][number] | undefined; label: string; side: Side }) {
   const [src, setSrc] = useState<{ url: string; type: string } | null>(null)
   const [failed, setFailed] = useState('')
   useEffect(() => {
     if (!file) return
     let url: string | null = null
     let gone = false
-    bizFile(`/identity-files/${file.id}`)
+    bizFile(`/identity-files/${file.id}`, side)
       .then((f) => {
         url = f.url
         if (gone) URL.revokeObjectURL(f.url)
@@ -115,7 +118,7 @@ function Media({ file, label }: { file: Detail['files'][number] | undefined; lab
       gone = true
       if (url) URL.revokeObjectURL(url)
     }
-  }, [file])
+  }, [file, side])
   const video = file?.part === 'video'
   return (
     <figure className="m-0 flex flex-col gap-1.5">
@@ -142,8 +145,9 @@ function Media({ file, label }: { file: Detail['files'][number] | undefined; lab
   )
 }
 
-function Review({ id, onClose, onDone }: { id: string; onClose: () => void; onDone: (words: string) => void }) {
-  const { data, error, loading, reload } = useLoad<Detail>(`/identity-checks/${id}`)
+function Review({ id, side, onClose, onDone }: { id: string; side: Side; onClose: () => void; onDone: (words: string) => void }) {
+  const app = side === 'app'
+  const { data, error, loading, reload } = useLoad<Detail>(`/identity-checks/${id}`, { side })
   const { open } = useRecord()
   const [ticks, setTicks] = useState<boolean[]>(CHECKS.map(() => false))
   const [parts, setParts] = useState<string[]>([])
@@ -161,22 +165,30 @@ function Review({ id, onClose, onDone }: { id: string; onClose: () => void; onDo
   // The name as it reads on the ID: starts as the name on the account, corrected here to match.
   const firstName = first ?? data.person.firstName ?? ''
   const lastName = last ?? data.person.lastName ?? ''
-  const docOk = /^[A-Za-z0-9]{6,20}$/.test(docNo.replace(/[\s-]/g, ''))
+  // A NIN is 11 digits; the app's backend won't take anything else for one.
+  const docOk = app && c.idType === 'nin' ? /^\d{11}$/.test(docNo.replace(/[\s-]/g, '')) : /^[A-Za-z0-9]{6,20}$/.test(docNo.replace(/[\s-]/g, ''))
   const named = firstName.trim().length > 0 && lastName.trim().length > 0 && docOk
   const docLabel = c.idType === 'passport' ? 'Passport number' : c.idType === 'licence' ? "Licence number" : 'NIN'
   const waiting = c.status === 'IN_REVIEW'
   const fileOf = (part: string) => data.files.find((f) => f.part === part)
   const decide = async (decision: 'approve' | 'redo' | 'decline') => {
     const body = { decision, ...(decision === 'redo' ? { parts } : {}), ...(decision === 'approve' ? { firstName: firstName.trim(), lastName: lastName.trim(), documentNumber: docNo.trim() } : {}), note: note.trim() || undefined, ...(decision !== 'redo' ? { password } : {}) }
-    const words = decision === 'approve' ? 'Approved. They have been emailed.' : decision === 'redo' ? 'Sent back. They have been emailed what to redo.' : 'Declined. They have been emailed.'
+    const told = app ? 'told in the app' : 'emailed'
+    const words = decision === 'approve' ? `Approved. They have been ${told}.` : decision === 'redo' ? `Sent back. They have been ${told} what to redo.` : `Declined. They have been ${told}.`
     const who = data.person.name ?? data.person.email ?? 'They'
-    if (await run(() => biz(`/identity-checks/${c.id}/decision`, { method: 'POST', body }), words)) onDone(`${who}: ${words}`)
+    if (await run(() => biz(`/identity-checks/${c.id}/decision`, { method: 'POST', body, side }), words)) onDone(`${who}: ${words}`)
   }
   const allTicked = ticks.every(Boolean)
   return (
     <ActionPanel
       title={data.person.name ?? data.person.email ?? 'Identity check'}
       sub={
+        app ? (
+          <>
+            Money Moves user {data.business.name} · {data.person.email}
+            {data.person.phone ? ` · ${data.person.phone}` : ''}
+          </>
+        ) : (
         <>
           Account representative for{' '}
           <button className="underline underline-offset-2" onClick={() => open('business', data.business.id, { from: 'ID checks' })}>
@@ -185,13 +197,14 @@ function Review({ id, onClose, onDone }: { id: string; onClose: () => void; onDo
           · {data.person.email}
           {data.person.phone ? ` · ${data.person.phone}` : ''}
         </>
+        )
       }
     >
       <div className="grid gap-x-8 gap-y-4 lg:grid-cols-[minmax(0,1fr)_280px]">
         <div className="min-w-0 space-y-4">
           <div className="grid grid-cols-2 gap-2.5 md:grid-cols-4">
             {c.need.map((p) => (
-              <Media key={p} file={fileOf(p)} label={PART_WORDS[p] ?? p} />
+              <Media key={p} file={fileOf(p)} label={PART_WORDS[p] ?? p} side={side} />
             ))}
           </div>
           {waiting && (
@@ -240,8 +253,9 @@ function Review({ id, onClose, onDone }: { id: string; onClose: () => void; onDo
               !!c.documentLast4 && ['ID number', `•••• ${c.documentLast4}`],
               c.status === 'APPROVED' && !!c.firstName && ['Name on ID', `${c.firstName} ${c.lastName ?? ''}`.trim()],
               !!data.business.legalName && ['Registered name', data.business.legalName],
-              ['Merchant ID', data.business.merchantId],
+              [app ? 'Username' : 'Merchant ID', data.business.merchantId],
               ['Sent', <When at={c.submittedAt} />],
+              app && ['Account status', data.business.status],
               !!c.reviewedBy && ['Decided by', c.reviewedBy],
               !!c.reviewNote && ['Note sent', c.reviewNote],
               c.redo.length > 0 && ['Asked to redo', c.redo.map((p) => PART_WORDS[p] ?? p).join(', ')],
@@ -283,7 +297,7 @@ function Review({ id, onClose, onDone }: { id: string; onClose: () => void; onDo
                 <Input name="documentNumber" autoComplete="off" value={docNo} onChange={(e) => setDocNo(e.target.value.toUpperCase())} maxLength={40} className="font-mono" />
               </Field>
               <div />
-              <p className="text-[12.5px] sm:col-span-2" style={{ color: C.dim }}>Only the last four characters of the number are kept. The name becomes the name on their profile{data.person.name && `${firstName.trim()} ${lastName.trim()}` !== data.person.name ? `, replacing "${data.person.name}"` : ''}.</p>
+              <p className="text-[12.5px] sm:col-span-2" style={{ color: C.dim }}>{app ? "The number is kept with their verification and stops it verifying another account." : "Only the last four characters of the number are kept."} The name becomes the name on their profile{data.person.name && `${firstName.trim()} ${lastName.trim()}` !== data.person.name ? `, replacing "${data.person.name}"` : ''}.</p>
             </div>
           )}
           {(doing === 'approve' || doing === 'decline') && (

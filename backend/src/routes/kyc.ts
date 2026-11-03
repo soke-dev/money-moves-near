@@ -4,6 +4,7 @@ import multer from "multer";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import { sendNotification } from "../lib/push";
+import { KycError, identitySettings, latestManual, manualView, startHandoff } from "../lib/manual-kyc";
 import {
   createDiditSession,
   getDiditDecision,
@@ -521,8 +522,32 @@ async function applyDiditDecision(userId: string, sessionId: string, decision: a
 }
 
 // --- POST /kyc/didit/session — start (or resume) a hosted verification ---
+// --- GET /kyc/manual — how a new check is done, and where a manual one stands ---
+router.get("/manual", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await manualView(req.user!.userId));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// --- POST /kyc/manual/handoff — a link to the page the check is taken on ---
+router.post("/manual/handoff", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.json(await startHandoff(req.user!.userId));
+  } catch (err) {
+    if (err instanceof KycError) return res.status(err.status).json({ error: err.message, code: err.code });
+    next(err);
+  }
+});
+
 router.post("/didit/session", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    // With manual checks on, a new check is taken on our page; one already started with the partner can still finish.
+    if ((await identitySettings()).manual) {
+      const started = await prisma.kycVerification.findFirst({ where: { userId: req.user!.userId, provider: "didit", status: "PENDING" }, orderBy: { createdAt: "desc" } });
+      if (!started) return res.status(409).json({ error: "Start the check from the verification screen.", code: "manual_identity" });
+    }
     if (!isDiditConfigured) {
       return res.status(503).json({ error: "Identity verification is not configured yet." });
     }
@@ -716,6 +741,19 @@ export async function findDecision(
 router.get("/didit/status", requireAuth, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.userId;
+
+    // The newest check is a manual one: its state is ours, nothing to ask the partner.
+    const manual = await latestManual(userId);
+    if (manual) {
+      const view = await manualView(userId);
+      return res.json({
+        kycStatus: view.kycStatus,
+        diditStatus: null,
+        sessionId: null,
+        failureReason: view.check?.note ?? null,
+        manual: view,
+      });
+    }
 
     /**
      * The newest session is not always the one that decided anything.
