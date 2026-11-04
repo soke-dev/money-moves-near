@@ -48,7 +48,7 @@ async function main() {
           amount: "8.50",
           asset: "USDC",
           chain: "MOVE",
-          senderUsername: "tobi",
+          senderUsername: "ovie",
           reference: "TRF-1789102244817-6c21b09e",
           date: now,
         }),

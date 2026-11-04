@@ -753,7 +753,7 @@ function AppVisual() {
   ];
 
   const feed = [
-    { who: "From @tobi", meta: "Movement · Sep 12", amt: "+0.1508 USDC", in: true },
+    { who: "From @ovie", meta: "Movement · Sep 12", amt: "+0.1508 USDC", in: true },
     { who: "From @ada", meta: "Base · Sep 11", amt: "+0.1509 USDC", in: true },
     { who: "Withdrew USDC", meta: "Movement · Sep 4", amt: "−15 USDC", in: false },
     { who: "From @chidi", meta: "Solana · Sep 4", amt: "+15.1388 USDC", in: true },
@@ -878,7 +878,7 @@ function AppVisual() {
           </span>
           <div className="leading-tight">
             <div className="text-[11.5px] font-semibold text-white">8.50 USDC</div>
-            <div className="text-[9.5px] text-white/40">from @tobi</div>
+            <div className="text-[9.5px] text-white/40">from @ovie</div>
           </div>
         </div>
       </div>

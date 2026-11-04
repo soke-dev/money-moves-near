@@ -154,7 +154,7 @@ const SLIDES: Slide[] = [
         <ProofRow
           colors={colors}
           mark={require("@/assets/images/user.png")}
-          title="From @tobi"
+          title="From @ovie"
           sub="no gas · just now"
           amount="+8.50"
           accent

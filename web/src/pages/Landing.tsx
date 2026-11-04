@@ -1644,9 +1644,9 @@ const APP_WAYS: Way[] = [
     amount: '8',
     cents: '.50',
     unit: 'USDC',
-    label: 'To @tobi · by username',
+    label: 'To @ovie · by username',
     steps: [
-      ['Typed @tobi', 'A name, not a 42 character address', '12:30:10'],
+      ['Typed @ovie', 'A name, not a 42 character address', '12:30:10'],
       ['Confirmed with your PIN', 'Or your face, if you turned it on', '12:30:12'],
       ['Arrived in their wallet', 'No gas fee, sponsored by Money Moves', '12:30:13'],
     ],

@@ -477,7 +477,7 @@ export interface Invoice {
 
 export const INVOICES: Invoice[] = [
   {
-    id: 'inv_0', number: 'INV-0040', customer: 'Tobi Adewale', email: 'tobi@example.com', currency: 'NGN',
+    id: 'inv_0', number: 'INV-0040', customer: 'Ovie Edafe', email: 'ovie@example.com', currency: 'NGN',
     items: [{ name: 'Logo design', qty: 1, price: 150_000 }, { name: 'Brand guide', qty: 1, price: 85_000 }],
     amountNgn: 235_000, amountUsd: Math.round((235_000 / RATE) * 100) / 100, status: 'paid', destination: 'bank',
     createdAt: at(220), sentAt: at(220), viewedAt: at(200), due: at(60), paid: { at: at(150), method: 'naira', ref: 'MMB-47302' },
