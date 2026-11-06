@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "prisma generate && tsc",
-    "start": "prisma migrate deploy && node dist/index.js",
+    "start": "prisma migrate deploy && node --max-old-space-size=300 dist/index.js",
     "typecheck": "tsc --noEmit",
     "action-password-hash": "tsx src/scripts/action-password-hash.ts",
     "action-password-hash:raw": "tsx src/scripts/action-password-hash.ts --raw",
