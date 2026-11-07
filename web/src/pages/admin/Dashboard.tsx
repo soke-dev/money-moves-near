@@ -21,6 +21,8 @@ import { PersonalCrypto } from './PersonalCrypto'
 import { SwapSettings } from './SwapSettings'
 import { LimitsSettings } from './LimitsSettings'
 import { IdentitySettings } from './IdentitySettings'
+import { DepositNetworks } from './DepositNetworks'
+import { TonRecoveryPanel } from './TonRecoveryPanel'
 import { IdentityChecks } from './business/IdentityChecks'
 import {
   C, MONO, H1, Label, Mono, Card, Row, MetaBit, Status, Empty, Loading,
@@ -686,9 +688,9 @@ function Toggle({ on, onChange, label, disabled }: { on: boolean; onChange: (v: 
   )
 }
 
-type ServicesTab = 'pause' | 'providers' | 'rates' | 'converted' | 'swap' | 'limits' | 'identity' | 'emails'
+type ServicesTab = 'pause' | 'networks' | 'providers' | 'rates' | 'converted' | 'swap' | 'limits' | 'identity' | 'emails'
 
-const SERVICES_TABS: ServicesTab[] = ['pause', 'providers', 'rates', 'converted', 'swap', 'limits', 'identity', 'emails']
+const SERVICES_TABS: ServicesTab[] = ['pause', 'networks', 'providers', 'rates', 'converted', 'swap', 'limits', 'identity', 'emails']
 
 function Services() {
   // The tab is the second part of the address (#services/swap), so a refresh keeps it.
@@ -792,6 +794,7 @@ function Services() {
         onChange={setTab}
         items={[
           ['pause', 'Pause switches', pausedCount],
+          ['networks', 'Deposit networks'],
           ['providers', 'Providers'],
           ['rates', 'Naira rates'],
           ['converted', 'Converted'],
@@ -1013,6 +1016,8 @@ function Services() {
       {tab === 'limits' && <LimitsSettings />}
 
       {tab === 'identity' && <IdentitySettings />}
+
+      {tab === 'networks' && <DepositNetworks />}
 
       {tab === 'emails' && (
         <Panel
@@ -1392,6 +1397,7 @@ function Transactions({ initial }: { initial?: string }) {
           { id: 'username', label: 'Username transfers' },
           { id: 'crypto', label: 'Crypto withdrawals' },
           { id: 'deposit', label: 'Deposits' },
+          { id: 'migrated', label: 'Migrated' },
         ]}
         value={kind}
         onChange={(k) => {
@@ -1566,6 +1572,7 @@ function txLabel(tx: any): string {
     const end = (e: any) => `${e?.symbol ?? '?'} on ${CHAIN_NAMES[e?.chain] ?? e?.chain ?? '?'}`
     return `Swap \u00b7 ${end(m.from)} to ${end(m.to)}`
   }
+  if (m.tonRecovery) return `Migrated from older wallet \u00b7 ${tx.asset}`
   if (tx?.type === 'WITHDRAW' && m.payee) return `Paid a business \u00b7 ${m.payee}`
   if (m.source === 'business_settlement') return `Settlement from ${m.businessName ?? 'a business'}`
   return `${txWord(tx.type)} \u00b7 ${tx.asset}`
@@ -2593,7 +2600,7 @@ function PersonPage({ user, from, onBack, onChanged }: { user: any; from: string
 
   // Filtered and paged here: the history is one request, and paging through it shouldn't cost a round trip each time.
   const all = txs ?? []
-  const shown = kind ? all.filter((t: any) => PERSON_KINDS[kind]?.includes(t.type)) : all
+  const shown = kind === 'migrated' ? all.filter((t: any) => t.metadata?.tonRecovery) : kind ? all.filter((t: any) => PERSON_KINDS[kind]?.includes(t.type)) : all
   const pages = Math.max(1, Math.ceil(shown.length / PER_PAGE))
   const page = Math.min(txPage, pages)
   const slice = shown.slice((page - 1) * PER_PAGE, page * PER_PAGE)
@@ -2686,6 +2693,7 @@ function PersonPage({ user, from, onBack, onChanged }: { user: any; from: string
               ['username', 'Username'],
               ['crypto', 'Crypto'],
               ['deposit', 'Deposits'],
+              ['migrated', 'Migrated'],
             ]}
           />
           <Panel flush>
@@ -2819,6 +2827,8 @@ function PersonPage({ user, from, onBack, onChanged }: { user: any; from: string
                 <Btn onClick={() => setTab('txs')} full>See their transactions</Btn>
               </div>
             </Panel>
+
+            <TonRecoveryPanel userId={user.id} />
 
             {!user.deletedAt && (
               <ActionPanel danger title="Close this account" sub="Their history stays, as the law needs, and the wallet stops being reachable from the app. Type CLOSE and the action password to confirm.">

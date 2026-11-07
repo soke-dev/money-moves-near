@@ -18,6 +18,8 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
+import { useServiceStatus } from "@/hooks/useServiceStatus";
+import type { ServiceKey } from "@/constants/services";
 import { TokenLogo } from "@/components/TokenLogo";
 import { useApp } from "@/context/AppContext";
 import { TOKEN_NETWORKS, TokenSymbol, NetworkInfo } from "@/constants/transfer";
@@ -41,6 +43,19 @@ const NETWORK_NAMES: Record<string, string> = {
   TRON: "Tron",
   ETH_IN: "Ethereum",
   ARB_IN: "Arbitrum",
+};
+
+// The console's switch for each network this wallet receives on.
+const DEPOSIT_SWITCH: Record<string, ServiceKey> = {
+  MOVE: "depositMove",
+  SOL: "depositSol",
+  BASE: "depositEvm",
+  BEP20: "depositEvm",
+  ARC: "depositEvm",
+  ARB: "depositEvm",
+  MONAD: "depositEvm",
+  TON: "depositTon",
+  STELLAR: "depositStellar",
 };
 
 // Chain marks for the picker. A name alone makes the list read as settings;
@@ -126,14 +141,20 @@ export default function DepositScreen() {
   }, [token]);
   const offered = (n: ConvertedNet) => !!routed?.some((a) => a.chainId === n.chainId && a.symbol === token);
 
-  const networks: NetworkInfo[] = [
+  // Networks switched off in the console aren't offered. Not knowing yet means on.
+  const { paused } = useServiceStatus();
+  const allNetworks: NetworkInfo[] = [
     ...(TOKEN_NETWORKS[token] || TOKEN_NETWORKS.USDC),
     ...(CONVERTED_NETS[token] ?? []).filter(offered),
   ];
-  const initialTag = params.network || networks[0].tag;
-  const initialNet = networks.find((n) => n.tag === initialTag) || networks[0];
+  const networks = allNetworks.filter((n) => !(DEPOSIT_SWITCH[n.tag] && paused(DEPOSIT_SWITCH[n.tag])));
+  const initialTag = params.network || (networks[0] ?? allNetworks[0]).tag;
+  const initialNet = networks.find((n) => n.tag === initialTag) || networks[0] || allNetworks[0];
 
   const [selectedNetwork, setSelectedNetwork] = useState<NetworkInfo>(initialNet);
+  useEffect(() => {
+    if (networks.length && !networks.some((n) => n.tag === selectedNetwork.tag)) setSelectedNetwork(networks[0]);
+  }, [networks.map((n) => n.tag).join(), selectedNetwork.tag]);
   const [showNetworkSheet, setShowNetworkSheet] = useState(false);
   // The off-screen card that gets photographed when Share is pressed.
   const shareCardRef = useRef<View>(null);
@@ -308,6 +329,20 @@ export default function DepositScreen() {
   useEffect(() => {
     return () => { if (toastTimer.current) clearTimeout(toastTimer.current); };
   }, []);
+
+  if (!networks.length) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background, alignItems: "center", justifyContent: "center", padding: 28, gap: 14 }}>
+        <Text style={{ color: colors.foreground, fontSize: 20, fontFamily: "Inter_700Bold", textAlign: "center" }}>{token} deposits are paused</Text>
+        <Text style={{ color: colors.mutedForeground, fontSize: 14, lineHeight: 20, fontFamily: "Inter_400Regular", textAlign: "center" }}>
+          Please check back shortly.
+        </Text>
+        <TouchableOpacity onPress={() => router.back()} hitSlop={10}>
+          <Text style={{ color: colors.primary, fontSize: 15, fontFamily: "Inter_600SemiBold" }}>Go back</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
 
   return (
     <View style={[s.container, { backgroundColor: colors.background, paddingTop: topPad }]}>

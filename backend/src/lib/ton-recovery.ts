@@ -46,8 +46,9 @@ export async function tonRowState(userId: string): Promise<TonRowState> {
   return compareTonRow(solana, saved);
 }
 
-/** The recovery opens for named accounts first; "*" opens it for everyone. */
-export function recoveryAllowed(username: string | null | undefined): boolean {
+/** Switched on per account in the console. The variable can name accounts too; "*" opens it for everyone. */
+export function recoveryAllowed(username: string | null | undefined, enabled = false): boolean {
+  if (enabled) return true;
   const list = env.TON_RECOVERY_USERS.split(",").map((u) => u.trim().toLowerCase()).filter(Boolean);
   if (list.includes("*")) return true;
   return !!username && list.includes(username.toLowerCase());

@@ -24,8 +24,8 @@ router.use(requireAuth, requireActiveSession);
 
 /** The account's recovery, or the reason there isn't one. */
 async function loadRecovery(userId: string) {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true } });
-  if (!recoveryAllowed(user?.username)) return null;
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { username: true, tonRecoveryEnabled: true } });
+  if (!recoveryAllowed(user?.username, user?.tonRecoveryEnabled)) return null;
   const state = await tonRowState(userId);
   if (!state.stale || !state.saved || !state.current) return null;
   return { oldAddress: state.saved, currentAddress: state.current };

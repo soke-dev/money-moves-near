@@ -19,7 +19,12 @@ export type ServiceKey =
   | "withdraw"
   | "cable"
   | "betting"
-  | "signups";
+  | "signups"
+  | "depositMove"
+  | "depositSol"
+  | "depositEvm"
+  | "depositTon"
+  | "depositStellar";
 
 export type ServiceState = {
   paused: boolean;
@@ -50,6 +55,11 @@ export const PAUSED_TITLES: Record<ServiceKey, string> = {
   // Not "under maintenance": nothing is broken, and the message under it says
   // existing accounts can still sign in.
   signups: "New sign-ups are paused",
+  depositMove: "Movement deposits are paused",
+  depositSol: "Solana deposits are paused",
+  depositEvm: "Deposits on these networks are paused",
+  depositTon: "TON deposits are paused",
+  depositStellar: "Stellar deposits are paused",
 };
 
 /**

@@ -44,6 +44,8 @@ import { fetchRates, invalidateRatesCache } from "./rates";
 import { dollarNgn, postedNgn } from "../lib/ngn-rate";
 import { RATE_KEYS, ensureRateSettings, rateSettings, rateSources, railwayRateSettings, setRateSetting } from "../lib/rate-settings";
 import { checkActionPassword } from "../lib/action-password";
+import { getTonUsdtBalance } from "../lib/ton";
+import { tonRowState } from "../lib/ton-recovery";
 import { KycError, PARTS as MANUAL_PARTS, asked as manualAsked, currentFiles as manualCurrentFiles, decide as decideManual, identitySettings, identitySettingsMeta, partsFor as manualPartsFor, setIdentitySettings, waitingWhere as manualWaitingWhere } from "../lib/manual-kyc";
 import { kycVaultReady, openKycFile } from "../lib/kyc-vault";
 import { listServices, setService, isServiceKey } from "../lib/service-status";
@@ -1199,6 +1201,8 @@ router.get(
       const where: any = {};
       if (status) where.status = status;
       if (KINDS[kind]) where.type = { in: KINDS[kind] };
+      // Money moved out of an older wallet into the one the account uses now.
+      if (kind === "migrated") where.metadata = { path: ["tonRecovery"], equals: true };
 
       /**
        * One row per transfer, not one per side of it.
@@ -1659,6 +1663,47 @@ router.get(
     }
   }
 );
+
+// ─── /admin/users/:id/ton-recovery — one person's older TON wallet ──
+async function tonRecoveryView(userId: string) {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { tonRecoveryEnabled: true } });
+  if (!user) return null;
+  const state = await tonRowState(userId);
+  // Live from the chain, and blank rather than wrong if the chain can't be read.
+  const balance = state.stale && state.saved ? await getTonUsdtBalance(state.saved).catch(() => null) : null;
+  return {
+    enabled: user.tonRecoveryEnabled,
+    stale: state.stale,
+    savedAddress: state.saved,
+    currentAddress: state.current,
+    balance,
+  };
+}
+
+router.get("/users/:id/ton-recovery", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const view = await tonRecoveryView(req.params.id as string);
+    if (!view) return res.status(404).json({ error: "User not found" });
+    res.json(view);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.put("/users/:id/ton-recovery", requireAdmin, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const by = String((req as any).adminEmail || "admin");
+    const gate = await checkActionPassword(by, req.body?.password, "ton recovery");
+    if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
+    if (typeof req.body?.enabled !== "boolean") return res.status(400).json({ error: "On or off?" });
+    const userId = req.params.id as string;
+    await prisma.user.update({ where: { id: userId }, data: { tonRecoveryEnabled: req.body.enabled } });
+    console.log(`[ADMIN] TON recovery ${req.body.enabled ? "on" : "off"} for ${userId} by ${by}`);
+    res.json(await tonRecoveryView(userId));
+  } catch (err) {
+    next(err);
+  }
+});
 
 // ─── GET /admin/users/:id/deposit-addresses — where they can send other coins ──
 //

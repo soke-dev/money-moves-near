@@ -50,7 +50,12 @@ export type ServiceKey =
   | "emails"
   | "payout"
   | "bills"
-  | "dataProvider";
+  | "dataProvider"
+  | "depositMove"
+  | "depositSol"
+  | "depositEvm"
+  | "depositTon"
+  | "depositStellar";
 
 type Service = {
   key: ServiceKey;
@@ -67,7 +72,7 @@ type Service = {
    * receipts they are borrowed clothes, and the console says on and off; and a
    * choice between two payout rails is neither, so it gets a picker.
    */
-  kind?: "service" | "switch" | "choice";
+  kind?: "service" | "switch" | "choice" | "deposit";
   /**
    * For a choice: what it may be set to. First is the default.
    *
@@ -377,6 +382,42 @@ export const SERVICES: readonly Service[] = [
       "Takes effect on the next purchase. The plan list somebody picks from comes from whichever is live here, and a plan chosen under one provider can only be bought from that provider.",
     app: false,
   },
+  // Which networks the app offers on its deposit screen. Set in Services > Deposit networks.
+  {
+    key: "depositMove",
+    label: "Movement",
+    blocks: "Movement",
+    override: () => false,
+    kind: "deposit",
+  },
+  {
+    key: "depositSol",
+    label: "Solana",
+    blocks: "Solana",
+    override: () => false,
+    kind: "deposit",
+  },
+  {
+    key: "depositEvm",
+    label: "EVM networks",
+    blocks: "Base, BNB Chain, Arbitrum, Arc and Monad",
+    override: () => false,
+    kind: "deposit",
+  },
+  {
+    key: "depositTon",
+    label: "TON",
+    blocks: "TON",
+    override: () => false,
+    kind: "deposit",
+  },
+  {
+    key: "depositStellar",
+    label: "Stellar",
+    blocks: "Stellar",
+    override: () => false,
+    kind: "deposit",
+  },
 ] as const;
 
 const byKey = new Map(SERVICES.map((s) => [s.key, s]));
@@ -385,7 +426,7 @@ export type ServiceState = {
   key: ServiceKey;
   label: string;
   blocks: string;
-  kind: "service" | "switch" | "choice";
+  kind: "service" | "switch" | "choice" | "deposit";
   options: readonly { id: string; label: string; ready: boolean }[] | null;
   blurb: string | null;
   caveat: string | null;

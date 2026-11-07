@@ -58,6 +58,8 @@ model User {
    * [{chain, address, replacedBy, at}], newest last, last twenty kept.
    */
   displacedAddresses Json @default("[]") @map("displaced_addresses")
+  /// Offered "Move to my wallet" for an older TON wallet. Set per account in the console.
+  tonRecoveryEnabled Boolean @default(false) @map("ton_recovery_enabled")
 
   /**
    * Anonymous mode: the username stops being public.
