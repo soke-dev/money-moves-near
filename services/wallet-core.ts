@@ -337,11 +337,34 @@ export interface OldWalletKey {
   seed: Uint8Array;
 }
 
-/** The key a 12-word phrase holds on Solana's path. Works on the phone only. */
-export function oldWalletKeyFromPhrase(phrase: string): OldWalletKey {
-  const clean = phrase.trim().toLowerCase().replace(/s+/g, " ");
-  const seed = slip10DeriveEd25519(mnemonicToSeedSync(clean), "m/44'/501'/0'/0'");
-  return { solanaAddress: solanaAddressFromEd25519Seed(seed), seed };
+/** Words only: a pasted list can carry numbers, line breaks and capitals. */
+export function cleanPhrase(phrase: string): string {
+  return phrase.toLowerCase().replace(/[^a-z]+/g, " ").trim();
+}
+
+/**
+ * The keys a 12-word phrase can hold on Solana, the app's own path first.
+ * The others are the accounts and paths other wallets use. Works on the phone only.
+ */
+export function oldWalletKeysFromPhrase(phrase: string): OldWalletKey[] {
+  const seed = mnemonicToSeedSync(cleanPhrase(phrase));
+  return ["m/44'/501'/0'/0'", "m/44'/501'/0'", "m/44'/501'/1'/0'", "m/44'/501'/2'/0'"].map((path) => {
+    const key = slip10DeriveEd25519(seed, path);
+    return { solanaAddress: solanaAddressFromEd25519Seed(key), seed: key };
+  });
+}
+
+/** Every older key on this phone. An id nobody expected can still hold a phrase. */
+export async function findOldWalletKeys(currentUserId?: string): Promise<OldWalletKey[]> {
+  const ids = new Set<string | undefined>([undefined, (await getActiveUserId()) ?? undefined, currentUserId, (await getLegacyUserId()) ?? undefined]);
+  const keys: OldWalletKey[] = [];
+  for (const id of ids) {
+    const phrase = await loadMnemonic(id).catch(() => null);
+    if (phrase) keys.push(...oldWalletKeysFromPhrase(phrase));
+    const embedded = await loadEmbeddedKey(id).catch(() => null);
+    if (embedded) keys.push(oldWalletKeyFromSeedHex(embedded.edSeed));
+  }
+  return keys;
 }
 
 export function oldWalletKeyFromSeedHex(seedHex: string): OldWalletKey {

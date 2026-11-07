@@ -73,7 +73,11 @@ function keyMatches(oldSolanaAddress: string, oldAddress: string): boolean {
 
 router.post("/check", validate(keySchema), async (req: Request, res: Response) => {
   const recovery = await loadRecovery(req.user!.userId);
-  res.json({ matches: !!recovery && keyMatches(req.body.oldSolanaAddress, recovery.oldAddress) });
+  const matches = !!recovery && keyMatches(req.body.oldSolanaAddress, recovery.oldAddress);
+  // Public addresses only, so support can see which wallet was tried.
+  if (recovery && !matches) console.warn(`[TON-RECOVERY] no match for user ${req.user!.userId}: tried ${req.body.oldSolanaAddress}`);
+  if (matches) console.log(`[TON-RECOVERY] key matched for user ${req.user!.userId}`);
+  res.json({ matches });
 });
 
 router.post("/prepare", requireDynamicWallet, validate(keySchema), async (req: Request, res: Response) => {

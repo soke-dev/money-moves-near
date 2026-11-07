@@ -28,10 +28,10 @@ import {
   type TonRecoveryStatus,
 } from "@/services/ton-recovery";
 import {
-  findLegacyWallet,
+  cleanPhrase,
+  findOldWalletKeys,
   isValidMnemonic,
-  oldWalletKeyFromPhrase,
-  oldWalletKeyFromSeedHex,
+  oldWalletKeysFromPhrase,
   signWithOldWalletKey,
   type OldWalletKey,
 } from "@/services/wallet-core";
@@ -65,6 +65,8 @@ export function TonRecoverySheet({ held }: { held?: boolean }) {
   const [pinError, setPinError] = useState(false);
   const [problem, setProblem] = useState("");
   const [unsure, setUnsure] = useState(false);
+  // The wallet the typed words open, so support can compare it. Public, safe to show.
+  const [opened, setOpened] = useState<string | null>(null);
   const [moved, setMoved] = useState<number | null>(null);
   const key = useRef<OldWalletKey | null>(null);
   const asked = useRef<string | null>(null);
@@ -105,11 +107,7 @@ export function TonRecoverySheet({ held }: { held?: boolean }) {
     setBusy(true);
     try {
       if (!key.current) {
-        const legacy = await findLegacyWallet(user?.id);
-        const candidates: OldWalletKey[] = [];
-        if (legacy.mnemonic) candidates.push(oldWalletKeyFromPhrase(legacy.mnemonic));
-        if (legacy.embedded) candidates.push(oldWalletKeyFromSeedHex(legacy.embedded.ed25519Seed));
-        for (const c of candidates) {
+        for (const c of await findOldWalletKeys(user?.id)) {
           if (await checkTonRecoveryKey(c.solanaAddress)) {
             key.current = c;
             break;
@@ -126,21 +124,25 @@ export function TonRecoverySheet({ held }: { held?: boolean }) {
   };
 
   const checkWords = async () => {
-    const phrase = words.trim().toLowerCase().replace(/\s+/g, " ");
+    const phrase = cleanPhrase(words);
     if (!isValidMnemonic(phrase)) {
+      setOpened(null);
       setStep("wrong");
       return;
     }
     setBusy(true);
     try {
-      const candidate = oldWalletKeyFromPhrase(phrase);
-      if (await checkTonRecoveryKey(candidate.solanaAddress)) {
-        key.current = candidate;
-        setWords("");
-        setStep("review");
-      } else {
-        setStep("wrong");
+      const candidates = oldWalletKeysFromPhrase(phrase);
+      for (const c of candidates) {
+        if (await checkTonRecoveryKey(c.solanaAddress)) {
+          key.current = c;
+          setWords("");
+          setStep("review");
+          return;
+        }
       }
+      setOpened(candidates[0].solanaAddress);
+      setStep("wrong");
     } catch {
       setProblem("We couldn't check this just now. Your USDT is safe. Please try again.");
       setStep("failed");
@@ -311,8 +313,18 @@ export function TonRecoverySheet({ held }: { held?: boolean }) {
           {step === "wrong" && (
             <View style={s.center}>
               <Mark name="x" bg={colors.destructive} fg="#fff" />
-              <Text style={[s.heading, title, s.centerText]}>These words don't match</Text>
-              <Text style={[s.body, sub, s.centerText]}>They belong to a different wallet, so nothing was moved. Your USDT is still safe in your older wallet.</Text>
+              <Text style={[s.heading, title, s.centerText]}>{opened ? "These words don't match" : "Check your words"}</Text>
+              <Text style={[s.body, sub, s.centerText]}>
+                {opened
+                  ? "They belong to a different wallet, so nothing was moved. Your USDT is still safe in your older wallet."
+                  : "That isn't a valid recovery phrase. Check the spelling and the order of all 12 words. Nothing was moved."}
+              </Text>
+              {!!opened && (
+                <View style={[s.panel, { backgroundColor: colors.muted }]}>
+                  <Text style={[s.rowCode, sub]}>If you contact support, share this address. It is safe to share.</Text>
+                  <Text selectable style={[s.rowValue, title]}>{opened}</Text>
+                </View>
+              )}
               <Button label="Try again" onPress={() => setStep("words")} />
               <Quiet label="Close" onPress={close} />
             </View>
