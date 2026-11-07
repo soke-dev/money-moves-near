@@ -352,7 +352,9 @@ export async function ensureSignerReady(): Promise<void> {
    * was fine, it just had not been handed across yet when signing was asked for.
    */
   if (!isDynamicAuthenticated()) {
-    await waitForDynamicToken(SESSION_RESTORE_TIMEOUT_MS);
+    // Held to its limit from out here: the SDK's own wait never settles when no
+    // sign-in is coming, which left a send on "Processing" before it had started.
+    await withTimeout(waitForDynamicToken(SESSION_RESTORE_TIMEOUT_MS), SESSION_RESTORE_TIMEOUT_MS, "Secure signing").catch(() => null);
   }
 
   /**
