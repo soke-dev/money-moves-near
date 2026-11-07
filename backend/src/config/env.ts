@@ -88,6 +88,8 @@ const envSchema = z.object({
    * throttle in lib/ton.ts. Raise it here the day the plan changes.
    */
   TONAPI_RPS: z.coerce.number().positive().default(1),
+  // Accounts offered the old TON wallet recovery, by username. "*" opens it to everyone.
+  TON_RECOVERY_USERS: z.string().default(""),
 
   // ── Flutterwave (v4) — the live payment rail, on-ramp AND off-ramp ──
   //

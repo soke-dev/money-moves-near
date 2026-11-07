@@ -19,6 +19,7 @@ import {
 import * as ton from "../lib/ton";
 import * as stellar from "../lib/stellar";
 import { requireDynamicWallet } from "../middleware/wallet-kind";
+import { compareTonRow, healStaleTonRow } from "../lib/ton-recovery";
 import { sendNotification } from "../lib/push";
 import { assetLabel } from "../lib/asset";
 import { isProven, provenByHeld, provenByToken, sameAddress } from "../lib/wallet-proof";
@@ -137,6 +138,9 @@ async function doSyncAndReadWallets(userId: string, opts: { chains?: WatchedChai
       console.warn(`[WALLET] could not derive TON address: ${err?.message}`);
     }
   }
+
+  // A TON row left behind by a key change is corrected if nothing is sitting at it.
+  void healStaleTonRow(userId, compareTonRow(addrMap.solana ?? null, addrMap.ton ?? null)).catch(() => {});
 
   // Monad is the EVM address too, read on its own node - see ChainAddresses.
   if (addrMap.evm) addrMap.monad = addrMap.evm;

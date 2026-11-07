@@ -331,6 +331,30 @@ export async function findLegacyWallet(currentUserId?: string): Promise<LegacyWa
   return { mnemonic, embedded };
 }
 
+/** An older wallet's Solana key, held only while moving what is left in it. */
+export interface OldWalletKey {
+  solanaAddress: string;
+  seed: Uint8Array;
+}
+
+/** The key a 12-word phrase holds on Solana's path. Works on the phone only. */
+export function oldWalletKeyFromPhrase(phrase: string): OldWalletKey {
+  const clean = phrase.trim().toLowerCase().replace(/s+/g, " ");
+  const seed = slip10DeriveEd25519(mnemonicToSeedSync(clean), "m/44'/501'/0'/0'");
+  return { solanaAddress: solanaAddressFromEd25519Seed(seed), seed };
+}
+
+export function oldWalletKeyFromSeedHex(seedHex: string): OldWalletKey {
+  const seed = hexToBytes(seedHex);
+  return { solanaAddress: solanaAddressFromEd25519Seed(seed), seed };
+}
+
+/** Signs with an older wallet by name, the one thing a phrase is still needed for. */
+export function signWithOldWalletKey(key: OldWalletKey, signingMessageHex: string): string {
+  const kp = nacl.sign.keyPair.fromSeed(key.seed);
+  return bytesToHex(nacl.sign.detached(hexToBytes(signingMessageHex), kp.secretKey));
+}
+
 /** Delete the embedded key bundle (device-side) */
 export async function deleteEmbeddedKey(userId?: string): Promise<void> {
   const uid = userId || (await getActiveUserId());

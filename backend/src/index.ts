@@ -25,6 +25,7 @@ import { extractClientInfo } from "./middleware/auth";
 import { errorHandler } from "./middleware/error";
 import authRoutes from "./routes/auth";
 import walletRoutes from "./routes/wallet";
+import tonRecoveryRoutes from "./routes/ton-recovery";
 import transactionRoutes from "./routes/transactions";
 import savingsRoutes from "./routes/savings";
 import userRoutes from "./routes/user";
@@ -297,6 +298,7 @@ app.get("/api/health", (_req, res) => {
 // ─── Routes ─────────────────────────────────────────────────
 app.use("/api/waitlist", waitlistRoutes);
 app.use("/api/auth", authRoutes);
+app.use("/api/wallet/ton-recovery", tonRecoveryRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/statement", statementRoutes);

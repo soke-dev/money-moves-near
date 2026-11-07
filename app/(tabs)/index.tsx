@@ -34,6 +34,7 @@ import UpdateStub from "@/components/UpdateStub";
 import { TransactionItem } from "@/components/TransactionItem";
 import { WalletSetupModal } from "@/components/WalletSetupModal";
 import { WalletRecoveryModal } from "@/components/WalletRecoveryModal";
+import { TonRecoverySheet } from "@/components/TonRecoverySheet";
 import { WalletTypeChooser } from "@/components/WalletTypeChooser";
 import { UsernameSheet } from "@/components/UsernameSheet";
 import { WelcomeBackSheet } from "@/components/WelcomeBackSheet";
@@ -1803,6 +1804,9 @@ export default function HomeScreen() {
           setWalletSkipped(true);
         }}
       />
+
+      {/* USDT left in an older TON wallet. Waits for the sign-in prompts to finish. */}
+      <TonRecoverySheet held={showWalletRecovery || showWalletSetup || showWelcomeBack} />
 
       {/* Wallet Recovery Modal */}
       <WalletRecoveryModal
