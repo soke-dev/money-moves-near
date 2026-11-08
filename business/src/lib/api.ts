@@ -206,7 +206,8 @@ export interface ApiPayment {
   id: string
   ref: string
   mode: ApiMode
-  status: 'pending' | 'successful' | 'underpaid' | 'expired'
+  /** confirming: the customer has paid and the money is on its way to us (a swap finishing). */
+  status: 'pending' | 'confirming' | 'successful' | 'underpaid' | 'expired'
   method: ApiMethod
   link: { id: string; name: string; slug: string } | null
   /** Or the invoice, or the outlet, it was paid through. */

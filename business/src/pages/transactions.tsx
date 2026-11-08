@@ -334,8 +334,10 @@ function steps(p: Payment, settlesTo: string): Step[] {
     case 'confirming':
       return [
         opened,
-        { ...sent, time: at(p.createdAt, 0), state: 'done' },
-        { title: p.method === 'crypto' ? `Confirming on ${p.chain}` : 'Confirming', detail: 'Usually a few seconds', state: 'now' },
+        { ...sent, time: live ? undefined : at(p.createdAt, 0), state: 'done' },
+        p.paidWith
+          ? { title: 'Arriving', detail: `The customer has paid in ${p.paidWith.coin} on ${p.paidWith.network}. It's changed to USDC and lands in under a minute, usually`, state: 'now' }
+          : { title: p.method === 'crypto' ? `Confirming on ${p.chain}` : 'Confirming', detail: 'Usually a few seconds', state: 'now' },
         { ...settle, state: 'todo' },
       ]
     case 'pending':

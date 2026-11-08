@@ -53,7 +53,8 @@ export const paymentShape = (
   id: p.id,
   ref: p.ref,
   mode: p.mode,
-  status: p.status === "PAID" ? "successful" : p.status === "UNDERPAID" ? "underpaid" : p.status === "OPEN" ? "pending" : "expired",
+  // Open, but the customer's part is done (enough reached the swap's address): the money is on its way to us, usually within a minute.
+  status: p.status === "PAID" ? "successful" : p.status === "UNDERPAID" ? "underpaid" : p.status === "OPEN" ? (intentOf(p)?.paidSeenAt ? "confirming" : "pending") : "expired",
   method: p.method,
   link: p.link,
   /** Or the invoice, or the outlet, it was paid through. */
