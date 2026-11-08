@@ -68,6 +68,7 @@ export const ROUTED_CHAIN_NAME: Record<number, string> = {
   10103: "Solana",
   42161: "Arbitrum",
   728126428: "Tron",
+  397: "NEAR",
 };
 
 /**
@@ -86,6 +87,7 @@ export const ROUTED_CHAIN_LOGO: Record<number, string> = {
   10103: "SOL",
   42161: "ARB",
   728126428: "TRX",
+  397: "NEAR",
 };
 
 /**
@@ -104,6 +106,7 @@ const CHAIN_NOTE: Record<number, string> = {
   10103: "Solana",
   42161: "Arbitrum · ERC-20",
   728126428: "Tron · TRC-20",
+  397: "NEAR Protocol",
 };
 
 /** "A, B & C" - an Oxford list reads as one thing, "A & B & C" as three. */

@@ -9,7 +9,7 @@ import {
   type PersistentChain,
   type PersistentDeposit,
 } from "./aurora";
-import { auroraSettings, type AuroraDepositKind, type DepositState } from "./aurora-settings";
+import { AURORA_ONLY, auroraSettings, type AuroraDepositKind, type DepositState } from "./aurora-settings";
 
 /**
  * BTC and Tron USDT, arriving as USDC in the person's own Solana wallet.
@@ -59,6 +59,11 @@ const chainOf = (kind: AuroraDepositKind, chainId: number, depositChain: Persist
 export const AURORA_DEPOSIT_CHAINS: readonly AuroraDepositChain[] = [
   chainOf("btc", 10001, "btc", [{ symbol: "BTC", assetId: "nep141:btc.omft.near", decimals: 8 }]),
   chainOf("tron", 728126428, "tron", [{ symbol: "USDT", assetId: "nep141:tron-d28a265909efecdcee7c5028585214ea0b96f015.omft.near", decimals: 6 }]),
+  // NEAR's own USDC and USDT. 397 is NEAR's registered coin type, used here as its id on the deposit screens.
+  chainOf("near", 397, "near", [
+    { symbol: "USDC", assetId: "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", decimals: 6 },
+    { symbol: "USDT", assetId: "nep141:usdt.tether-token.near", decimals: 6 },
+  ]),
   // What Stableyard used to carry. Chain ids are the ones the routed-deposit screens already use.
   chainOf("eth", 1, "eth", [
     { symbol: "USDC", assetId: "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near", decimals: 6 },
@@ -79,8 +84,8 @@ export const AURORA_DEPOSIT_CHAINS: readonly AuroraDepositChain[] = [
   ]),
 ];
 
-/** Bitcoin and Tron: Aurora only, never Stableyard, whatever the console says. */
-export const AURORA_CHAIN_IDS = AURORA_DEPOSIT_CHAINS.filter((c) => c.kind === "btc" || c.kind === "tron").map((c) => c.chainId);
+/** Bitcoin, Tron and NEAR: Aurora only, never Stableyard, whatever the console says. */
+export const AURORA_CHAIN_IDS = AURORA_DEPOSIT_CHAINS.filter((c) => AURORA_ONLY.includes(c.kind)).map((c) => c.chainId);
 
 /** A token's contract inside Aurora's id for it, whichever way it's spelled. Native coins (no contract) only match exactly. */
 const contractIn = (id: string, assetId: string) => {

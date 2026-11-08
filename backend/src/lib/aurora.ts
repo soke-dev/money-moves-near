@@ -397,7 +397,7 @@ export async function auroraIncidents(): Promise<Incidents | null> {
 
 /* ─── Persistent deposit addresses ─────────────────────────────────── */
 
-export type PersistentChain = "btc" | "tron" | "eth" | "bsc" | "sol" | "arb" | "pol";
+export type PersistentChain = "btc" | "tron" | "eth" | "bsc" | "sol" | "arb" | "pol" | "near";
 
 export function createPersistentAddress(body: {
   recipient: string;

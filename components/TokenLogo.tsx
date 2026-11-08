@@ -15,6 +15,7 @@ const SOL_LOGO = require("@/assets/images/solanatoken.png");
 const BTC_LOGO = require("@/assets/images/BTC.png");
 const TRX_LOGO = require("@/assets/images/trx.png");
 const BNB_LOGO = require("@/assets/images/bsc logo.png");
+const NEAR_LOGO = require("@/assets/images/near.jpg");
 
 /**
  * The symbol on its own, for rows that should read as one object rather than
@@ -71,6 +72,7 @@ const LOGO_MAP: Record<string, any> = {
   BTC: BTC_LOGO,
   TRX: TRX_LOGO,
   BNB: BNB_LOGO,
+  NEAR: NEAR_LOGO,
 };
 
 export function TokenLogo({ symbol, size = 36, dark = false }: TokenLogoProps) {

@@ -46,10 +46,11 @@ type RecentSwap = {
   createdAt: string
 }
 
-type DepKind = 'btc' | 'tron' | 'eth' | 'bsc' | 'sol' | 'arb' | 'pol'
+type DepKind = 'btc' | 'tron' | 'near' | 'eth' | 'bsc' | 'sol' | 'arb' | 'pol'
 const DEPOSITS: { key: DepKind; name: string; coins: string; railChoice: boolean }[] = [
   { key: 'btc', name: 'Bitcoin', coins: 'BTC', railChoice: false },
   { key: 'tron', name: 'Tron', coins: 'USDT', railChoice: false },
+  { key: 'near', name: 'NEAR', coins: 'USDC, USDT', railChoice: false },
   { key: 'eth', name: 'Ethereum', coins: 'USDC, USDT, ETH', railChoice: true },
   { key: 'bsc', name: 'BNB Chain', coins: 'BNB', railChoice: true },
   { key: 'sol', name: 'Solana', coins: 'SOL', railChoice: true },

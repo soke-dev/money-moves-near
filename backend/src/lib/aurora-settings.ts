@@ -16,9 +16,11 @@ import { prisma } from "./prisma";
 export type DepositState = "visible" | "unavailable" | "hidden";
 const DEPOSIT_STATES: DepositState[] = ["visible", "unavailable", "hidden"];
 
-export type AuroraDepositKind = "btc" | "tron" | "eth" | "bsc" | "sol" | "arb" | "pol";
+export type AuroraDepositKind = "btc" | "tron" | "eth" | "bsc" | "sol" | "arb" | "pol" | "near";
 /** Every network, in the order the console lists them. Bitcoin and Tron are Aurora only. */
-export const AURORA_DEPOSIT_KINDS: AuroraDepositKind[] = ["btc", "tron", "eth", "bsc", "sol", "arb", "pol"];
+export const AURORA_DEPOSIT_KINDS: AuroraDepositKind[] = ["btc", "tron", "near", "eth", "bsc", "sol", "arb", "pol"];
+/** Networks only Aurora carries: Stableyard never had them (NEAR) or never will again (Bitcoin, Tron). */
+export const AURORA_ONLY: AuroraDepositKind[] = ["btc", "tron", "near"];
 /**
  * Which converter a network's deposits go through. Aurora: a permanent address of ours, landing as USDC in the
  * person's Solana wallet. Stableyard: the older addresses, landing as USDCx on Movement. Bitcoin and Tron are
@@ -81,6 +83,8 @@ export const AURORA_DEFAULTS: AuroraSettings = {
     sol: { state: "visible", minUsd: 1, rail: "aurora" },
     arb: { state: "visible", minUsd: 1, rail: "aurora" },
     pol: { state: "visible", minUsd: 1, rail: "aurora" },
+    // Off until the app version that names NEAR on the deposit screen has reached people (2026-11-08).
+    near: { state: "hidden", minUsd: 1, rail: "aurora" },
   },
   swap: {
     enabled: true,
@@ -151,7 +155,7 @@ export async function auroraSettings(): Promise<AuroraSettings> {
       state: (DEPOSIT_STATES.includes(stored as DepositState) ? stored : d.deposits[k].state) as DepositState,
       minUsd: num(v.get(KEYS.depositMin(k)), d.deposits[k].minUsd, LIMITS.depositMinUsd),
       // Bitcoin and Tron never go back to Stableyard.
-      rail: (k === "btc" || k === "tron" ? "aurora" : DEPOSIT_RAILS.includes(v.get(KEYS.depositRail(k)) as DepositRail) ? v.get(KEYS.depositRail(k)) : d.deposits[k].rail) as DepositRail,
+      rail: (AURORA_ONLY.includes(k) ? "aurora" : DEPOSIT_RAILS.includes(v.get(KEYS.depositRail(k)) as DepositRail) ? v.get(KEYS.depositRail(k)) : d.deposits[k].rail) as DepositRail,
     };
   };
 
@@ -212,7 +216,7 @@ export async function updateAuroraSettings(
     if (!p) continue;
     if (p.rail !== undefined) {
       if (!DEPOSIT_RAILS.includes(p.rail as DepositRail)) throw new Error("rail must be aurora or stableyard");
-      if ((k === "btc" || k === "tron") && p.rail !== "aurora") throw new Error("Bitcoin and Tron deposits are Aurora only");
+      if (AURORA_ONLY.includes(k) && p.rail !== "aurora") throw new Error("Bitcoin, Tron and NEAR deposits are Aurora only");
       writes.push([KEYS.depositRail(k), p.rail]);
     }
     if (p.state !== undefined) {
