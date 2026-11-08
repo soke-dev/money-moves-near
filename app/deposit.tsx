@@ -43,6 +43,7 @@ const NETWORK_NAMES: Record<string, string> = {
   TRON: "Tron",
   ETH_IN: "Ethereum",
   ARB_IN: "Arbitrum",
+  NEAR_IN: "NEAR",
 };
 
 // The console's switch for each network this wallet receives on.
@@ -73,11 +74,12 @@ const NETWORK_LOGOS: Record<string, any> = {
   TRON: require("@/assets/images/trx.png"),
   ETH_IN: require("@/assets/images/eth.png"),
   ARB_IN: require("@/assets/images/arbitrumlogo.png"),
+  NEAR_IN: require("@/assets/images/near.jpg"),
 };
 
 /**
  * Networks that convert on the way in, offered in the dropdown on this screen
- * only: Tron for USDT, Ethereum and Arbitrum for both.
+ * only: Tron for USDT, Ethereum, Arbitrum and NEAR for both.
  *
  * None is one of the person's wallets. A coin sent there goes to a deposit
  * address of their own that converts it, and arrives as USDC in their wallet.
@@ -90,10 +92,13 @@ const CONVERTED_NETS: Record<string, ConvertedNet[]> = {
     { name: "Tron", tag: "TRON", chainId: 728126428, standard: "TRC20" },
     { name: "Ethereum", tag: "ETH_IN", chainId: 1, standard: "ERC20" },
     { name: "Arbitrum", tag: "ARB_IN", chainId: 42161, standard: "Arbitrum One" },
+    // Shown only while the console has NEAR on: the server lists it only then.
+    { name: "NEAR", tag: "NEAR_IN", chainId: 397, standard: "NEP-141" },
   ],
   USDC: [
     { name: "Ethereum", tag: "ETH_IN", chainId: 1, standard: "ERC20" },
     { name: "Arbitrum", tag: "ARB_IN", chainId: 42161, standard: "Arbitrum One" },
+    { name: "NEAR", tag: "NEAR_IN", chainId: 397, standard: "NEP-141" },
   ],
 };
 
