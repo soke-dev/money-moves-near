@@ -14,7 +14,8 @@ const API = import.meta.env.VITE_API_URL || ''
 
 type DepositState = 'visible' | 'unavailable' | 'hidden'
 type Settings = {
-  deposits: Record<'btc' | 'tron', { state: DepositState; minUsd: number }>
+  /** Each network that converts to USDC on Solana. rail: which converter carries it (Bitcoin and Tron are always Aurora). */
+  deposits: Partial<Record<DepKind, { state: DepositState; minUsd: number; rail?: 'aurora' | 'stableyard' }>>
   swap: {
     enabled: boolean
     feeBps: number
@@ -45,10 +46,21 @@ type RecentSwap = {
   createdAt: string
 }
 
-const DEPOSITS: { key: 'btc' | 'tron'; name: string }[] = [
-  { key: 'btc', name: 'Bitcoin' },
-  { key: 'tron', name: 'USDT on Tron' },
+type DepKind = 'btc' | 'tron' | 'eth' | 'bsc' | 'sol' | 'arb' | 'pol'
+const DEPOSITS: { key: DepKind; name: string; coins: string; railChoice: boolean }[] = [
+  { key: 'btc', name: 'Bitcoin', coins: 'BTC', railChoice: false },
+  { key: 'tron', name: 'Tron', coins: 'USDT', railChoice: false },
+  { key: 'eth', name: 'Ethereum', coins: 'USDC, USDT, ETH', railChoice: true },
+  { key: 'bsc', name: 'BNB Chain', coins: 'BNB', railChoice: true },
+  { key: 'sol', name: 'Solana', coins: 'SOL', railChoice: true },
+  { key: 'arb', name: 'Arbitrum', coins: 'USDC, USDT, ETH', railChoice: true },
+  { key: 'pol', name: 'Polygon', coins: 'USDC, USDT, POL', railChoice: true },
 ]
+
+const RAILS = [
+  ['aurora', 'Aurora'],
+  ['stableyard', 'Stableyard'],
+] as const
 
 const STATES = [
   ['visible', 'On'],
@@ -64,7 +76,9 @@ function authed(init?: RequestInit): RequestInit {
 export function SwapSettings() {
   const [configured, setConfigured] = useState(true)
   const [settings, setSettings] = useState<Settings | null>(null)
-  const [draft, setDraft] = useState({ fee: '', solFlat: '', min: '', max: '', slippage: '', perDay: '', sweepMax: '', btcMin: '', tronMin: '' })
+  const [draft, setDraft] = useState({ fee: '', solFlat: '', min: '', max: '', slippage: '', perDay: '', sweepMax: '' })
+  // Each network's smallest deposit, as typed.
+  const [mins, setMins] = useState<Partial<Record<DepKind, string>>>({})
   const [wiring, setWiring] = useState<Wiring>({})
   const [recent, setRecent] = useState<RecentSwap[] | null>(null)
   const [error, setError] = useState('')
@@ -82,9 +96,8 @@ export function SwapSettings() {
       perDay: String(s.swap.perDay),
       // Absent until the API that knows about it is deployed.
       sweepMax: s.swap.sweepMaxUsd == null ? '' : String(s.swap.sweepMaxUsd),
-      btcMin: String(s.deposits.btc.minUsd),
-      tronMin: String(s.deposits.tron.minUsd),
     })
+    setMins(Object.fromEntries(DEPOSITS.filter((d) => s.deposits[d.key]).map((d) => [d.key, String(s.deposits[d.key]!.minUsd)])))
   }
 
   const load = useCallback(async () => {
@@ -259,11 +272,15 @@ export function SwapSettings() {
             </Panel>
           )}
 
-          <Panel title="Deposits that arrive as USDC on Solana" sub="Paused keeps the row in the app, named and greyed out. Hidden removes it." flush>
+          <Panel
+            title="Converted deposits"
+            sub="Coins sent from other wallets, converted on arrival. Aurora: a permanent address that lands as USDC in the person's Solana wallet. Stableyard: the older addresses, landing as USDCx on Movement. Paused keeps the row in the app, named and greyed out. Hidden removes it. Which coins show on a network follows the Converted tab, whichever converter carries it. Old Stableyard addresses still credit anything sent to them."
+            flush
+          >
             <div>
-              {DEPOSITS.map((d, i) => {
-                const cur = settings.deposits[d.key]
-                const minKey = d.key === 'btc' ? 'btcMin' : 'tronMin'
+              {DEPOSITS.filter((d) => settings.deposits[d.key]).map((d, i) => {
+                const cur = settings.deposits[d.key]!
+                const rail = cur.rail ?? 'aurora'
                 return (
                   <div
                     key={d.key}
@@ -275,16 +292,27 @@ export function SwapSettings() {
                         <span className="text-[14px] font-semibold" style={{ color: C.text }}>
                           {d.name}
                         </span>
+                        <span className="text-[12px]" style={{ color: C.muted }}>
+                          {d.coins}
+                        </span>
                         <Tag tone={cur.state === 'visible' ? 'good' : cur.state === 'unavailable' ? 'warn' : 'idle'}>
                           {cur.state === 'visible' ? 'On' : cur.state === 'unavailable' ? 'Paused' : 'Hidden'}
                         </Tag>
+                        <Tag tone="idle">{rail === 'aurora' ? 'Aurora, USDC on Solana' : 'Stableyard, USDCx on Movement'}</Tag>
                       </div>
-                      <div className="mt-2">
+                      <div className="mt-2 flex flex-wrap gap-2">
                         <Segmented
                           value={cur.state}
                           onChange={(v) => save({ deposits: { [d.key]: { state: v } } }, `${d.name} deposits: ${STATES.find((s) => s[0] === v)?.[1]}`)}
                           items={STATES}
                         />
+                        {d.railChoice && (
+                          <Segmented
+                            value={rail}
+                            onChange={(v) => save({ deposits: { [d.key]: { rail: v } } }, `${d.name} deposits now go through ${v === 'aurora' ? 'Aurora' : 'Stableyard'}`)}
+                            items={RAILS}
+                          />
+                        )}
                       </div>
                     </div>
                     <div className="flex items-end gap-2">
@@ -292,11 +320,11 @@ export function SwapSettings() {
                         <Input
                           fit
                           inputMode="decimal"
-                          value={draft[minKey]}
-                          onChange={(e) => setDraft({ ...draft, [minKey]: e.target.value })}
+                          value={mins[d.key] ?? ''}
+                          onChange={(e) => setMins({ ...mins, [d.key]: e.target.value })}
                         />
                       </Field>
-                      <Button small onClick={() => save({ deposits: { [d.key]: { minUsd: Number(draft[minKey]) } } }, `${d.name} minimum saved`)} disabled={busy}>
+                      <Button small onClick={() => save({ deposits: { [d.key]: { minUsd: Number(mins[d.key]) } } }, `${d.name} minimum saved`)} disabled={busy || rail !== 'aurora'}>
                         Save
                       </Button>
                     </div>

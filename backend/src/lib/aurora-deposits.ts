@@ -29,6 +29,13 @@ import { auroraSettings, type AuroraDepositKind, type DepositState } from "./aur
  * address, and so opening the deposit screen twice does not create twice.
  */
 
+export type AuroraDepositAsset = { symbol: string; assetId: string; decimals: number };
+
+/**
+ * One network. Its address takes any coin Aurora lists on that chain, so the assets here are only the ones the app
+ * offers (each shown or not by the Converted tab). symbol, assetId and decimals are its first, for the screens and
+ * watchers that only ever deal in one (Bitcoin, Tron).
+ */
 export type AuroraDepositChain = {
   kind: AuroraDepositKind;
   chainId: number;
@@ -36,15 +43,58 @@ export type AuroraDepositChain = {
   depositChain: PersistentChain;
   assetId: string;
   decimals: number;
+  assets: readonly AuroraDepositAsset[];
 };
 
+const chainOf = (kind: AuroraDepositKind, chainId: number, depositChain: PersistentChain, assets: AuroraDepositAsset[]): AuroraDepositChain => ({
+  kind,
+  chainId,
+  depositChain,
+  symbol: assets[0]!.symbol,
+  assetId: assets[0]!.assetId,
+  decimals: assets[0]!.decimals,
+  assets,
+});
+
 export const AURORA_DEPOSIT_CHAINS: readonly AuroraDepositChain[] = [
-  { kind: "btc", chainId: 10001, symbol: "BTC", depositChain: "btc", assetId: "nep141:btc.omft.near", decimals: 8 },
-  { kind: "tron", chainId: 728126428, symbol: "USDT", depositChain: "tron", assetId: "nep141:tron-d28a265909efecdcee7c5028585214ea0b96f015.omft.near", decimals: 6 },
+  chainOf("btc", 10001, "btc", [{ symbol: "BTC", assetId: "nep141:btc.omft.near", decimals: 8 }]),
+  chainOf("tron", 728126428, "tron", [{ symbol: "USDT", assetId: "nep141:tron-d28a265909efecdcee7c5028585214ea0b96f015.omft.near", decimals: 6 }]),
+  // What Stableyard used to carry. Chain ids are the ones the routed-deposit screens already use.
+  chainOf("eth", 1, "eth", [
+    { symbol: "USDC", assetId: "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near", decimals: 6 },
+    { symbol: "USDT", assetId: "nep141:eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near", decimals: 6 },
+    { symbol: "ETH", assetId: "nep141:eth.omft.near", decimals: 18 },
+  ]),
+  chainOf("bsc", 56, "bsc", [{ symbol: "BNB", assetId: "nep245:v2_1.omni.hot.tg:56_11111111111111111111", decimals: 18 }]),
+  chainOf("sol", 10103, "sol", [{ symbol: "SOL", assetId: "nep141:sol.omft.near", decimals: 9 }]),
+  chainOf("arb", 42161, "arb", [
+    { symbol: "USDC", assetId: "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near", decimals: 6 },
+    { symbol: "USDT", assetId: "nep141:arb-0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9.omft.near", decimals: 6 },
+    { symbol: "ETH", assetId: "nep141:arb.omft.near", decimals: 18 },
+  ]),
+  chainOf("pol", 137, "pol", [
+    { symbol: "USDC", assetId: "nep245:v2_1.omni.hot.tg:137_qiStmoQJDQPTebaPjgx5VBxZv6L", decimals: 6 },
+    { symbol: "USDT", assetId: "nep245:v2_1.omni.hot.tg:137_3hpYoaLtt8MP1Z2GH1U473DMRKgr", decimals: 6 },
+    { symbol: "POL", assetId: "nep245:v2_1.omni.hot.tg:137_11111111111111111111", decimals: 18 },
+  ]),
 ];
 
-/** The chain ids this rail takes over from Stableyard while it is configured. */
-export const AURORA_CHAIN_IDS = AURORA_DEPOSIT_CHAINS.map((c) => c.chainId);
+/** Bitcoin and Tron: Aurora only, never Stableyard, whatever the console says. */
+export const AURORA_CHAIN_IDS = AURORA_DEPOSIT_CHAINS.filter((c) => c.kind === "btc" || c.kind === "tron").map((c) => c.chainId);
+
+/** The coin a deposit came as, by Aurora's asset id or the symbol we wrote down, else the network's first. */
+export function assetOf(chain: AuroraDepositChain, assetId?: string | null, symbol?: string | null): AuroraDepositAsset {
+  return chain.assets.find((a) => (assetId && a.assetId === assetId) || (symbol && a.symbol === symbol)) ?? chain.assets[0]!;
+}
+
+/**
+ * The chain ids whose deposits Aurora carries right now, or that are off: Stableyard offers none of them. Bitcoin
+ * and Tron always; the others while their rail is Aurora or they're switched off.
+ */
+export async function chainsNotOnStableyard(): Promise<number[]> {
+  const settings = await auroraSettings();
+  return AURORA_DEPOSIT_CHAINS.filter((c) => AURORA_CHAIN_IDS.includes(c.chainId) || settings.deposits[c.kind].rail === "aurora" || settings.deposits[c.kind].state === "hidden").map((c) => c.chainId);
+}
 
 /** USDC on Solana, what every deposit here becomes. Six decimals. */
 const SOL_USDC_ASSET = "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near";
@@ -121,10 +171,11 @@ export async function ensureAuroraAddress(userId: string, chain: AuroraDepositCh
  * console and the live price. Rounded up, never down: a minimum shown a hair
  * too low is somebody sending money that is not credited.
  */
-async function minimumInCoin(chain: AuroraDepositChain, minUsd: number): Promise<string | null> {
-  const price = (await auroraTokens()).get(chain.assetId)?.price;
+async function minimumInCoin(asset: AuroraDepositAsset, minUsd: number): Promise<string | null> {
+  const price = (await auroraTokens()).get(asset.assetId)?.price;
   if (!price || price <= 0) return null;
-  const places = chain.symbol === "BTC" ? 6 : 2;
+  // Enough places that a dollar floor still shows: six for BTC and ETH, four for SOL and BNB, two for the rest.
+  const places = price >= 1_000 ? 6 : price >= 10 ? 4 : 2;
   const step = 10 ** places;
   return (Math.ceil((minUsd / price) * step) / step).toFixed(places);
 }
@@ -147,36 +198,48 @@ export type AuroraRoutedAsset = {
  * removing it, the same rule the routed list already follows: a row that
  * vanishes leaves somebody wondering whether their money is stuck.
  */
-export async function auroraRoutedAssets(userId: string): Promise<AuroraRoutedAsset[]> {
+export async function auroraRoutedAssets(userId: string, coinStates: { chainId: number; symbol: string; state: DepositState }[] = []): Promise<AuroraRoutedAsset[]> {
   if (!isAuroraConfigured()) return [];
   const settings = await auroraSettings();
   const out: AuroraRoutedAsset[] = [];
+  const order: DepositState[] = ["visible", "unavailable", "hidden"];
+  const worse = (a: DepositState, b: DepositState): DepositState => (order.indexOf(a) >= order.indexOf(b) ? a : b);
 
   for (const chain of AURORA_DEPOSIT_CHAINS) {
-    const { state, minUsd } = settings.deposits[chain.kind];
-    if (state === "hidden") continue;
+    const { state, minUsd, rail } = settings.deposits[chain.kind];
+    if (state === "hidden" || rail !== "aurora") continue;
+    const onlyAurora = AURORA_CHAIN_IDS.includes(chain.chainId);
+
+    // Each coin: the network's state, and (off Bitcoin and Tron) the coin's own from the Converted tab, whichever is less.
+    const rows = chain.assets
+      .map((a) => ({ a, st: onlyAurora ? state : worse(state, coinStates.find((c) => c.chainId === chain.chainId && c.symbol === a.symbol)?.state ?? "hidden") }))
+      .filter((r) => r.st !== "hidden");
+    if (!rows.length) continue;
 
     let address = "";
-    let effective: "visible" | "unavailable" = state;
-    if (state === "visible") {
+    let failed = false;
+    if (rows.some((r) => r.st === "visible")) {
       const r = await ensureAuroraAddress(userId, chain);
       if (r.ok) address = r.address;
       else {
-        effective = "unavailable";
+        failed = true;
         console.warn(`[AU-DEP] ${chain.kind} unavailable for ${userId}: ${r.reason}`);
       }
     }
 
-    out.push({
-      chainId: chain.chainId,
-      symbol: chain.symbol,
-      state: effective,
-      address,
-      minimum: effective === "visible" ? await minimumInCoin(chain, minUsd) : null,
-      decimals: chain.decimals,
-      settlesAs: "USDC",
-      settlesOn: "SOL",
-    });
+    for (const { a, st } of rows) {
+      const effective: "visible" | "unavailable" = st === "visible" && !failed ? "visible" : "unavailable";
+      out.push({
+        chainId: chain.chainId,
+        symbol: a.symbol,
+        state: effective,
+        address: effective === "visible" ? address : "",
+        minimum: effective === "visible" ? await minimumInCoin(a, minUsd) : null,
+        decimals: a.decimals,
+        settlesAs: "USDC",
+        settlesOn: "SOL",
+      });
+    }
   }
   return out;
 }
@@ -262,7 +325,8 @@ async function removeWatcherDuplicate(userId: string, amount: number, payout: Pe
 
 async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Promise<void> {
   const reference = referenceFor(p.received.tx_hash);
-  const sentAmount = (Number(p.received.amount) / 10 ** (p.received.decimals ?? chain.decimals)).toString();
+  const coin = assetOf(chain, p.received.asset_id);
+  const sentAmount = (Number(p.received.amount) / 10 ** (p.received.decimals ?? coin.decimals)).toString();
   const settled = !!p.payout;
   const amount = settled ? Number(p.payout!.amount) / 10 ** (p.payout!.decimals ?? SOL_USDC_DECIMALS) : 0;
   const status = settled ? "COMPLETED" : "PROCESSING";
@@ -275,7 +339,7 @@ async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Pr
     chainId: chain.chainId,
     routedStatus: settled ? "settled" : p.retrying ? "review" : "converting",
     sentAmount,
-    sentSymbol: chain.symbol,
+    sentSymbol: coin.symbol,
     sourceTxHash: p.received.tx_hash,
     depositAddress: p.received.deposit_address,
     ...(settled ? { payoutTxHash: p.payout!.tx_hash } : {}),
@@ -348,7 +412,7 @@ async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Pr
     await prisma.transaction.update({ where: { id: existing.id }, data: { status, amount, metadata } });
     if (settled && existing.status !== "COMPLETED") {
       await removeWatcherDuplicate(userId, amount, p.payout!, existing.id);
-      await announceArrived(userId, sentAmount, chain.symbol, amount);
+      await announceArrived(userId, sentAmount, coin.symbol, amount);
     }
     return;
   }
@@ -372,7 +436,7 @@ async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Pr
     userId,
     reference,
     amount: Number(sentAmount),
-    symbol: chain.symbol,
+    symbol: coin.symbol,
     network: networkName(chain.chainId),
     kind: settled ? "converted to USDC" : "converting to USDC",
     converting: true,
@@ -380,13 +444,13 @@ async function record(userId: string, chain: AuroraDepositChain, p: Pairing): Pr
   });
   if (settled) {
     await removeWatcherDuplicate(userId, amount, p.payout!, row.id);
-    await announceArrived(userId, sentAmount, chain.symbol, amount);
+    await announceArrived(userId, sentAmount, coin.symbol, amount);
   } else {
     await sendNotification({
       userId,
       type: "transaction",
       title: "Deposit Seen",
-      body: `${sentAmount} ${chain.symbol} is converting to USDC on Solana. We will tell you when it lands.`,
+      body: `${sentAmount} ${coin.symbol} is converting to USDC on Solana. We will tell you when it lands.`,
     }).catch(() => {});
   }
 }
@@ -684,6 +748,8 @@ export async function watchAuroraAddresses(): Promise<void> {
         address = null;
       }
       if (!chain || !userId || !address) continue;
+      // Read off their own chains ahead of Aurora: Bitcoin and Tron only. The other networks wait for Aurora's own feed.
+      if (chain.kind !== "btc" && chain.kind !== "tron") continue;
       await watchAddress(userId, chain, address).catch((e: any) => console.error(`[AU-DEP] watch ${kind}:`, e?.message));
     }
   } finally {
@@ -728,7 +794,8 @@ async function settleFromWallet(): Promise<void> {
     // Nothing can have been paid for a payment its own chain has not confirmed,
     // so USDC arriving meanwhile is somebody else's and must not be taken for it.
     if (m.watched && m.confirmed === false) continue;
-    const price = chain.symbol === "USDT" ? 1 : tokens?.get(chain.assetId)?.price;
+    const sentCoin = assetOf(chain, null, m.sentSymbol);
+    const price = sentCoin.symbol === "USDT" || sentCoin.symbol === "USDC" ? 1 : tokens?.get(sentCoin.assetId)?.price;
     const sent = Number(m.sentAmount);
     if (!price || !(sent > 0)) continue;
     const expected = sent * price;
@@ -775,6 +842,6 @@ async function settleFromWallet(): Promise<void> {
     });
     await prisma.transaction.delete({ where: { id: match.id } }).catch(() => {});
     console.log(`[AU-DEP] ${chain.kind} row ${row.id} settled from the wallet: ${amount} USDC (row ${match.id} merged)`);
-    await announceArrived(row.userId, String(m.sentAmount), chain.symbol, amount);
+    await announceArrived(row.userId, String(m.sentAmount), sentCoin.symbol, amount);
   }
 }

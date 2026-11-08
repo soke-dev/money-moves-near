@@ -16,10 +16,19 @@ import { prisma } from "./prisma";
 export type DepositState = "visible" | "unavailable" | "hidden";
 const DEPOSIT_STATES: DepositState[] = ["visible", "unavailable", "hidden"];
 
-export type AuroraDepositKind = "btc" | "tron";
+export type AuroraDepositKind = "btc" | "tron" | "eth" | "bsc" | "sol" | "arb" | "pol";
+/** Every network, in the order the console lists them. Bitcoin and Tron are Aurora only. */
+export const AURORA_DEPOSIT_KINDS: AuroraDepositKind[] = ["btc", "tron", "eth", "bsc", "sol", "arb", "pol"];
+/**
+ * Which converter a network's deposits go through. Aurora: a permanent address of ours, landing as USDC in the
+ * person's Solana wallet. Stableyard: the older addresses, landing as USDCx on Movement. Bitcoin and Tron are
+ * always Aurora.
+ */
+export type DepositRail = "aurora" | "stableyard";
+const DEPOSIT_RAILS: DepositRail[] = ["aurora", "stableyard"];
 
 export type AuroraSettings = {
-  deposits: Record<AuroraDepositKind, { state: DepositState; minUsd: number }>;
+  deposits: Record<AuroraDepositKind, { state: DepositState; minUsd: number; rail: DepositRail }>;
   swap: {
     enabled: boolean;
     /** Our platform fee, in basis points of what is sent. 100 = 1%. */
@@ -64,8 +73,14 @@ export const AURORA_DEFAULTS: AuroraSettings = {
     // processing costs can exceed the deposit and it sits there. Bitcoin is
     // $3, the business's call (2026-10-24): about 3,700 sats at $80k, under the
     // 5,000 their FAQ calls dust, so a payment near the floor may be slow to convert.
-    btc: { state: "visible", minUsd: 3 },
-    tron: { state: "visible", minUsd: 2 },
+    btc: { state: "visible", minUsd: 3, rail: "aurora" },
+    tron: { state: "visible", minUsd: 2, rail: "aurora" },
+    // Moved off Stableyard (2026-11-08). Ethereum's own gas makes small deposits poor value, so it starts higher.
+    eth: { state: "visible", minUsd: 5, rail: "aurora" },
+    bsc: { state: "visible", minUsd: 1, rail: "aurora" },
+    sol: { state: "visible", minUsd: 1, rail: "aurora" },
+    arb: { state: "visible", minUsd: 1, rail: "aurora" },
+    pol: { state: "visible", minUsd: 1, rail: "aurora" },
   },
   swap: {
     enabled: true,
@@ -96,6 +111,7 @@ export const LIMITS = {
 const KEYS = {
   depositState: (k: AuroraDepositKind) => `au:dep:${k}:state`,
   depositMin: (k: AuroraDepositKind) => `au:dep:${k}:minUsd`,
+  depositRail: (k: AuroraDepositKind) => `au:dep:${k}:rail`,
   swapEnabled: "au:swap:enabled",
   swapFee: "au:swap:feeBps",
   swapSolFlat: "au:swap:solanaFlatUsd",
@@ -134,12 +150,14 @@ export async function auroraSettings(): Promise<AuroraSettings> {
     return {
       state: (DEPOSIT_STATES.includes(stored as DepositState) ? stored : d.deposits[k].state) as DepositState,
       minUsd: num(v.get(KEYS.depositMin(k)), d.deposits[k].minUsd, LIMITS.depositMinUsd),
+      // Bitcoin and Tron never go back to Stableyard.
+      rail: (k === "btc" || k === "tron" ? "aurora" : DEPOSIT_RAILS.includes(v.get(KEYS.depositRail(k)) as DepositRail) ? v.get(KEYS.depositRail(k)) : d.deposits[k].rail) as DepositRail,
     };
   };
 
   const enabledRaw = v.get(KEYS.swapEnabled);
   const value: AuroraSettings = {
-    deposits: { btc: depositOf("btc"), tron: depositOf("tron") },
+    deposits: Object.fromEntries(AURORA_DEPOSIT_KINDS.map((k) => [k, depositOf(k)])) as AuroraSettings["deposits"],
     swap: {
       enabled: enabledRaw === "true" ? true : enabledRaw === "false" ? false : d.swap.enabled,
       feeBps: num(v.get(KEYS.swapFee), d.swap.feeBps, LIMITS.feeBps),
@@ -182,16 +200,21 @@ function inRange(name: string, n: unknown, range: { min: number; max: number }):
  */
 export async function updateAuroraSettings(
   patch: {
-    deposits?: Partial<Record<AuroraDepositKind, { state?: string; minUsd?: number }>>;
+    deposits?: Partial<Record<AuroraDepositKind, { state?: string; minUsd?: number; rail?: string }>>;
     swap?: Partial<AuroraSettings["swap"]>;
   },
   updatedBy?: string,
 ): Promise<AuroraSettings> {
   const writes: [string, string][] = [];
 
-  for (const k of ["btc", "tron"] as AuroraDepositKind[]) {
+  for (const k of AURORA_DEPOSIT_KINDS) {
     const p = patch.deposits?.[k];
     if (!p) continue;
+    if (p.rail !== undefined) {
+      if (!DEPOSIT_RAILS.includes(p.rail as DepositRail)) throw new Error("rail must be aurora or stableyard");
+      if ((k === "btc" || k === "tron") && p.rail !== "aurora") throw new Error("Bitcoin and Tron deposits are Aurora only");
+      writes.push([KEYS.depositRail(k), p.rail]);
+    }
     if (p.state !== undefined) {
       if (!DEPOSIT_STATES.includes(p.state as DepositState)) throw new Error("state must be visible, unavailable or hidden");
       writes.push([KEYS.depositState(k), p.state]);

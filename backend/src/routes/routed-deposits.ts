@@ -1,11 +1,11 @@
 import { Router, Request, Response } from "express";
 import { requireAuth, requireActiveSession } from "../middleware/auth";
 import { isStableyardConfigured } from "../lib/stableyard";
-import { offeredRoutedAssetStates } from "../lib/stableyard-visibility";
+import { offeredRoutedAssetStates, routedAssetStates } from "../lib/stableyard-visibility";
 import { ensureRoutedAddresses } from "../lib/stableyard-account";
 import { syncRoutedLedger } from "../lib/stableyard-ledger";
 import { isAuroraConfigured } from "../lib/aurora";
-import { AURORA_CHAIN_IDS, auroraRoutedAssets, syncAuroraLedger } from "../lib/aurora-deposits";
+import { auroraRoutedAssets, chainsNotOnStableyard, syncAuroraLedger } from "../lib/aurora-deposits";
 
 const router = Router();
 
@@ -49,7 +49,9 @@ router.get(
        * its own rows off rather than taking the whole list with it.
        */
       const auroraOn = isAuroraConfigured();
-      const auroraAssets = auroraOn ? await auroraRoutedAssets(userId).catch(() => []) : [];
+      // Each coin's own switch (the Converted tab) applies to whichever rail its network uses.
+      const coinStates = await routedAssetStates();
+      const auroraAssets = auroraOn ? await auroraRoutedAssets(userId, coinStates).catch(() => []) : [];
 
       /**
        * The unavailable ones come too.
@@ -64,8 +66,10 @@ router.get(
        * which would put the old addresses back in front of people the moment a
        * key went missing. With no Aurora, those two are simply not offered.
        */
+      // Stableyard offers only the networks set to it in the console. Without Aurora, Bitcoin and Tron still aren't offered.
+      const notStableyard = auroraOn ? await chainsNotOnStableyard() : [10001, 728126428];
       const offered = isStableyardConfigured()
-        ? (await offeredRoutedAssetStates()).filter((a) => !AURORA_CHAIN_IDS.includes(a.chainId))
+        ? (await offeredRoutedAssetStates()).filter((a) => !notStableyard.includes(a.chainId))
         : [];
 
       let stableyardAssets: any[] = [];
