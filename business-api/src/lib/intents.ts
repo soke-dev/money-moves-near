@@ -107,12 +107,54 @@ const canLand = (n: Network) => !!USDC_OUT[n] && coinLiveReady("USDC", n) && kin
 
 /** Where the USDC lands for a business settling on this chain: the chain itself where it can, else Solana. Null: nowhere can. */
 export function landingFor(chain: SettleChain): Network | null {
-  const own: Network | null = chain === "MONAD" ? "Monad" : chain === "SOLANA" ? "Solana" : null;
-  if (own && canLand(own)) return own;
-  return canLand("Solana") ? "Solana" : null;
+  // Where its payout goes out: Solana for a Solana business, Monad for everyone else (see payoutChain).
+  const own: Network = chain === "SOLANA" ? "Solana" : "Monad";
+  if (canLand(own)) return own;
+  const other: Network = own === "Monad" ? "Solana" : "Monad";
+  return canLand(other) ? other : null;
 }
 /** The same in test mode, where nothing needs to be live: only which network it would be. */
-export const testLandingFor = (chain: SettleChain): Network => (chain === "MONAD" ? "Monad" : "Solana");
+export const testLandingFor = (chain: SettleChain): Network => (chain === "SOLANA" ? "Solana" : "Monad");
+
+/** The network a payout chain's float lives on, where a payment's money is converted to. */
+export const floatNetworkOf = (chain: string): "Monad" | "Solana" | null => (chain === "MONAD" ? "Monad" : chain === "SOLANA" ? "Solana" : null);
+
+/**
+ * A payment's own money converted into a float: exactly what's there (`raw`,
+ * in the coin's own units) in, USDC on `to` out to the float. What NEAR
+ * Intents takes for it is ours to bear: the business is paid in full.
+ */
+export async function quoteConversion(input: { from: IntentCoin; raw: bigint; to: "Monad" | "Solana"; recipient: string }): Promise<IntentQuote> {
+  const account = intentsAccount();
+  if (!account) throw new IntentQuoteError("Needs INTENTS_ACCOUNT or TREASURY_EVM_ADDRESS set.");
+  const r = await call("/v0/quote", {
+    method: "POST",
+    body: JSON.stringify({
+      dry: false,
+      swapType: "EXACT_INPUT",
+      slippageTolerance: 100,
+      originAsset: input.from.assetId,
+      depositType: "ORIGIN_CHAIN",
+      destinationAsset: USDC_OUT[input.to],
+      amount: input.raw.toString(),
+      recipient: input.recipient,
+      recipientType: "DESTINATION_CHAIN",
+      refundTo: account,
+      refundType: "INTENTS",
+      deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+      referral: "moneymoves",
+    }),
+  });
+  if (!r.ok) {
+    const message = String(r.body?.message ?? `HTTP ${r.status}`);
+    // Any minimum at all means this payment is too small to convert: the caller falls back.
+    const minimum = /minimum|at least|too low/i.test(message);
+    throw new IntentQuoteError(message, minimum ? 1 : null);
+  }
+  const q = r.body?.quote ?? {};
+  if (!q.depositAddress) throw new IntentQuoteError("The quote came back without an address.");
+  return { depositAddress: q.depositAddress, depositMemo: q.depositMemo ?? null, amountIn: String(q.amountIn ?? input.raw), amountInFormatted: String(q.amountInFormatted ?? ""), minAmountIn: String(q.minAmountIn ?? q.amountIn ?? input.raw), amountInUsd: q.amountInUsd ?? null, deadline: q.deadline ?? "", timeEstimate: typeof q.timeEstimate === "number" ? q.timeEstimate : null, correlationId: r.body?.correlationId ?? null };
+}
 
 /** The coins this checkout can offer: switched on in Services, live or test. */
 export function intentsOffered(p: Platform, mode: "TEST" | "LIVE", chain: SettleChain) {

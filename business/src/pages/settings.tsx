@@ -998,6 +998,19 @@ function SettleChainCard() {
           ))}
         </div>
       </div>
+      {LIVE && (current === 'ARC' || current === 'MOVEMENT' || current === 'STELLAR') && (
+        <div className="mt-2 text-[12.5px] leading-relaxed text-muted">
+          For now, payouts for {name(current)} arrive as USDC on Monad, in the same business wallet or Money Moves account.
+          {canChange && offered.some(([id]) => id === 'MONAD') && (
+            <>
+              {' '}
+              <button type="button" disabled={!!busy} onClick={() => void pick('MONAD')} className="font-medium text-fg underline underline-offset-2">
+                Switch to Monad
+              </button>
+            </>
+          )}
+        </div>
+      )}
       {/* Settling on Solana, a payment that comes through a swap lands at a new Solana address, and opening its account costs the customer about $0.24. Monad has no such cost. */}
       {LIVE && current === 'SOLANA' && (config.data?.platform.intents?.on || config.data?.platform.intents?.stablecoins) && (
         <div className="mt-2 text-[12.5px] leading-relaxed text-muted">
@@ -1010,15 +1023,6 @@ function SettleChainCard() {
               </button>
             </>
           )}
-        </div>
-      )}
-      {LIVE && current === 'STELLAR' && (
-        <div className="mt-2 text-[12.5px] leading-relaxed text-muted">
-          On Stellar, your business wallet has to be opened for USDC once before it can receive.{' '}
-          <Link to="/balances?receive=stellar" className="font-medium text-fg underline underline-offset-2">
-            Open it on the wallet page
-          </Link>
-          . A linked Money Moves account needs Stellar opened in the app.
         </div>
       )}
       {(error || saved || !canChange) && (

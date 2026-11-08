@@ -37,7 +37,8 @@ import {
 } from "../lib/money";
 import { canSimulate, railsFor } from "../rails";
 import { checkDirectDaily, directLimits, directOn, uniqueDirectAmount } from "../lib/direct";
-import { chainPaused, cryptoDefaults, effectiveChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, reviewLimits, type Platform } from "../lib/platform";
+import { chainPaused, cryptoDefaults, effectiveChain, payoutChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, reviewLimits, type Platform } from "../lib/platform";
+import { treasuryFor } from "../lib/chains";
 import { floatSend, floatTxStatus, NotSent, type FloatChain, type Sent } from "../lib/float";
 import { stellarFromSolana } from "../lib/stellar";
 import { linkAddress } from "../lib/app-links";
@@ -593,12 +594,12 @@ async function settlementFor(
     }
     const amountMicros = BigInt(Math.floor((amountKobo / 100 / p.ngnPerUsd) * 1e6));
     const why = held ?? (needsReview(rules, business, { usd: Number(amountMicros) / 1e6 }) ? { limitUsd: reviewLimits(rules, business).cryptoAboveUsd } : null);
-    const chain = effectiveChain(business.settleChain, rules);
+    const chain = payoutChain(effectiveChain(business.settleChain, rules));
     return { why, data: { ...base, destination: "MONEY_MOVES", status: why ? "REVIEW" : "QUEUED", chain, amountMicros, providerRef: links[0].appLinkId, failureReason: pausedNote(chain, rules) } };
   }
   // The business wallet: USDC from the float, on the business's settle chain, to the owner's own address.
   const wallet = await tx.businessWallet.findUnique({ where: { businessId: p.businessId } });
-  const chain = effectiveChain(business.settleChain, rules);
+  const chain = payoutChain(effectiveChain(business.settleChain, rules));
   // Stellar: the owner's Solana key re-encoded, as the app does it - opened for USDC from the dashboard first.
   const toAddress = wallet
     ? chain === "MOVEMENT"
@@ -673,6 +674,29 @@ export async function sendSettlement(s: Settlement, opts: { from?: "QUEUED" | "R
 }
 
 /**
+ * Why a crypto payout can't go yet, or null when it can. A payment paid in
+ * stablecoins or another coin to an address of its own is paid out of that
+ * very money: it's swept into the float on the payout chain (converted on the
+ * way through NEAR Intents when it's another coin or chain), and the payout
+ * goes once it's there. Bank transfers, the app, and payments to the treasury
+ * itself pay from the float as before. So do payments swept before this
+ * existed, or swept to the treasury because they couldn't be converted.
+ */
+async function waitingForItsMoney(s: Settlement): Promise<string | null> {
+  const p = await prisma.payment.findUnique({ where: { id: s.paymentId }, select: { method: true, depositKind: true } });
+  if (!p || p.method !== "CRYPTO" || p.depositKind !== "OWN") return null;
+  const used = await prisma.cryptoArrival.findMany({ where: { paymentId: s.paymentId, kind: "PAYMENT", usedMicros: { gt: 0n } }, select: { network: true, sweptAt: true, sweptTo: true, fundedAt: true, fundError: true } });
+  if (!used.length) return null;
+  const pays = (x: (typeof used)[number]) =>
+    !!x.fundedAt ||
+    // Swept the old way, or to the treasury because it couldn't be converted: the float pays, as it always did.
+    (!!x.sweptAt && (!x.sweptTo || x.sweptTo.toLowerCase() === (treasuryFor(x.network) ?? "").toLowerCase()));
+  if (used.every(pays)) return null;
+  if (used.some((x) => x.fundError)) return "The payment's money didn't reach the float. Our team sends this one.";
+  return "Waiting for the payment's money to reach the float.";
+}
+
+/**
  * An on-chain settlement: USDC from the float. Claimed first, like a bank one,
  * so it's sent once. The transaction hash is written the moment it's out; from
  * then on only the chain is asked, and nothing is ever sent again for it.
@@ -680,6 +704,14 @@ export async function sendSettlement(s: Settlement, opts: { from?: "QUEUED" | "R
  */
 async function sendOnChain(s: Settlement, from: "QUEUED" | "REVIEW"): Promise<void> {
   if (s.mode === "LIVE" && !(await payoutsOn())) return;
+  // Paid out of the customer's own money, never ahead of it: a stablecoin or other-coin payment waits for its money to reach the float.
+  if (s.mode === "LIVE") {
+    const waiting = await waitingForItsMoney(s);
+    if (waiting) {
+      if (s.failureReason !== waiting) await prisma.settlement.updateMany({ where: { id: s.id, status: from }, data: { failureReason: waiting } });
+      return;
+    }
+  }
   // Its chain switched off on Services: it waits, queued, and goes once the chain is back on.
   if (from === "QUEUED" && s.mode === "LIVE" && s.chain && chainPaused(s.chain, await platform())) return;
   if (from === "QUEUED" && s.mode === "LIVE") {

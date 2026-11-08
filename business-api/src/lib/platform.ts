@@ -220,6 +220,13 @@ export const DEFAULT_CHAIN: SettleChain = "MOVEMENT";
 /** The chain a business's crypto settles on today: its own, unless that's been switched off. */
 export const effectiveChain = (chain: SettleChain, p: Platform): SettleChain => (p.settleChains[chain] ? chain : DEFAULT_CHAIN);
 
+/**
+ * The chain crypto payouts actually go out on, for a business settling on this one. For now only
+ * Solana and Monad: each payment's own money is converted into the float there through NEAR Intents,
+ * which can't deliver to Arc, Movement or Stellar, so those businesses are paid on Monad.
+ */
+export const payoutChain = (chain: SettleChain): SettleChain => (chain === "SOLANA" ? "SOLANA" : "MONAD");
+
 /** Whether payouts on a chain are paused - only Movement can be, since everything else moves to it. */
 export const chainPaused = (chain: SettleChain, p: Platform) => !p.settleChains[chain];
 

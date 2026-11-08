@@ -1023,6 +1023,14 @@ model CryptoArrival {
   sweepTx     String?   @map("sweep_tx")
   /// Being swept right now: who claimed it, so two workers can't both send.
   sweepingAt  DateTime? @map("sweeping_at")
+  /// Where it was swept: the treasury, or the float on the business's payout chain (then the payout is paid out of it).
+  sweptTo     String?   @map("swept_to")
+  /// Swept through NEAR Intents to convert it on the way (another coin, or another chain): the 1Click deposit address it went to.
+  sweepVia    String?   @map("sweep_via")
+  /// Its money is in the float and can pay the business. Straight away for a plain sweep; once NEAR Intents delivers for a converted one.
+  fundedAt    DateTime? @map("funded_at")
+  /// A conversion that didn't deliver (refunded to our NEAR Intents account): the payout waits for our team.
+  fundError   String?   @map("fund_error")
 
   // Giving back what wasn't used.
   /// What goes back, six decimals; null when nothing does.

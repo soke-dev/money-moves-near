@@ -32,7 +32,8 @@ import { prisma } from "../lib/prisma";
 import { log } from "../lib/log";
 import { EVM_CHAINS, MEMO_NETWORKS, MOVE_ASSETS, SOL_MINTS, addressKey, contractsOf, evmChain, fromMicros, hexNum, rpc, toMicros, treasuryFor, type EvmChain } from "../lib/chains";
 import { evmDepositWallet, movementDepositAccount, solanaDepositKeypair } from "../lib/deposit-keys";
-import { floatSend, floatTxStatus, NotSent, type FloatChain, type Sent } from "../lib/float";
+import { floatAddress, floatSend, floatTxStatus, NotSent, type FloatChain, type Sent } from "../lib/float";
+import { IntentQuoteError, floatNetworkOf, intentStatus, quoteConversion, stableIntentCoin, submitIntentDeposit } from "../lib/intents";
 import { StellarNotSent, isStellarAddress, stellarSend, stellarTxStatus, type StellarCoin } from "../lib/stellar";
 import { isTonAddress } from "../lib/ton";
 import { checkoutLink } from "../lib/pay-links";
@@ -460,7 +461,62 @@ async function followReturns(): Promise<void> {
 
 // ─── Sweeps ───────────────────────────────────────────────────────────────
 
-/** Paid payments' own addresses: what paid for them, into the treasury. One address at a time. */
+type SweepPlan = { kind: "treasury" | "float" | "convert"; sendTo: string; sweptTo: string; via?: string } | null;
+
+/**
+ * Where a paid payment's money goes. Paid out to a crypto address (a Money
+ * Moves account or the business wallet), it goes into the float on the payout
+ * chain, and pays the business from there: as it is when it's already USDC on
+ * that chain, converted through NEAR Intents when it isn't. Anything else
+ * (paid out to a bank, already settled, a coin or network NEAR Intents can't
+ * take, too small for it) goes to the treasury, as it always did.
+ */
+async function sweepPlan(p: Payment, first: CryptoArrival, micros: bigint): Promise<SweepPlan> {
+  const treasury = treasuryFor(first.network);
+  const toTreasury: SweepPlan = treasury ? { kind: "treasury", sendTo: treasury, sweptTo: treasury } : null;
+  if (p.mode !== "LIVE") return toTreasury;
+  const s = await prisma.settlement.findUnique({ where: { paymentId: p.id }, select: { destination: true, chain: true, status: true } });
+  if (!s || s.destination === "BANK" || !s.chain || s.status === "SETTLED" || s.status === "SENT" || s.status === "SENDING") return toTreasury;
+  const net = floatNetworkOf(s.chain);
+  const float = net ? floatAddress(s.chain as FloatChain) : null;
+  if (!net || !float) return toTreasury;
+  if (first.network === net && first.coin === "USDC") return { kind: "float", sendTo: float, sweptTo: float };
+  const from = stableIntentCoin(first.coin as Coin, first.network as Network);
+  if (!from) return toTreasury;
+  try {
+    const q = await quoteConversion({ from, raw: fromMicros(micros, from.decimals), to: net, recipient: float });
+    return { kind: "convert", sendTo: q.depositAddress, sweptTo: float, via: q.depositAddress };
+  } catch (e) {
+    // Too small to convert: the float pays this one, as before. Anything else is tried again on the next round.
+    if (e instanceof IntentQuoteError && e.leastUsd) {
+      log.info("[crypto-out] too small to convert, swept to the treasury", { ref: p.ref, network: first.network, amount: Number(micros) / 1e6 });
+      return toTreasury;
+    }
+    throw e;
+  }
+}
+
+/**
+ * Conversions into a float, followed until NEAR Intents delivers: then the
+ * payment's money is there, and its payout can go. One that's refunded (to our
+ * NEAR Intents account) leaves its payout waiting for our team.
+ */
+async function followConversions(): Promise<void> {
+  const out = await prisma.cryptoArrival.findMany({ where: { sweepVia: { not: null }, sweptAt: { not: null }, fundedAt: null, fundError: null }, select: { sweepVia: true, paymentId: true }, distinct: ["sweepVia"], take: 10 });
+  for (const x of out) {
+    const st = await intentStatus(x.sweepVia!).catch(() => null);
+    if (!st) continue;
+    if (st.status === "SUCCESS") {
+      await prisma.cryptoArrival.updateMany({ where: { sweepVia: x.sweepVia }, data: { fundedAt: new Date() } });
+      log.info("[crypto-out] converted into the float", { paymentId: x.paymentId, via: x.sweepVia, tx: st.destinationTx });
+    } else if (st.status === "REFUNDED" || st.status === "FAILED") {
+      await prisma.cryptoArrival.updateMany({ where: { sweepVia: x.sweepVia }, data: { fundError: st.status } });
+      log.warn("[crypto-out] a conversion into the float didn't deliver, refunded to our NEAR Intents account. Its payout waits for ops", { paymentId: x.paymentId, via: x.sweepVia, status: st.status });
+    }
+  }
+}
+
+/** Paid payments' own addresses: what paid for them, into the treasury, or the float that pays the business. One address at a time. */
 async function sweep(): Promise<void> {
   const due = await prisma.cryptoArrival.findMany({
     where: { kind: "PAYMENT", usedMicros: { gt: 0n }, sweptAt: null, sweepTx: null, OR: [{ sweepingAt: null }, { sweepingAt: { lt: new Date(Date.now() - 15 * 60_000) } }], payment: { status: "PAID", depositKind: "OWN" } },
@@ -476,25 +532,38 @@ async function sweep(): Promise<void> {
   for (const list of [...groups.values()].slice(0, 5)) {
     const first = list[0]!;
     const p = first.payment!;
-    const to = treasuryFor(first.network);
-    if (!to) continue;
     const ids = list.map((x) => x.id);
     const claimed = await prisma.cryptoArrival.updateMany({ where: { id: { in: ids }, sweptAt: null, sweepTx: null, OR: [{ sweepingAt: null }, { sweepingAt: { lt: new Date(Date.now() - 15 * 60_000) } }] }, data: { sweepingAt: new Date() } });
     if (claimed.count !== ids.length) continue;
     const micros = list.reduce((s, x) => s + x.usedMicros, 0n);
+    let plan: SweepPlan;
+    try {
+      plan = await sweepPlan(p, first, micros);
+    } catch (e) {
+      await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweepingAt: new Date(Date.now() - 14 * 60_000) } });
+      log.warn("[crypto-out] couldn't plan a sweep, trying again soon", { ref: p.ref, network: first.network, reason: reason(e) });
+      continue;
+    }
+    if (!plan) {
+      await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweepingAt: null } });
+      continue;
+    }
     let sent: Sent & { sentMicros: bigint };
     try {
-      sent = await sendFromOwn(p, first.network, first.coin as Coin, first.token, to, micros);
+      sent = await sendFromOwn(p, first.network, first.coin as Coin, first.token, plan.sendTo, micros);
     } catch (e) {
       await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweepingAt: e instanceof NotSent && e.retry ? new Date(Date.now() - 14 * 60_000) : null } });
       log.warn("[crypto-out] sweep not sent", { ref: p.ref, network: first.network, reason: reason(e) });
       continue;
     }
-    await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweepTx: sent.txHash } });
+    await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweepTx: sent.txHash, sweptTo: plan.sweptTo, sweepVia: plan.via ?? null } });
+    // Converting: 1Click is told the transaction straight away, so it starts without waiting for its own watcher.
+    if (plan.via) void submitIntentDeposit(plan.via, sent.txHash).catch(() => {});
     try {
       await sent.confirmed;
-      await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweptAt: new Date() } });
-      log.info("[crypto-out] swept", { ref: p.ref, network: first.network, amount: Number(sent.sentMicros) / 1e6, tx: sent.txHash });
+      // A plain sweep into the float has funded the payout the moment it lands; a conversion, once NEAR Intents delivers (followConversions).
+      await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweptAt: new Date(), ...(plan.kind === "float" ? { fundedAt: new Date() } : {}) } });
+      log.info("[crypto-out] swept", { ref: p.ref, network: first.network, amount: Number(sent.sentMicros) / 1e6, tx: sent.txHash, into: plan.kind });
     } catch (e) {
       log.warn("[crypto-out] sweep confirmation unclear, the follow-up asks the chain", { ref: p.ref, reason: reason(e) });
     }
@@ -509,7 +578,11 @@ async function followSweeps(): Promise<void> {
     if (seen.has(x.sweepTx!)) continue;
     seen.add(x.sweepTx!);
     const st = await ownTxStatus(x.network, x.sweepTx!);
-    if (st === "settled") await prisma.cryptoArrival.updateMany({ where: { sweepTx: x.sweepTx }, data: { sweptAt: new Date() } });
+    if (st === "settled") {
+      await prisma.cryptoArrival.updateMany({ where: { sweepTx: x.sweepTx }, data: { sweptAt: new Date() } });
+      // A plain sweep into a float: the payout it pays for can go.
+      await prisma.cryptoArrival.updateMany({ where: { sweepTx: x.sweepTx, sweepVia: null, sweptTo: { not: null }, fundedAt: null, NOT: { sweptTo: treasuryFor(x.network) ?? "" } }, data: { fundedAt: new Date() } });
+    }
     else if (st === "failed" || (st === "unknown" && x.sweepingAt && x.sweepingAt < new Date(Date.now() - 30 * 60_000))) {
       await prisma.cryptoArrival.updateMany({ where: { sweepTx: x.sweepTx }, data: { sweepTx: null, sweepingAt: null } });
       log.warn("[crypto-out] a sweep didn't land, it goes again", { network: x.network, tx: x.sweepTx });
@@ -530,6 +603,7 @@ export async function moveCryptoOut(): Promise<void> {
   await followReturns();
   await sweep();
   await followSweeps();
+  await followConversions();
 }
 
 /** The gas sponsor's balance on each EVM chain, and what's waiting to be swept - for the admin console. */
