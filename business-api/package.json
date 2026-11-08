@@ -13,7 +13,8 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "near-demo": "tsx src/scripts/near-intents-demo.ts"
   },
   "dependencies": {
     "@aptos-labs/ts-sdk": "6.3.1",
