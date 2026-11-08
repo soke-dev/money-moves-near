@@ -62,6 +62,8 @@ export interface ApiPlatform {
   settleChains: Record<SettleChain, boolean>
   coins: { USDC: boolean; USDT: boolean }
   networks: Record<string, boolean>
+  /** Crypto paid through a swap: other coins, and stablecoins when they're routed too. */
+  intents?: { on: boolean; stablecoins?: boolean }
 }
 
 /** What a live checkout can take today; each needs switching on by us, and the app and crypto need their side ready. */

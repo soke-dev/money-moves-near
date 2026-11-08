@@ -998,6 +998,20 @@ function SettleChainCard() {
           ))}
         </div>
       </div>
+      {/* Settling on Solana, a payment that comes through a swap lands at a new Solana address, and opening its account costs the customer about $0.24. Monad has no such cost. */}
+      {LIVE && current === 'SOLANA' && (config.data?.platform.intents?.on || config.data?.platform.intents?.stablecoins) && (
+        <div className="mt-2 text-[12.5px] leading-relaxed text-muted">
+          On Solana, your customers pay a network fee of about $0.24 on each crypto payment, to open the account it lands in. On Monad they don't.
+          {canChange && offered.some(([id]) => id === 'MONAD') && (
+            <>
+              {' '}
+              <button type="button" disabled={!!busy} onClick={() => void pick('MONAD')} className="font-medium text-fg underline underline-offset-2">
+                Settle on Monad instead
+              </button>
+            </>
+          )}
+        </div>
+      )}
       {LIVE && current === 'STELLAR' && (
         <div className="mt-2 text-[12.5px] leading-relaxed text-muted">
           On Stellar, your business wallet has to be opened for USDC once before it can receive.{' '}

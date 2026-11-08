@@ -18,7 +18,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, ArrowLeft, Bitcoin, Check, ChevronDown, Clock, ClockCountdown, Copy, Download, ExternalLink, FlaskConical, Landmark, Loader2, ShieldCheck, Smartphone } from '@/components/icons'
-import { ACCEPTED, INVOICES, NGN_RATE, OUTLETS, PAYMENT_LINKS, type Asset, type Chain, type Currency, type Invoice, type Method } from '@/data/mock'
+import { ACCEPTED, CHAIN_ICON, INVOICES, NGN_RATE, OUTLETS, PAYMENT_LINKS, type Asset, type Chain, type Currency, type Invoice, type Method } from '@/data/mock'
 import { useSession } from '@/state/session'
 import { DEFAULT_BRANDING, onColor, useBranding, type Branding } from '@/state/branding'
 import { ALL_ACCEPT, useAccept, useMethods, type Accept } from '@/state/accept'
@@ -62,20 +62,71 @@ const NETWORK_NAME: Partial<Record<Chain, string>> = {
   Optimism: 'OP Mainnet',
 }
 
+/** A coin amount rounded up to at most `places` decimals, at least two shown: "0.07132" is "0.0714", "25.303" stays. */
+function roundUpCoin(amount: string, places: number): string {
+  const n = Number(amount)
+  if (!Number.isFinite(n) || n <= 0) return amount
+  const f = 10 ** places
+  const up = Math.ceil(Math.round(n * f * 1e6) / 1e6) / f
+  let t = up.toFixed(places).replace(/0+$/, '')
+  if (t.endsWith('.')) t += '00'
+  else if (/\.\d$/.test(t)) t += '0'
+  return t
+}
+
 /** The coin picker's "Another coin" entry. */
 const OTHER = 'OTHER'
 
 /** How far a swap has got, as the step it's on: sent, received, changed to USDC, paid. */
 const INTENT_STEP: Record<string, number> = { PENDING_DEPOSIT: 0, INCOMPLETE_DEPOSIT: 0, REFUNDED: 0, FAILED: 0, KNOWN_DEPOSIT_TX: 1, PROCESSING: 2, SUCCESS: 3 }
 
-/** A coin we have no artwork for: its symbol on a plain disc. Bitcoin gets its own mark. */
-function CoinMark({ symbol, size = 22 }: { symbol: string; size?: number }) {
+/** Each coin's own logo, kept with the dashboard. */
+const COIN_LOGO: Record<string, string> = {
+  BTC: '/tokens/coin-btc.png',
+  ETH: '/tokens/coin-eth.png',
+  SOL: '/tokens/coin-sol.png',
+  NEAR: '/tokens/coin-near.jpg',
+  BNB: '/tokens/coin-bnb.png',
+  TRX: '/tokens/coin-trx.png',
+  XRP: '/tokens/coin-xrp.png',
+  DOGE: '/tokens/coin-doge.png',
+  LTC: '/tokens/coin-ltc.png',
+  BCH: '/tokens/coin-bch.png',
+  ZEC: '/tokens/coin-zec.png',
+  SUI: '/tokens/coin-sui.png',
+  AVAX: '/tokens/coin-avax.png',
+  POL: '/tokens/coin-pol.png',
+  ADA: '/tokens/coin-ada.png',
+  USDT: '/tokens/usdt.png',
+  USDC: '/tokens/usdc.png',
+}
+/** The chain a coin lives on by itself. Sent on any other (ETH on Base), the chain is shown as a small badge. */
+const COIN_HOME: Record<string, string> = { ETH: 'Ethereum', SOL: 'Solana', BNB: 'BNB Chain' }
+
+/** A coin's logo, with its chain's badge when it's away from home. A coin without one: its symbol on a plain disc. */
+function CoinMark({ symbol, chain, size = 22 }: { symbol: string; chain?: string; size?: number }) {
+  const logo = COIN_LOGO[symbol]
+  const badge = chain && COIN_HOME[symbol] && COIN_HOME[symbol] !== chain ? CHAIN_ICON[chain as Chain] : undefined
+  if (!logo)
+    return (
+      <span
+        className="inline-flex shrink-0 items-center justify-center rounded-full border border-line bg-card font-semibold text-fg"
+        style={{ width: size, height: size, fontSize: Math.max(8, Math.round(size * (symbol.length > 3 ? 0.3 : 0.36))) }}
+      >
+        {symbol}
+      </span>
+    )
   return (
-    <span
-      className="inline-flex shrink-0 items-center justify-center rounded-full border border-line bg-card font-semibold text-fg"
-      style={{ width: size, height: size, fontSize: Math.max(8, Math.round(size * (symbol.length > 3 ? 0.3 : 0.36))) }}
-    >
-      {symbol === 'BTC' ? <Bitcoin style={{ width: size * 0.62, height: size * 0.62 }} /> : symbol}
+    <span className="relative inline-block shrink-0" style={{ width: size, height: size }}>
+      <img src={logo} alt={symbol} className="size-full rounded-full object-cover" />
+      {badge && (
+        <img
+          src={badge}
+          alt={chain}
+          className="absolute -bottom-0.5 -right-0.5 rounded-full object-cover ring-2 ring-white"
+          style={{ width: Math.round(size * 0.48), height: Math.round(size * 0.48) }}
+        />
+      )}
     </span>
   )
 }
@@ -741,7 +792,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                               label="Choose coin"
                               placeholder="Select what you're paying with"
                               value={otherKey}
-                              options={others.map((o) => ({ id: o.key, title: o.symbol, sub: `on ${o.chain}`, icon: <CoinMark symbol={o.symbol} size={22} /> }))}
+                              options={others.map((o) => ({ id: o.key, title: o.symbol, sub: `on ${o.chain}`, icon: <CoinMark symbol={o.symbol} chain={o.chain} size={22} /> }))}
                               onChange={setOther}
                             />
                             {note(`You send ${otherCoin?.symbol ?? 'your coin'}, and it's changed to the exact price in USDC on the way. ${merchant} receives the full amount.`)}
@@ -896,6 +947,8 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   // A USDC or USDT payment the platform sends through NEAR Intents: viaCoin as that stablecoin, not as another coin.
   const stableVia = !pickOther && !!it?.stable
   const viaCoin = pickOther ? otherCoin : stableVia && it ? { key: it.coin, symbol: it.symbol, name: it.name, chain: it.chain, slow: false } : null
+  // What to send, as shown and copied. Stablecoins: rounded up to four decimals (0.07132 is 0.0714), never down, so it's never short. Other coins keep their precision.
+  const sendIt = it ? (stableVia ? roundUpCoin(it.amount, 4) : it.amount) : ''
   const swapAt = it ? INTENT_STEP[it.status] ?? 0 : 0
   const swapSteps = viaCoin
     ? [
@@ -935,8 +988,8 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
             ) : (
             <ChipMenu
               label={`${viaCoin.symbol} on ${viaCoin.chain}`}
-              icon={<CoinMark symbol={viaCoin.symbol} size={22} />}
-              options={others.map((o) => ({ id: o.key, title: o.symbol, sub: `on ${o.chain}`, icon: <CoinMark symbol={o.symbol} size={22} /> }))}
+              icon={<CoinMark symbol={viaCoin.symbol} chain={viaCoin.chain} size={22} />}
+              options={others.map((o) => ({ id: o.key, title: o.symbol, sub: `on ${o.chain}`, icon: <CoinMark symbol={o.symbol} chain={o.chain} size={22} /> }))}
               onPick={(k) => {
                 if (k === otherKey) return
                 setOther(k)
@@ -956,14 +1009,14 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
               <div className="mt-5 text-[13px] text-muted">Send</div>
               <div className="mt-1 flex items-center justify-between gap-3">
                 <span className="display tabular min-w-0 break-all text-[30px] font-semibold leading-none tracking-[-0.03em] text-fg">
-                  {it.amount}
+                  {sendIt}
                   <span className="ml-1.5 text-[17px] font-medium tracking-normal text-muted">{it.symbol}</span>
                 </span>
-                <CopyChip value={it.amount} />
+                <CopyChip value={sendIt} />
               </div>
               <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
                 {stableVia ? (
-                  it.amountUsd && Number(it.amountUsd) > amountUsd ? <>About {usd(Number(it.amountUsd) - amountUsd)} of that covers moving it across networks. </> : null
+                  it.amountUsd && Number(it.amountUsd) - amountUsd >= 0.005 ? <>About {usd(Number(it.amountUsd) - amountUsd)} of that covers moving it across networks. </> : null
                 ) : it.amountUsd && Number(it.amountUsd) > 0 ? (
                   <>About {usd(Number(it.amountUsd))} at today's price, the swap included. </>
                 ) : null}
@@ -1014,7 +1067,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
 
               {it.status === 'INCOMPLETE_DEPOSIT' && (
                 <div className="mt-4 rounded-[12px] border border-line bg-[#FAFAF8] px-3.5 py-3 text-[13px] leading-relaxed text-muted">
-                  Less than {it.amount} {it.symbol} arrived. Send the rest to the same address before the time runs out. If it doesn't arrive, what you sent is returned.
+                  Less than {sendIt} {it.symbol} arrived. Send the rest to the same address before the time runs out. If it doesn't arrive, what you sent is returned.
                 </div>
               )}
               {(it.status === 'REFUNDED' || it.status === 'FAILED') && (
@@ -1077,7 +1130,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
           {P?.simulator && it && (
             <TestBox title="Test mode, pretend the coins arrived" note="This address is made up for testing, and no wallet will send to it. Nothing real can be lost.">
               <TestButton primary busy={live?.busy} onClick={() => void live?.simulate('full')}>
-                Send {it.amount} {it.symbol}
+                Send {sendIt} {it.symbol}
               </TestButton>
             </TestBox>
           )}

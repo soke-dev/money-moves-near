@@ -12,7 +12,7 @@ import { body, HttpError } from "../lib/http";
 import { newMerchantId } from "../lib/crypto";
 import { audit } from "../lib/audit";
 import { requireMember, requireUser } from "../middleware/auth";
-import { platform } from "../lib/platform";
+import { DEFAULT_CHAIN, platform } from "../lib/platform";
 import { ngnPerUsd } from "../lib/rates";
 import { canSimulate } from "../rails";
 import { limitsNgn } from "./pay";
@@ -49,11 +49,13 @@ router.post("/", requireUser, async (req, res) => {
   // A code that doesn't match anyone is let go quietly: it never stops a business being opened.
   const code = b.ref?.replace(/\s+/g, "").toUpperCase();
   const referrer = code ? await prisma.business.findUnique({ where: { referralCode: code }, select: { id: true } }) : null;
+  // New businesses settle crypto on Monad: a payment through NEAR Intents lands there with no extra fee. Movement while Monad is switched off.
+  const settleChain = (await platform()).settleChains.MONAD ? "MONAD" : DEFAULT_CHAIN;
   // A merchant id clash is vanishingly rare; a few tries makes it impossible in practice.
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
       const business = await prisma.business.create({
-        data: { name: b.name, kind: b.kind, merchantId: newMerchantId(), referredById: referrer?.id ?? null, members: { create: { userId: req.auth!.userId, role: "OWNER" } } },
+        data: { name: b.name, kind: b.kind, merchantId: newMerchantId(), settleChain, referredById: referrer?.id ?? null, members: { create: { userId: req.auth!.userId, role: "OWNER" } } },
       });
       await audit(req, "business_created", { businessId: business.id, detail: { name: business.name, kind: business.kind } });
       res.status(201).json({ business: { ...summary(business), role: "OWNER", liveNoticeClosed: false } });
