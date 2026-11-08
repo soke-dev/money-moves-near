@@ -516,6 +516,32 @@ async function followConversions(): Promise<void> {
   }
 }
 
+/**
+ * A payment's address found empty when it was to be swept again: an earlier
+ * sweep, whose confirmation we lost, went through after all. Recorded as
+ * swept to where that attempt went. A conversion counts only once NEAR
+ * Intents has the deposit; if it doesn't, the payout waits for our team
+ * rather than being paid on a guess.
+ */
+async function earlierSweepLanded(p: Payment, list: CryptoArrival[]): Promise<void> {
+  const ids = list.map((x) => x.id);
+  const first = list[0]!;
+  if (first.sweepVia) {
+    const st = await intentStatus(first.sweepVia);
+    if (st && ["KNOWN_DEPOSIT_TX", "PROCESSING", "SUCCESS"].includes(st.status)) {
+      await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweptAt: new Date(), sweepingAt: null } });
+      log.info("[crypto-out] an earlier conversion had gone through", { ref: p.ref, via: first.sweepVia, status: st.status });
+      return;
+    }
+    await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweptAt: new Date(), sweepingAt: null, fundError: `Left the payment's address, but NEAR Intents shows ${st?.status ?? "nothing"} for it.` } });
+    log.warn("[crypto-out] a payment's address is empty but its conversion isn't found. Its payout waits for ops", { ref: p.ref, via: first.sweepVia, status: st?.status ?? null });
+    return;
+  }
+  const toFloat = !!first.sweptTo && first.sweptTo.toLowerCase() !== (treasuryFor(first.network) ?? "").toLowerCase();
+  await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweptAt: new Date(), sweepingAt: null, ...(toFloat ? { fundedAt: new Date() } : {}) } });
+  log.info("[crypto-out] an earlier sweep had gone through", { ref: p.ref, to: first.sweptTo });
+}
+
 /** Paid payments' own addresses: what paid for them, into the treasury, or the float that pays the business. One address at a time. */
 async function sweep(): Promise<void> {
   const due = await prisma.cryptoArrival.findMany({
@@ -552,6 +578,11 @@ async function sweep(): Promise<void> {
     try {
       sent = await sendFromOwn(p, first.network, first.coin as Coin, first.token, plan.sendTo, micros);
     } catch (e) {
+      // Already empty after an earlier attempt we lost track of: only our key can move it, so that attempt went through.
+      if (e instanceof NotSent && /holds nothing to send/i.test(e.message) && first.sweptTo) {
+        await earlierSweepLanded(p, list).catch((err) => log.warn("[crypto-out] couldn't settle an earlier sweep", { ref: p.ref, reason: reason(err) }));
+        continue;
+      }
       await prisma.cryptoArrival.updateMany({ where: { id: { in: ids } }, data: { sweepingAt: e instanceof NotSent && e.retry ? new Date(Date.now() - 14 * 60_000) : null } });
       log.warn("[crypto-out] sweep not sent", { ref: p.ref, network: first.network, reason: reason(e) });
       continue;
