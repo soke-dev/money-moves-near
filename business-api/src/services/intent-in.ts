@@ -243,7 +243,7 @@ export async function watchIntent(p: Payment): Promise<Payment> {
       return p;
     }
     const changed = intent !== was || s.status !== intent.status || s.originTx !== intent.originTx || s.destinationTx !== intent.destinationTx;
-    const underWay = s.status === "KNOWN_DEPOSIT_TX" || s.status === "PROCESSING" || s.status === "SUCCESS";
+    const underWay = !!intent.submittedTx || s.status === "KNOWN_DEPOSIT_TX" || s.status === "PROCESSING" || s.status === "SUCCESS";
     const later = new Date(Date.now() + SWAP_MS);
     const extend = p.status === "OPEN" && underWay && p.expiresAt < later;
     if (!changed && !extend) return p;

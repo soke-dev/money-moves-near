@@ -39,7 +39,7 @@ import { canSimulate, railsFor } from "../rails";
 import { checkDirectDaily, directLimits, directOn, uniqueDirectAmount } from "../lib/direct";
 import { chainPaused, cryptoDefaults, effectiveChain, payoutChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, reviewLimits, type Platform } from "../lib/platform";
 import { treasuryFor } from "../lib/chains";
-import { floatSend, floatTxStatus, NotSent, type FloatChain, type Sent } from "../lib/float";
+import { floatBalances, floatSend, floatTxStatus, NotSent, type FloatChain, type Sent } from "../lib/float";
 import { stellarFromSolana } from "../lib/stellar";
 import { linkAddress } from "../lib/app-links";
 import { appPayReady, readAppPayments } from "../lib/app-pay";
@@ -681,19 +681,38 @@ export async function sendSettlement(s: Settlement, opts: { from?: "QUEUED" | "R
  * goes once it's there. Bank transfers, the app, and payments to the treasury
  * itself pay from the float as before. So do payments swept before this
  * existed, or swept to the treasury because they couldn't be converted.
+ *
+ * Where a payout's money comes from. "own": its payment's money is in the
+ * float, put there for it. "float": the float pays, as it always did (bank and
+ * app payments, the treasury kinds, ones swept before payouts were paid out of
+ * their own money, ones too small to convert). Or still waiting for it.
  */
-async function waitingForItsMoney(s: Settlement): Promise<string | null> {
-  const p = await prisma.payment.findUnique({ where: { id: s.paymentId }, select: { method: true, depositKind: true } });
-  if (!p || p.method !== "CRYPTO" || p.depositKind !== "OWN") return null;
-  const used = await prisma.cryptoArrival.findMany({ where: { paymentId: s.paymentId, kind: "PAYMENT", usedMicros: { gt: 0n } }, select: { network: true, sweptAt: true, sweptTo: true, fundedAt: true, fundError: true } });
-  if (!used.length) return null;
-  const pays = (x: (typeof used)[number]) =>
-    !!x.fundedAt ||
-    // Swept the old way, or to the treasury because it couldn't be converted: the float pays, as it always did.
-    (!!x.sweptAt && (!x.sweptTo || x.sweptTo.toLowerCase() === (treasuryFor(x.network) ?? "").toLowerCase()));
-  if (used.every(pays)) return null;
-  if (used.some((x) => x.fundError)) return "The payment's money didn't reach the float. Our team sends this one.";
-  return "Waiting for the payment's money to reach the float.";
+async function moneyFor(paymentId: string): Promise<"own" | "float" | { waiting: string }> {
+  const p = await prisma.payment.findUnique({ where: { id: paymentId }, select: { method: true, depositKind: true } });
+  if (!p || p.method !== "CRYPTO" || p.depositKind !== "OWN") return "float";
+  const used = await prisma.cryptoArrival.findMany({ where: { paymentId, kind: "PAYMENT", usedMicros: { gt: 0n } }, select: { network: true, sweptAt: true, sweptTo: true, fundedAt: true, fundError: true } });
+  if (!used.length) return "float";
+  if (used.every((x) => !!x.fundedAt)) return "own";
+  // Swept the old way, or to the treasury because it couldn't be converted: the float pays, as it always did.
+  const oldWay = (x: (typeof used)[number]) => !x.fundedAt && !!x.sweptAt && (!x.sweptTo || x.sweptTo.toLowerCase() === (treasuryFor(x.network) ?? "").toLowerCase());
+  if (used.every((x) => !!x.fundedAt || oldWay(x))) return "float";
+  if (used.some((x) => x.fundError)) return { waiting: "The payment's money didn't reach the float. Our team sends this one." };
+  return { waiting: "Waiting for the payment's money to reach the float." };
+}
+
+/**
+ * What the float can spend on a payout it pays itself: its USDC, less what's
+ * there for other payouts that brought their own money and haven't gone yet.
+ * So a payout the float pays never uses another payment's money. Null when
+ * the balance can't be read (the send itself then checks).
+ */
+async function spareInFloat(s: Settlement): Promise<bigint | null> {
+  const bal = await floatBalances(s.chain as FloatChain).catch(() => null);
+  if (!bal) return null;
+  const others = await prisma.settlement.findMany({ where: { id: { not: s.id }, mode: "LIVE", chain: s.chain, status: { in: ["QUEUED", "REVIEW", "HELD", "SENDING"] }, amountMicros: { not: null } }, select: { paymentId: true, amountMicros: true }, take: 200 });
+  let reserved = 0n;
+  for (const o of others) if ((await moneyFor(o.paymentId)) === "own") reserved += o.amountMicros!;
+  return bal.usdcMicros - reserved;
 }
 
 /**
@@ -706,10 +725,20 @@ async function sendOnChain(s: Settlement, from: "QUEUED" | "REVIEW"): Promise<vo
   if (s.mode === "LIVE" && !(await payoutsOn())) return;
   // Paid out of the customer's own money, never ahead of it: a stablecoin or other-coin payment waits for its money to reach the float.
   if (s.mode === "LIVE") {
-    const waiting = await waitingForItsMoney(s);
+    const m = await moneyFor(s.paymentId);
+    const waiting = typeof m === "string" ? null : m.waiting;
     if (waiting) {
       if (s.failureReason !== waiting) await prisma.settlement.updateMany({ where: { id: s.id, status: from }, data: { failureReason: waiting } });
       return;
+    }
+    // Paid by the float itself: never out of money another payout brought with it.
+    if (m === "float" && s.chain && s.amountMicros) {
+      const spare = await spareInFloat(s);
+      if (spare !== null && spare < s.amountMicros) {
+        const why = `The ${CHAIN_NAME[s.chain] ?? s.chain} float is low on USDC.`;
+        if (s.failureReason !== why) await prisma.settlement.updateMany({ where: { id: s.id, status: from }, data: { failureReason: why } });
+        return;
+      }
     }
   }
   // Its chain switched off on Services: it waits, queued, and goes once the chain is back on.

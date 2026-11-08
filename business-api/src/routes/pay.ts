@@ -111,8 +111,9 @@ function publicIntent(p: Payment) {
     amountUsd: i.amountUsd,
     deadline: i.deadline,
     timeEstimate: i.timeEstimate,
-    status: i.status,
-    originTx: i.originTx,
+    // Seen on the customer's chain by us and handed to NEAR Intents: shown as received at once, not when NEAR Intents gets round to it.
+    status: i.status === "PENDING_DEPOSIT" && i.submittedTx ? "KNOWN_DEPOSIT_TX" : i.status,
+    originTx: i.originTx ?? i.submittedTx ?? null,
     /** The network the USDC lands on, ours. */
     landsOn: p.network,
     /** A USDC or USDT payment routed through NEAR Intents: the page shows it as the stablecoin the customer picked. */
