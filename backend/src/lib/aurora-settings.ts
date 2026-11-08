@@ -46,6 +46,12 @@ export type AuroraSettings = {
     maxUsd: number;
     /** Who quotes and settles swaps. BTC and Tron deposits stay on Aurora either way. */
     provider: SwapProvider;
+    /**
+     * Swaps out of Movement USDCx, which go through our own two wallets (in on Movement, out from Base) because
+     * Movement has no liquidity on NEAR Intents. Off: Movement isn't offered as a coin to swap from, and only
+     * swaps NEAR Intents quotes and settles run.
+     */
+    movementRoute: boolean;
   };
 };
 
@@ -71,6 +77,7 @@ export const AURORA_DEFAULTS: AuroraSettings = {
     sweepMaxUsd: 5,
     maxUsd: 50,
     provider: "oneclick",
+    movementRoute: true,
   },
 };
 
@@ -98,6 +105,7 @@ const KEYS = {
   sweepMax: "au:swap:sweepMaxUsd",
   swapMax: "au:swap:maxUsd",
   swapProvider: "au:swap:provider",
+  swapMovementRoute: "au:swap:movementRoute",
 };
 
 function num(v: string | null | undefined, fallback: number, range: { min: number; max: number }): number {
@@ -144,6 +152,7 @@ export async function auroraSettings(): Promise<AuroraSettings> {
       provider: SWAP_PROVIDERS.includes(v.get(KEYS.swapProvider) as SwapProvider)
         ? (v.get(KEYS.swapProvider) as SwapProvider)
         : d.swap.provider,
+      movementRoute: v.get(KEYS.swapMovementRoute) === "false" ? false : v.get(KEYS.swapMovementRoute) === "true" ? true : d.swap.movementRoute,
     },
   };
   cache = { at: Date.now(), value };
@@ -195,6 +204,10 @@ export async function updateAuroraSettings(
     if (s.enabled !== undefined) {
       if (typeof s.enabled !== "boolean") throw new Error("enabled must be true or false");
       writes.push([KEYS.swapEnabled, String(s.enabled)]);
+    }
+    if (s.movementRoute !== undefined) {
+      if (typeof s.movementRoute !== "boolean") throw new Error("movementRoute must be true or false");
+      writes.push([KEYS.swapMovementRoute, String(s.movementRoute)]);
     }
     if (s.feeBps !== undefined) writes.push([KEYS.swapFee, String(Math.round(inRange("Fee", s.feeBps, LIMITS.feeBps)))]);
     if (s.solanaFlatUsd !== undefined) writes.push([KEYS.swapSolFlat, String(inRange("Solana fee", s.solanaFlatUsd, LIMITS.solanaFlatUsd))]);

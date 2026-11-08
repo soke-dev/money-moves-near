@@ -238,9 +238,10 @@ export const swapAssetById = (id: string) => SWAP_ASSETS.find((a) => a.id === id
 
 /** The catalogue with live decimals and price, minus anything they no longer list. */
 export async function liveSwapAssets(): Promise<(SwapAsset & { decimals: number; price: number })[]> {
-  const tokens = await auroraTokens();
+  const [tokens, settings] = await Promise.all([auroraTokens(), auroraSettings()]);
   return SWAP_ASSETS.flatMap((a) => {
-    if (a.via && !isMovementRouteConfigured()) return [];
+    // Out of Movement through our own wallets: needs both wallets set, and the console's switch on.
+    if (a.via && (!isMovementRouteConfigured() || !settings.swap.movementRoute)) return [];
     const t = tokens.get(a.assetId);
     if (t) return [{ ...a, decimals: t.decimals, price: t.price }];
     // A routed coin never touches their liquidity, so it does not need listing.

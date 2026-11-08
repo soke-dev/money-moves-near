@@ -260,7 +260,7 @@ export async function quoteIntent(input: { coin: IntentCoin; landing: Network; r
 export type IntentStatus = "PENDING_DEPOSIT" | "KNOWN_DEPOSIT_TX" | "PROCESSING" | "SUCCESS" | "INCOMPLETE_DEPOSIT" | "REFUNDED" | "FAILED";
 
 /** Where a swap has got to, by its deposit address. */
-export async function intentStatus(depositAddress: string, depositMemo?: string | null): Promise<{ status: IntentStatus; originTx: string | null; destinationTx: string | null } | null> {
+export async function intentStatus(depositAddress: string, depositMemo?: string | null): Promise<{ status: IntentStatus; originTx: string | null; destinationTx: string | null; depositedAmount: string | null } | null> {
   const q = new URLSearchParams({ depositAddress, ...(depositMemo ? { depositMemo } : {}) });
   const r = await call(`/v0/status?${q}`);
   if (!r.ok) return null;
@@ -269,6 +269,7 @@ export async function intentStatus(depositAddress: string, depositMemo?: string 
     status: r.body?.status as IntentStatus,
     originTx: d.originChainTxHashes?.[0]?.hash ?? null,
     destinationTx: d.destinationChainTxHashes?.[0]?.hash ?? null,
+    depositedAmount: d.depositedAmountFormatted ?? null,
   };
 }
 

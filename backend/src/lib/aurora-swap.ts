@@ -148,6 +148,7 @@ export async function planSwap(userId: string, fromId: string, toId: string, amo
   if (!recipientAddress) throw new SwapError(`No wallet found on ${to.chain}.`);
 
   let routeRefundAddress: string | undefined;
+  if (from.via && !settings.movementRoute) throw new SwapError("Swaps from Movement are off right now.", 503);
   if (from.via) {
     routeRefundAddress = (await ownAddressOn(userId, from.via)) ?? undefined;
     if (!routeRefundAddress) throw new SwapError("Set up your Base wallet first.");

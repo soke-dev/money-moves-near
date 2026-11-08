@@ -16,12 +16,13 @@ import { Prisma, type Payment } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { HttpError } from "../lib/http";
 import { log } from "../lib/log";
-import { addressKey, contractsOf, evmChain, hexNum, rpc, toHex } from "../lib/chains";
+import { SOL_MINTS, addressKey, contractsOf, evmChain, hexNum, rpc, toHex } from "../lib/chains";
+import { ethers } from "ethers";
 import { env } from "../config/env";
 import { depositAddressFor } from "../lib/deposit-keys";
 import { effectiveChain } from "../lib/platform";
 import { IntentQuoteError, intentCoin, stableIntentCoin, intentPrice, intentStatus, intentsOffered, landingFor, quoteIntent, submitIntentDeposit, testLandingFor, type IntentStatus } from "../lib/intents";
-import type { Network } from "../lib/accept";
+import type { Coin, Network } from "../lib/accept";
 import { admit, newPayment, testAddress, type Checkout, type OpenInput } from "./payments";
 import { openSolanaAccount } from "./crypto-out";
 
@@ -51,6 +52,13 @@ export type Intent = {
   destinationTx: string | null;
   /** The customer's transaction, found on their chain and handed to 1Click so it starts at once. */
   submittedTx?: string | null;
+  /** What arrived at the 1Click address, in the coin's own units, as we or 1Click read it. */
+  depositedAmount?: string | null;
+  /**
+   * When the customer's part was done: enough arrived at the 1Click address. From then the checkout shows them
+   * paid; the payment itself, the business's notice and its payout still wait for the money to reach us.
+   */
+  paidSeenAt?: string | null;
   /** A USDC or USDT payment routed through NEAR Intents by the Services switch, not a coin the customer picked. */
   stable?: boolean;
   /** Test mode: made up, nothing to send. */
@@ -184,14 +192,16 @@ const blocksBack = (blockSeconds: number) => Math.min(1_000, Math.ceil(300 / blo
  * signatures) and the EVM chains we read (USDC and USDT, by their Transfer
  * logs). Elsewhere, and for native ETH, 1Click finds it by itself.
  */
-async function findOriginTx(i: Intent): Promise<string | null> {
+async function findOriginTx(i: Intent): Promise<{ tx: string; amount: string | null } | null> {
   if (i.chain === "Solana") {
     const url = env.SOLANA_RPC_URL;
     if (!url) return null;
     const sigs = await rpc<{ signature: string; err: unknown }[]>(url, "getSignaturesForAddress", [i.address, { limit: 10 }]);
     // Newest first: the oldest one that succeeded is the customer's deposit; anything after is 1Click moving it on.
     const ok = sigs.filter((s) => !s.err);
-    return ok.length ? ok[ok.length - 1]!.signature : null;
+    const tx = ok.length ? ok[ok.length - 1]!.signature : null;
+    if (!tx) return null;
+    return { tx, amount: await solanaDeposited(url, tx, i).catch(() => null) };
   }
   const c = evmChain(i.chain);
   const url = c?.url();
@@ -199,9 +209,44 @@ async function findOriginTx(i: Intent): Promise<string | null> {
   if (!c || !url || !tokens.length) return null;
   const tip = hexNum(await rpc<string>(url, "eth_blockNumber", []));
   const to = `0x${i.address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
-  const logs = await rpc<{ transactionHash: string }[]>(url, "eth_getLogs", [{ address: tokens.map((t) => t.address), topics: [TRANSFER_TOPIC, null, to], fromBlock: toHex(Math.max(0, tip - blocksBack(c.blockSeconds))), toBlock: toHex(tip) }]);
-  return logs[0]?.transactionHash ?? null;
+  const logs = await rpc<{ transactionHash: string; address: string; data: string }[]>(url, "eth_getLogs", [{ address: tokens.map((t) => t.address), topics: [TRANSFER_TOPIC, null, to], fromBlock: toHex(Math.max(0, tip - blocksBack(c.blockSeconds))), toBlock: toHex(tip) }]);
+  const l = logs[0];
+  if (!l) return null;
+  const decimals = tokens.find((t) => t.address.toLowerCase() === l.address.toLowerCase())?.decimals ?? 6;
+  return { tx: l.transactionHash, amount: ethers.formatUnits(BigInt(l.data), decimals) };
 }
+
+/** How much the customer's Solana transaction put at the 1Click address: its USDC or USDT, or SOL itself. */
+async function solanaDeposited(url: string, sig: string, i: Intent): Promise<string | null> {
+  const t = await rpc<any>(url, "getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0 }]);
+  const meta = t?.meta;
+  if (!meta || meta.err) return null;
+  const mint = SOL_MINTS[i.symbol as Coin];
+  if (mint) {
+    const mine = (b: any) => b.owner === i.address && b.mint === mint;
+    const post = (meta.postTokenBalances ?? []).filter(mine).reduce((s: bigint, b: any) => s + BigInt(b.uiTokenAmount.amount), 0n);
+    const pre = (meta.preTokenBalances ?? []).filter(mine).reduce((s: bigint, b: any) => s + BigInt(b.uiTokenAmount.amount), 0n);
+    return post > pre ? ethers.formatUnits(post - pre, 6) : null;
+  }
+  if (i.symbol === "SOL") {
+    const keys: any[] = t.transaction?.message?.accountKeys ?? [];
+    const at = keys.findIndex((k) => (typeof k === "string" ? k : k.pubkey) === i.address);
+    if (at < 0) return null;
+    const diff = BigInt(meta.postBalances[at]) - BigInt(meta.preBalances[at]);
+    return diff > 0n ? ethers.formatUnits(diff, 9) : null;
+  }
+  return null;
+}
+
+/** Enough arrived for the swap to finish: at least the least the quote takes. */
+function enough(i: Intent): boolean {
+  const got = Number(i.depositedAmount ?? NaN);
+  const need = Number(i.minAmount ?? i.amount);
+  return Number.isFinite(got) && Number.isFinite(need) && need > 0 && got + need * 1e-9 >= need;
+}
+
+/** Marks the customer's part done, once enough has arrived. Kept once set. */
+const withSeen = (i: Intent): Intent => (i.paidSeenAt || !enough(i) ? i : { ...i, paidSeenAt: new Date().toISOString() });
 
 /**
  * While a swap waits for its deposit: look for the transfer ourselves and hand
@@ -211,10 +256,10 @@ async function findOriginTx(i: Intent): Promise<string | null> {
 async function nudge(p: Payment, intent: Intent): Promise<Intent> {
   if (intent.status !== "PENDING_DEPOSIT" || intent.submittedTx) return intent;
   try {
-    const tx = await findOriginTx(intent);
-    if (!tx || !(await submitIntentDeposit(intent.address, tx, intent.memo))) return intent;
-    log.info("[intents] handed the deposit to 1Click", { ref: p.ref, tx });
-    return { ...intent, submittedTx: tx };
+    const found = await findOriginTx(intent);
+    if (!found || !(await submitIntentDeposit(intent.address, found.tx, intent.memo))) return intent;
+    log.info("[intents] handed the deposit to 1Click", { ref: p.ref, tx: found.tx, amount: found.amount });
+    return withSeen({ ...intent, submittedTx: found.tx, depositedAmount: found.amount ?? intent.depositedAmount ?? null });
   } catch (e) {
     log.warn("[intents] couldn't look for the deposit", { ref: p.ref, reason: e instanceof Error ? e.message : String(e) });
     return intent;
@@ -242,16 +287,20 @@ export async function watchIntent(p: Payment): Promise<Payment> {
       if (intent !== was) return await prisma.payment.update({ where: { id: p.id }, data: { intent: intent as unknown as Prisma.InputJsonValue } });
       return p;
     }
-    const changed = intent !== was || s.status !== intent.status || s.originTx !== intent.originTx || s.destinationTx !== intent.destinationTx;
     const underWay = !!intent.submittedTx || s.status === "KNOWN_DEPOSIT_TX" || s.status === "PROCESSING" || s.status === "SUCCESS";
+    // 1Click's own reading of what arrived, for the coins we don't read ourselves (Bitcoin and the rest).
+    const depositedAmount = (underWay && s.depositedAmount) || intent.depositedAmount || null;
+    const next = withSeen({ ...intent, status: s.status, originTx: s.originTx, destinationTx: s.destinationTx, depositedAmount });
+    const changed = intent !== was || s.status !== intent.status || s.originTx !== intent.originTx || s.destinationTx !== intent.destinationTx || next.depositedAmount !== intent.depositedAmount || next.paidSeenAt !== intent.paidSeenAt;
     const later = new Date(Date.now() + SWAP_MS);
     const extend = p.status === "OPEN" && underWay && p.expiresAt < later;
     if (!changed && !extend) return p;
-    if (changed) log.info("[intents] swap moved on", { ref: p.ref, from: intent.status, to: s.status, originTx: s.originTx });
+    if (changed && s.status !== intent.status) log.info("[intents] swap moved on", { ref: p.ref, from: intent.status, to: s.status, originTx: s.originTx });
+    if (next.paidSeenAt && !intent.paidSeenAt) log.info("[intents] the customer's part is done, shown as paid", { ref: p.ref, deposited: next.depositedAmount, needed: intent.minAmount ?? intent.amount });
     return await prisma.payment.update({
       where: { id: p.id },
       data: {
-        intent: { ...intent, status: s.status, originTx: s.originTx, destinationTx: s.destinationTx } as unknown as Prisma.InputJsonValue,
+        intent: next as unknown as Prisma.InputJsonValue,
         ...(extend ? { expiresAt: later } : {}),
       },
     });

@@ -25,6 +25,8 @@ type Settings = {
     sweepMaxUsd?: number
     maxUsd?: number
     provider?: 'oneclick' | 'aurora'
+    /** Swaps out of Movement through our own wallets. Off: only swaps NEAR Intents quotes run. */
+    movementRoute?: boolean
   }
 }
 type Wiring = {
@@ -222,7 +224,17 @@ export function SwapSettings() {
           {wiring.movementRoute && (
             <Panel
               title="Swaps out of Movement"
-              sub="USDCx is received in the Movement wallet, and the Base wallet pays out USDC or funds the onward swap. When the Base wallet cannot cover a swap, the app says it is not available right now."
+              sub="USDCx is received in the Movement wallet, and the Base wallet pays out USDC or funds the onward swap. When the Base wallet cannot cover a swap, the app says it is not available right now. Off: Movement isn't offered as a coin to swap from, and only the swaps NEAR Intents quotes and settles run. A swap already under way still finishes."
+              action={
+                <Segmented
+                  value={settings.swap.movementRoute === false ? 'off' : 'on'}
+                  onChange={(v) => save({ swap: { movementRoute: v === 'on' } }, v === 'on' ? 'Swaps out of Movement are on' : 'Swaps out of Movement are off')}
+                  items={[
+                    ['on', 'On'],
+                    ['off', 'Off'],
+                  ]}
+                />
+              }
             >
               {wiring.movementRoute.configured ? (
                 <div className="grid gap-3 text-[13px] md:grid-cols-3">

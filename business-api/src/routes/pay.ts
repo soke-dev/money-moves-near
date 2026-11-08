@@ -129,12 +129,18 @@ async function returnsOf(p: Payment) {
   return list.map((x) => ({ token: x.returnToken, amount: coinText(x.returnMicros ?? 0n), coin: x.coin, status: x.returnStatus, why: x.returnWhy }));
 }
 
+/**
+ * Paid in another coin or through NEAR Intents: once enough has arrived at the 1Click address, the customer's part is
+ * done and their page says so. The payment itself (the business's notice, its payout) still waits for the money to reach us.
+ */
+const customerPaidAt = (p: Payment): string | null => (p.status === "OPEN" ? (intentOf(p)?.paidSeenAt ?? null) : null);
+
 const publicPayment = (p: Payment, seen: Seen | null = null, returns: Awaited<ReturnType<typeof returnsOf>> = []) => ({
   token: p.token,
   ref: p.ref,
   mode: p.mode,
   method: p.method,
-  status: p.status,
+  status: customerPaidAt(p) ? ("PAID" as const) : p.status,
   currency: p.currency,
   amountNgn: p.amountKobo / 100,
   amountUsd: p.amountCents / 100,
@@ -163,8 +169,8 @@ const publicPayment = (p: Payment, seen: Seen | null = null, returns: Awaited<Re
   /** Paid by the app or crypto: the transaction on chain. */
   tx: (p.method === "CRYPTO" || p.method === "APP") && p.payerSession ? p.payerSession.split(":")[0] : null,
   expiresAt: p.expiresAt,
-  receivedNgn: p.receivedKobo != null ? p.receivedKobo / 100 : null,
-  paidAt: p.paidAt,
+  receivedNgn: customerPaidAt(p) ? p.amountKobo / 100 : p.receivedKobo != null ? p.receivedKobo / 100 : null,
+  paidAt: customerPaidAt(p) ?? p.paidAt,
   email: p.customerEmail,
   simulator: canSimulate(p.mode),
 });

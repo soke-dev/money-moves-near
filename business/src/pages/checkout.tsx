@@ -77,8 +77,8 @@ function roundUpCoin(amount: string, places: number): string {
 /** The coin picker's "Another coin" entry. */
 const OTHER = 'OTHER'
 
-/** How far a swap has got, as the step it's on: sent, received, changed to USDC, paid. */
-const INTENT_STEP: Record<string, number> = { PENDING_DEPOSIT: 0, INCOMPLETE_DEPOSIT: 0, REFUNDED: 0, FAILED: 0, KNOWN_DEPOSIT_TX: 1, PROCESSING: 2, SUCCESS: 3 }
+/** How far a swap has got, as the step it's on: sent, received, paid. What happens after the customer's part is ours, not theirs to watch. */
+const INTENT_STEP: Record<string, number> = { PENDING_DEPOSIT: 0, INCOMPLETE_DEPOSIT: 0, REFUNDED: 0, FAILED: 0, KNOWN_DEPOSIT_TX: 1, PROCESSING: 1, SUCCESS: 2 }
 
 /** Each coin's own logo, kept with the dashboard. */
 const COIN_LOGO: Record<string, string> = {
@@ -954,7 +954,6 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
     ? [
         { title: `Send ${viaCoin.symbol} from your wallet`, sub: it?.timeEstimate ? `Usually done in about ${Math.max(1, Math.round(it.timeEstimate / 60))} min once it's sent.` : undefined },
         { title: `Received on ${NETWORK_NAME[viaCoin.chain as Chain] ?? viaCoin.chain}`, sub: it?.originTx ? `Transaction ${shortTx(it.originTx)}` : undefined },
-        { title: stableVia ? 'Delivered as USDC' : 'Changed to USDC' },
         { title: `Paid to ${merchant}` },
       ].map((st, i) => ({ ...st, state: (i < swapAt ? 'done' : i === swapAt ? 'now' : 'todo') as 'done' | 'now' | 'todo' }))
     : []
