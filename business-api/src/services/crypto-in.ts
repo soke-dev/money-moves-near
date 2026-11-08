@@ -703,7 +703,10 @@ async function lookEvm(c: EvmChain, p: Payment): Promise<void> {
         ? BigInt(await rpc<string>(url, "eth_getBalance", [address, "latest"]))
         : BigInt(await rpc<string>(url, "eth_call", [{ to: t.address, data: ERC20_BALANCE.encodeFunctionData("balanceOf", [address]) }, "latest"]));
     const held = toMicros(raw, t.decimals);
-    const here = await prisma.cryptoArrival.findMany({ where: { toAddress: address, network: c.network, ...(c.native ? {} : { token: t.address }) } });
+    // Token addresses are compared without case: arrivals keep the contract as the chain's logs spell it (lower case),
+    // the list here is checksummed. Compared exactly, a payment's own arrival didn't count, and the same money was
+    // recorded a second time as "extra" while its sweep was still waiting.
+    const here = (await prisma.cryptoArrival.findMany({ where: { toAddress: address, network: c.network } })).filter((x) => c.native || (x.token ?? "").toLowerCase() === t.address.toLowerCase());
     // What should be there: everything that came, less what was swept and what went back.
     const expected = here.reduce((s, x) => s + x.micros - (x.sweptAt ? x.usedMicros : 0n) - (x.returnStatus === "RETURNED" ? (x.returnMicros ?? 0n) : 0n), 0n);
     const unexplained = held - expected;
