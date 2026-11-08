@@ -25,6 +25,7 @@ import { REFUND_WITHIN_MS, markRefundSent } from "../services/refunds";
 import { requestShape } from "./requests";
 import adminSupportRoutes from "./admin-support";
 import { keepOneDefault, nameOnRecord, recheckBanks } from "../lib/banks";
+import { INTENT_COINS, landingFor } from "../lib/intents";
 import { DEFAULT_CHAIN, NETWORKS, PLATFORM_DEFAULTS, WAYS, chainPaused, effectiveChain, kindLimitsNgn, nairaDefaults, ownCheckoutOf, ownCheckoutSchema, payoutsOn, platform, platformSchema, platformWithMeta, reviewLimits, savePlatform, type Platform, type Way } from "../lib/platform";
 import { wayLimitsNgn } from "./pay";
 import { assignDeposit, depositRow, directBalanceNgn, directPaymentRow, directTotals, markSettled, resolveDeposit, setDirectAllowed, setDirectLimits } from "../services/direct";
@@ -1540,11 +1541,14 @@ function whatsLive() {
     coins: { USDC: coin("USDC"), USDT: coin("USDT") },
     networks,
     settleChains: { MOVEMENT: floatOn("MOVEMENT"), ARC: floatOn("ARC"), MONAD: floatOn("MONAD"), SOLANA: floatOn("SOLANA"), STELLAR: stellarPayouts },
+    // Other coins land as USDC on Solana (or Monad, for a business settling there), at an address of the payment's own.
+    intents: landingFor("SOLANA") ? null : "Needs live USDC payments on Solana, with DEPOSIT_SEED set so each payment has its own address.",
+    intentLanding: { MONAD: landingFor("MONAD"), SOLANA: landingFor("SOLANA"), others: landingFor("MOVEMENT") },
   };
 }
 
 router.get("/platform", async (_req, res) => {
-  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, live: whatsLive() });
+  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, intentCoins: INTENT_COINS.map(({ key, symbol, name, chain }) => ({ key, symbol, name, chain })), live: whatsLive() });
 });
 
 /** Every change here reaches every business within seconds, so every save takes the password. */
@@ -1563,7 +1567,7 @@ router.put("/platform", async (req, res) => {
     // Logged as the business's own chain change, so it reads the same wherever its history is shown.
     for (const m of moving) await audit(req, "settlement_chain_changed", { businessId: m.id, detail: { settleChain: DEFAULT_CHAIN, from: m.settleChain, reason: "chain_switched_off", admin: req.admin!.email } });
   }
-  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, live: whatsLive(), changed });
+  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, intentCoins: INTENT_COINS.map(({ key, symbol, name, chain }) => ({ key, symbol, name, chain })), live: whatsLive(), changed });
 });
 
 // ─── Crypto that came in: what goes back, what matched nothing, what's still to sweep ─

@@ -34,6 +34,9 @@ import { chooseReturn, validReturnAddress, whyWords } from "../services/crypto-o
 import { evmChain } from "../lib/chains";
 import { ethers } from "ethers";
 import { openLiveAppPayment } from "../services/app-in";
+import { giveIntentTx, intentOf, openIntentPayment, watchIntent } from "../services/intent-in";
+import { intentsOffered } from "../lib/intents";
+import { effectiveChain } from "../lib/platform";
 import { appPayReady } from "../lib/app-pay";
 import { checkPayment, confirmSimulated, fromInvoice, fromLink, fromOutlet, openNairaPayment, openSimulatedPayment, testAddress, type Checkout } from "../services/payments";
 import { itemsOf } from "./invoices";
@@ -93,6 +96,29 @@ function depositOf(p: Payment) {
   };
 }
 
+function publicIntent(p: Payment) {
+  const i = intentOf(p);
+  if (!i) return null;
+  return {
+    coin: i.coin,
+    symbol: i.symbol,
+    name: i.name,
+    chain: i.chain,
+    address: i.address,
+    memo: i.memo,
+    amount: i.amount,
+    /** What it comes to in dollars at the moment, swap included. */
+    amountUsd: i.amountUsd,
+    deadline: i.deadline,
+    timeEstimate: i.timeEstimate,
+    status: i.status,
+    originTx: i.originTx,
+    /** The network the USDC lands on, ours. */
+    landsOn: p.network,
+    test: !!i.test,
+  };
+}
+
 /** Money that came in and goes back, waiting for the customer to say where. */
 async function returnsOf(p: Payment) {
   if (p.method !== "CRYPTO" || p.mode !== "LIVE") return [];
@@ -118,6 +144,11 @@ const publicPayment = (p: Payment, seen: Seen | null = null, returns: Awaited<Re
   app: p.method === "APP" && p.appCode ? { link: `money-moves://business-pay?code=${p.appCode}` } : null,
   /** Crypto: where to send, and what. */
   deposit: depositOf(p),
+  /**
+   * Paid with another coin: what to send on the customer's own chain, and how
+   * the swap is going. `deposit` is then where the USDC it becomes lands, ours.
+   */
+  intent: publicIntent(p),
   /** Live crypto: anything that came in and goes back - over, short, late, another coin. */
   returns,
   /** Live crypto, while it's open: the transfer as soon as it lands on chain, and its confirmations so far. */
@@ -164,9 +195,15 @@ function usableMethods(methods: PayMethod[], mode: Mode, accept: Prisma.JsonValu
 
 const opening = customer.extend({ amount: z.number().positive().optional(), currency: z.enum(["NGN", "USD"]).optional() });
 const openingCrypto = opening.extend({ coin: z.enum(COINS), network: z.enum(NETWORKS) });
+/** Another coin, swapped to USDC by NEAR Intents: the coin's key, as the checkout lists it. */
+const openingIntent = opening.extend({ intent: z.string().min(1).max(20) });
 
 /** Starts a payment by the app or crypto, from whichever checkout. */
 async function openOther(c: Checkout, method: "APP" | "CRYPTO", req: Request, defaults: { email?: string | null; name?: string | null; title?: string | null } = {}) {
+  if (method === "CRYPTO" && typeof req.body?.intent === "string") {
+    const b = body(openingIntent, req);
+    return openIntentPayment(c, { email: b.email ?? defaults.email ?? undefined, name: b.name ?? defaults.name ?? undefined, phone: b.phone, amount: b.amount, currency: b.currency }, b.intent);
+  }
   const b: z.infer<typeof opening> & { coin?: string; network?: string } = method === "CRYPTO" ? body(openingCrypto, req) : body(opening, req);
   const input = { email: b.email ?? defaults.email ?? undefined, name: b.name ?? defaults.name ?? undefined, phone: b.phone, amount: b.amount, currency: b.currency };
   if (c.mode === "LIVE" && method === "CRYPTO") return openLiveCryptoPayment(c, input, b.coin!, b.network!);
@@ -184,7 +221,7 @@ async function byToken(token: string) {
 // ─── One payment ──────────────────────────────────────────────────────────
 
 router.get("/p/:token", watching, async (req, res) => {
-  const p = await byToken(String(req.params.token));
+  const p = await watchIntent(await byToken(String(req.params.token)));
   // Live crypto: a look at the chain itself - at most every few seconds per payment, however often the page asks.
   const seen = await watchLiveCrypto(p);
   const now = p.method === "CRYPTO" && p.mode === "LIVE" ? await prisma.payment.findUniqueOrThrow({ where: { id: p.id } }) : p;
@@ -193,11 +230,25 @@ router.get("/p/:token", watching, async (req, res) => {
 
 /** "I've sent the money": ask the rail now rather than waiting for the next round. */
 router.post("/p/:token/check", asking, async (req, res) => {
-  const p = await checkPayment(await byToken(String(req.params.token)));
+  const p = await checkPayment(await watchIntent(await byToken(String(req.params.token))));
   // Live crypto: a look at the chain itself, which may also find it paid just now.
   const seen = await watchLiveCrypto(p);
   const now = p.method === "CRYPTO" && p.mode === "LIVE" ? await prisma.payment.findUniqueOrThrow({ where: { id: p.id } }) : p;
   res.json({ payment: publicPayment(now, now.status === "OPEN" ? seen : null, await returnsOf(now)) });
+});
+
+/**
+ * Paid with another coin: the customer's transaction on their own chain,
+ * handed to NEAR Intents so the swap starts at once instead of waiting for
+ * its own watcher. Optional, and harmless if it's wrong: the swap only ever
+ * pays out what really reached its address.
+ */
+router.post("/p/:token/intent-tx", asking, async (req, res) => {
+  const p = await byToken(String(req.params.token));
+  const b = body(z.object({ tx: z.string().trim().min(16).max(160).regex(/^[0-9A-Za-z:_-]+$/, "That doesn't look like a transaction.") }), req);
+  if (!intentOf(p)) throw new HttpError(404, "Nothing here.", "not_found");
+  const passed = await giveIntentTx(p, b.tx);
+  res.json({ passed, payment: publicPayment(await watchIntent(p)) });
 });
 
 /**
@@ -435,6 +486,7 @@ router.get("/i/:token", watching, async (req, res) => {
       min: null,
       methods,
       accept: offeredAccept(inv.accept, p, inv.mode),
+      intents: methods.includes("CRYPTO") ? intentsOffered(p, inv.mode, effectiveChain(inv.business.settleChain, p)) : [],
       redirectUrl: null,
       askPhone: false,
     },
@@ -475,7 +527,8 @@ for (const method of ["APP", "CRYPTO"] as const) {
   router.post(`/i/:token/${method.toLowerCase()}`, starting, notPaused, async (req, res) => {
     const inv = await loadInvoice(String(req.params.token));
     const open = inv.status === "OPEN" ? await reusable(inv.id, method) : null;
-    if (open) {
+    // Crypto: picked up again only when it's the same kind, a stablecoin or the same other coin.
+    if (open && (method !== "CRYPTO" || (intentOf(open)?.coin ?? null) === (typeof req.body?.intent === "string" ? req.body.intent : null))) {
       res.json({ payment: publicPayment(open) });
       return;
     }
@@ -510,6 +563,7 @@ router.get("/o/:slug", watching, async (req, res) => {
       min: null,
       methods,
       accept: offeredAccept(o.accept, p, o.mode),
+      intents: methods.includes("CRYPTO") ? intentsOffered(p, o.mode, effectiveChain(o.business.settleChain, p)) : [],
       redirectUrl: null,
       askPhone: false,
       askName: o.askName,
@@ -575,6 +629,7 @@ router.get("/:slug", watching, async (req, res) => {
       min: link.minMinor != null ? link.minMinor / 100 : null,
       methods,
       accept: offeredAccept(link.accept, p, link.mode),
+      intents: methods.includes("CRYPTO") && !link.direct ? intentsOffered(p, link.mode, effectiveChain(link.business.settleChain, p)) : [],
       redirectUrl: link.redirectUrl,
       askPhone: link.askPhone,
       askName: link.askName,

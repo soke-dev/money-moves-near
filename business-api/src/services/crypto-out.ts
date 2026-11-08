@@ -129,7 +129,8 @@ async function decide(x: CryptoArrival & { payment: Payment | null }): Promise<v
   const from = sendsFrom(x, x.payment);
   let next: { returnStatus: string; returnTo?: string | null; returnBy?: string; returnToken?: string; returnAskedAt?: Date; returnError?: string };
   if (micros < DUST) next = { returnStatus: "KEPT", returnBy: "system", returnError: "Too small to be worth a network fee." };
-  else if (from && x.fromAddress && !MEMO_NETWORKS.includes(x.network as Network) && (await looksPersonal(x.network, x.fromAddress))) next = { returnStatus: "QUEUED", returnTo: x.fromAddress, returnBy: "system" };
+  // Paid with another coin: it came from the swap, not the customer's wallet, so it never goes back to where it came from.
+  else if (from && x.fromAddress && !x.payment?.intent && !MEMO_NETWORKS.includes(x.network as Network) && (await looksPersonal(x.network, x.fromAddress))) next = { returnStatus: "QUEUED", returnTo: x.fromAddress, returnBy: "system" };
   else if (x.payment?.customerEmail) next = { returnStatus: "ASK", returnToken: crypto.randomBytes(18).toString("base64url"), returnAskedAt: new Date() };
   else next = { returnStatus: "MANUAL" };
   const claimed = await prisma.cryptoArrival.updateMany({ where: { id: x.id, returnStatus: null }, data: next });

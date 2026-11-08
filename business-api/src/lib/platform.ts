@@ -46,6 +46,13 @@ export const platformSchema = z.object({
    */
   settleChains: z.object({ MOVEMENT: on, ARC: on, MONAD: on, SOLANA: on, STELLAR: on }),
   coins: z.object({ USDC: on, USDT: on }),
+  /**
+   * Paying with another coin (BTC, ETH, SOL and more), swapped to USDC by NEAR Intents. on: offered at
+   * live checkouts. feeBps: our own fee, taken inside the swap, on top of the usual stablecoin fee
+   * (0 by default). intentCoins: each coin by key; a missing key is on.
+   */
+  intents: z.object({ on, feeBps: z.number().int().min(0).max(300) }),
+  intentCoins: z.record(z.string().max(20), on),
   networks: z.object(Object.fromEntries(NETWORKS.map((n) => [n, on])) as Record<(typeof NETWORKS)[number], typeof on>),
   fees: z.object({
     nairaRateBps: z.number().int().min(0).max(1000),
@@ -117,6 +124,8 @@ export const PLATFORM_DEFAULTS: Platform = {
   destinations: { bank: true, moneyMoves: true, wallet: true },
   settleChains: { MOVEMENT: true, ARC: true, MONAD: true, SOLANA: true, STELLAR: true },
   coins: { USDC: true, USDT: true },
+  intents: { on: false, feeBps: 0 },
+  intentCoins: {},
   networks: Object.fromEntries(NETWORKS.map((n) => [n, true])) as Platform["networks"],
   fees: { nairaRateBps: 200, nairaCapNgn: 4_000, cryptoRateBps: 30, cryptoCapUsd: 1, appRateBps: 0, payoutNgn: 100 },
   limits: {

@@ -614,6 +614,8 @@ model Payment {
   /// Live, by the Money Moves app: the code its QR carries, and the username it was sent to.
   appCode        String?      @map("app_code")
   appSentTo      String?      @map("app_sent_to")
+  /// Paid with another coin through NEAR Intents: the coin, the address on its own chain, how much of it, the swap's status. The USDC it becomes lands at depositAddress as any stablecoin payment.
+  intent         Json?        @map("intent")
 
   // What arrived, as the bank reports it.
   receivedKobo Int?      @map("received_kobo")

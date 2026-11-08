@@ -131,6 +131,16 @@ const schema = z.object({
   TREASURY_STELLAR_ADDRESS: emptyAsUnset(z.string().regex(/^G[A-Z2-7]{55}$/, "a Stellar address").optional()),
 
   /**
+   * NEAR Intents 1Click: "pay with another coin" at checkout. The key is optional (without one 1Click
+   * takes a small fee of its own). INTENTS_ACCOUNT is our account on NEAR Intents: where a swap that
+   * can't finish refunds to, and where our own fee lands. Left unset it's the EVM treasury, whose key
+   * controls that account.
+   */
+  ONECLICK_API_KEY: emptyAsUnset(z.string().optional()),
+  ONECLICK_BASE_URL: z.string().url().default("https://1click.chaindefuser.com"),
+  INTENTS_ACCOUNT: emptyAsUnset(z.string().max(64).optional()),
+
+  /**
    * The seed every payment's own deposit address is made from: 32 random bytes, hex or base64. The
    * addresses are worked out from it and the payment's id, never stored as keys - so this one value
    * must be kept safe and backed up. To replace it, move the current value into DEPOSIT_SEEDS_OLD

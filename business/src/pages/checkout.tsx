@@ -62,6 +62,24 @@ const NETWORK_NAME: Partial<Record<Chain, string>> = {
   Optimism: 'OP Mainnet',
 }
 
+/** The coin picker's "Another coin" entry. */
+const OTHER = 'OTHER'
+
+/** How far a swap has got, as the step it's on: sent, received, changed to USDC, paid. */
+const INTENT_STEP: Record<string, number> = { PENDING_DEPOSIT: 0, INCOMPLETE_DEPOSIT: 0, REFUNDED: 0, FAILED: 0, KNOWN_DEPOSIT_TX: 1, PROCESSING: 2, SUCCESS: 3 }
+
+/** A coin we have no artwork for: its symbol on a plain disc. Bitcoin gets its own mark. */
+function CoinMark({ symbol, size = 22 }: { symbol: string; size?: number }) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center rounded-full border border-line bg-card font-semibold text-fg"
+      style={{ width: size, height: size, fontSize: Math.max(8, Math.round(size * (symbol.length > 3 ? 0.3 : 0.36))) }}
+    >
+      {symbol === 'BTC' ? <Bitcoin style={{ width: size * 0.62, height: size * 0.62 }} /> : symbol}
+    </span>
+  )
+}
+
 /** Every network we offer lands quickly. */
 const speedOf = (_c: Chain) => '~fast'
 
@@ -149,7 +167,9 @@ function useLiveCheckout(base: string | null) {
     payment,
     busy,
     problem,
-    start: (method: 'naira' | 'app' | 'crypto', body: { email?: string; name?: string; phone?: string; amount?: number; currency?: Currency; coin?: string; network?: string }) => call('POST', `${base}/${method}`, body),
+    start: (method: 'naira' | 'app' | 'crypto', body: { email?: string; name?: string; phone?: string; amount?: number; currency?: Currency; coin?: string; network?: string; intent?: string }) => call('POST', `${base}/${method}`, body),
+    /** Paid with another coin: the customer's transaction, so the swap starts on it at once. */
+    giveTx: (tx: string) => (token ? call('POST', `/pay/p/${token}/intent-tx`, { tx }) : Promise.resolve()),
     /** "I've sent the money": ask the bank rail now rather than at the next round. */
     check: () => (token ? call('POST', `/pay/p/${token}/check`) : Promise.resolve()),
     /** Test mode: pretend the customer's transfer arrived. */
@@ -197,6 +217,7 @@ export function CheckoutPreviewFrame() {
     start: async () => {},
     check: async () => {},
     simulate: async () => {},
+    giveTx: async () => {},
     reset: () => {},
   }
   return <CheckoutPage key={data.key} outlet={data.kind === 'outlet'} invoice={data.kind === 'invoice'} live={live} preview={{ brand: data.brand }} />
@@ -302,6 +323,8 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   const [fallback] = useAccept(business?.id)
   const accept: Accept = L ? ((L.link.accept as Accept | undefined) ?? {}) : invoice?.accept || (link && 'accept' in link && link.accept) || (outlet && 'accept' in outlet && outlet.accept) || fallback || ALL_ACCEPT
   const coins = ACCEPTED.map((a) => ({ asset: a.asset, chains: a.chains.filter((c) => accept[a.asset]?.includes(c)) })).filter((a) => a.chains.length > 0)
+  // Other coins, swapped to USDC on the way: BTC, ETH, SOL and the rest. Live checkouts only.
+  const others = L?.link.intents ?? []
   // Ways to pay: the link's or outlet's own, else the business default. Crypto needs at least one coin.
   const [defaultMethods] = useMethods(business?.id)
   const allowed: Method[] = L
@@ -333,6 +356,11 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   const askName = !L || L.link.askName !== false
   const [asset, setAsset] = useState<Asset | null>(coins.length === 1 ? coins[0]!.asset : null)
   const [chain, setChain] = useState<Chain | null>(null)
+  // "Another coin" picked instead of a stablecoin, and which one.
+  const [pickOther, setPickOther] = useState(false)
+  const [otherKey, setOther] = useState<string | null>(null)
+  const [showTx, setShowTx] = useState(false)
+  const [txInput, setTxInput] = useState('')
   const [found, setFound] = useState(0)
   const [details, setDetails] = useState(false)
 
@@ -341,6 +369,10 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   useEffect(() => {
     if (!P) return
     setMethod(METHOD_FROM_API[P.method])
+    if (P.intent) {
+      setPickOther(true)
+      setOther(P.intent.coin)
+    }
     if (P.deposit) {
       setAsset(P.deposit.coin as Asset)
       setChain(P.deposit.network as Chain)
@@ -394,7 +426,8 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
     if (m) setMethod(m)
   }, [nairaAmount, stage]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const how = method === 'app' ? 'Money Moves app' : method === 'naira' ? `Bank transfer · ${ngn(nairaAmount)}` : `${asset} on ${chain}`
+  const otherCoin = others.find((o) => o.key === otherKey) ?? null
+  const how = method === 'app' ? 'Money Moves app' : method === 'naira' ? `Bank transfer · ${ngn(nairaAmount)}` : pickOther && otherCoin ? `${otherCoin.symbol} on ${otherCoin.chain}` : `${asset} on ${chain}`
   const over = !fixed && typed > MAX_PAY[payIn]
   // A typed amount can't go under the link's own least, in whichever money it's typed.
   const minLead = !fixed ? (L?.link.min ?? null) : null
@@ -413,10 +446,10 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   const go = () => {
     if (preview) return
     if (!live) return setStage('pay')
-    void live.start(method, { ...startBody(), ...(method === 'crypto' && asset && chain ? { coin: asset, network: chain } : {}) })
+    void live.start(method, { ...startBody(), ...(method === 'crypto' && pickOther && otherKey ? { intent: otherKey } : method === 'crypto' && asset && chain ? { coin: asset, network: chain } : {}) })
   }
   const maxLabel = payIn === 'NGN' ? ngn(MAX_PAY.NGN).replace('.00', '') : usd(MAX_PAY.USD).replace('.00', '')
-  const canPay = !!amountUsd && !over && !under && !closedLink && !live?.busy && fits(method) && (method !== 'crypto' || (!!asset && !!chain))
+  const canPay = !!amountUsd && !over && !under && !closedLink && !live?.busy && fits(method) && (method !== 'crypto' || (pickOther ? !!otherKey : !!asset && !!chain))
   // The typed amount, with thousands separators as it's typed.
   const shownCustom = custom.replace(/^(\d+)/, (m) => Number(m).toLocaleString('en-US'))
   const open = stage === 'choose' || stage === 'pay'
@@ -659,6 +692,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                       {coins.map((c) => (
                         <TokenIcon key={c.asset} asset={c.asset} size={22} />
                       ))}
+                      {others.length > 0 && <CoinMark symbol="BTC" size={22} />}
                     </span>
                   )}
                 </button>
@@ -680,14 +714,34 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                         <Picker
                           label="Choose currency"
                           placeholder="Select a coin"
-                          value={asset}
-                          options={coins.map((c) => ({ id: c.asset, title: c.asset, sub: c.asset === 'USDC' ? 'USD Coin' : 'Tether USD', icon: <TokenIcon asset={c.asset} size={22} /> }))}
+                          value={pickOther ? OTHER : asset}
+                          options={[
+                            ...coins.map((c) => ({ id: c.asset, title: c.asset, sub: c.asset === 'USDC' ? 'USD Coin' : 'Tether USD', icon: <TokenIcon asset={c.asset} size={22} /> })),
+                            ...(others.length ? [{ id: OTHER, title: 'Another coin', sub: 'BTC, ETH, SOL and more', icon: <CoinMark symbol="+" size={22} /> }] : []),
+                          ]}
                           onChange={(a) => {
+                            if (a === OTHER) {
+                              setPickOther(true)
+                              return
+                            }
+                            setPickOther(false)
                             setAsset(a as Asset)
                             setChain(null)
                           }}
                         />
-                        {asset && (
+                        {pickOther && (
+                          <>
+                            <Picker
+                              label="Choose coin"
+                              placeholder="Select what you're paying with"
+                              value={otherKey}
+                              options={others.map((o) => ({ id: o.key, title: o.symbol, sub: `on ${o.chain}`, icon: <CoinMark symbol={o.symbol} size={22} /> }))}
+                              onChange={setOther}
+                            />
+                            {note(`You send ${otherCoin?.symbol ?? 'your coin'}, and it's changed to the exact price in USDC on the way. ${merchant} receives the full amount.`)}
+                          </>
+                        )}
+                        {asset && !pickOther && (
                           <Picker
                             label="Choose network"
                             placeholder="Select a network"
@@ -831,9 +885,175 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
 
   const card = (children: ReactNode) => <div className="rise rounded-[18px] border border-line bg-card p-5 shadow-[0_1px_2px_rgba(18,18,16,0.04)]">{children}</div>
 
+  // Another coin: what to send on the customer's own chain, and where the swap has got to.
+  const it = P?.intent ?? null
+  const swapAt = it ? INTENT_STEP[it.status] ?? 0 : 0
+  const swapSteps = otherCoin
+    ? [
+        { title: `Send ${otherCoin.symbol} from your wallet`, sub: it?.timeEstimate ? `Usually done in about ${Math.max(1, Math.round(it.timeEstimate / 60))} min once it's sent.` : undefined },
+        { title: `Received on ${otherCoin.chain}`, sub: it?.originTx ? `Transaction ${shortTx(it.originTx)}` : undefined },
+        { title: 'Changed to USDC' },
+        { title: `Paid to ${merchant}` },
+      ].map((st, i) => ({ ...st, state: (i < swapAt ? 'done' : i === swapAt ? 'now' : 'todo') as 'done' | 'now' | 'todo' }))
+    : []
+  const intentScreen = otherCoin && (
+    <>
+      {backTo}
+      {card(
+        <>
+          <div className="flex flex-wrap gap-2">
+            <ChipMenu
+              label={`${otherCoin.symbol} on ${otherCoin.chain}`}
+              icon={<CoinMark symbol={otherCoin.symbol} size={22} />}
+              options={others.map((o) => ({ id: o.key, title: o.symbol, sub: `on ${o.chain}`, icon: <CoinMark symbol={o.symbol} size={22} /> }))}
+              onPick={(k) => {
+                if (k === otherKey) return
+                setOther(k)
+                if (!live) return
+                live.reset()
+                void live.start('crypto', { ...startBody(), intent: k })
+              }}
+              disabled={live?.busy || (!!it && it.status !== 'PENDING_DEPOSIT')}
+            />
+          </div>
+
+          {!it ? (
+            <div className="mt-5">{live?.problem ? <div className="text-[13px] text-red">{live.problem}</div> : waiting(`Getting your ${otherCoin.symbol} price`)}</div>
+          ) : (
+            <>
+              <div className="mt-5 text-[13px] text-muted">Send</div>
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <span className="display tabular min-w-0 break-all text-[30px] font-semibold leading-none tracking-[-0.03em] text-fg">
+                  {it.amount}
+                  <span className="ml-1.5 text-[17px] font-medium tracking-normal text-muted">{it.symbol}</span>
+                </span>
+                <CopyChip value={it.amount} />
+              </div>
+              <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
+                {it.amountUsd && Number(it.amountUsd) > 0 ? <>About {usd(Number(it.amountUsd))} at today's price, the swap included. </> : null}It pays {merchant} {usd(amountUsd)} in USDC. If your wallet or exchange takes a fee, add it on top, so this much arrives.
+              </p>
+
+              <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-line pt-4 sm:gap-4">
+                <div className="min-w-0">
+                  <div className="text-[12px] text-dim">To this {it.chain} address</div>
+                  <div className="mt-1 break-all font-mono text-[13px] leading-relaxed tracking-[0.02em] text-fg sm:text-[14px]">
+                    {groups(it.address).map((g, i) => (
+                      <span key={i} className="mr-[0.45em] inline-block">
+                        {g}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="mt-2.5">
+                    <CopyChip value={it.address} label="Copy address" />
+                  </div>
+                </div>
+                <div className="flex flex-col items-center gap-1.5 text-[11.5px] text-dim">
+                  <span className="rounded-[14px] ring-1 ring-line sm:hidden">
+                    <Qr value={it.address} size={88} />
+                  </span>
+                  <span className="rounded-[14px] ring-1 ring-line max-sm:hidden">
+                    <Qr value={it.address} size={104} />
+                  </span>
+                  Scan address
+                </div>
+              </div>
+              {it.memo && (
+                <div className="mt-4 border-t border-line pt-4">
+                  <div className="text-[12px] text-dim">Memo (destination tag), needed</div>
+                  <div className="mt-1 flex items-center justify-between gap-3">
+                    <span className="tabular font-mono text-[22px] font-semibold tracking-[0.08em] text-fg">{it.memo}</span>
+                    <CopyChip value={it.memo} label="Copy memo" />
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex gap-2.5 rounded-[12px] border border-[#F2D3A6] bg-[#FDF6E7] px-3.5 py-3 text-[12.5px] leading-relaxed text-[#7A4A0A]">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                <span>
+                  Only <b className="font-semibold">{it.symbol} on {it.chain}</b>
+                  {it.memo ? <>, with the memo</> : null}, in one transfer, before the time runs out.
+                </span>
+              </div>
+
+              {it.status === 'INCOMPLETE_DEPOSIT' && (
+                <div className="mt-4 rounded-[12px] border border-line bg-[#FAFAF8] px-3.5 py-3 text-[13px] leading-relaxed text-muted">
+                  Less than {it.amount} {it.symbol} arrived. Send the rest to the same address before the time runs out. If it doesn't arrive, what you sent is returned.
+                </div>
+              )}
+              {(it.status === 'REFUNDED' || it.status === 'FAILED') && (
+                <div className="mt-4 rounded-[12px] border border-line bg-[#FAFAF8] px-3.5 py-3 text-[13px] leading-relaxed text-muted">
+                  This couldn't be changed to USDC, so nothing was paid and what you sent is held for you. Write to{' '}
+                  <a href="mailto:support@usemoneymoves.xyz" className="font-medium text-fg underline underline-offset-2">
+                    support@usemoneymoves.xyz
+                  </a>{' '}
+                  with your reference <span className="font-mono text-fg">{ref}</span> and the address to send it back to.
+                </div>
+              )}
+
+              <ol className="mt-5">
+                {swapSteps.map((st, i) => (
+                  <li key={st.title} className="relative grid grid-cols-[24px_minmax(0,1fr)] gap-3 pb-4 last:pb-0">
+                    {i < swapSteps.length - 1 && <span className={cx('absolute left-[11px] top-[26px] h-[calc(100%-26px)] w-0.5', st.state === 'done' ? 'bg-fg' : 'bg-line')} />}
+                    <span className={cx('z-[1] flex size-6 items-center justify-center rounded-full border-2 bg-card', st.state === 'done' ? 'border-fg bg-fg text-white' : st.state === 'now' ? 'border-fg' : 'border-line')}>
+                      {st.state === 'done' ? <Check className="size-3.5" strokeWidth={3} /> : st.state === 'now' ? <span className="size-2 animate-pulse rounded-full bg-fg" /> : null}
+                    </span>
+                    <div className="min-w-0">
+                      <div className={cx('text-[14px]', st.state === 'todo' ? 'text-dim' : 'font-semibold text-fg')}>{st.title}</div>
+                      {st.sub && <div className="mt-0.5 truncate text-[12.5px] text-muted">{st.sub}</div>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+
+              {it.status === 'PENDING_DEPOSIT' && !it.test && (
+                <div className="mt-4">
+                  {!showTx ? (
+                    <button onClick={() => setShowTx(true)} className="w-full text-center text-[13px] font-medium text-muted underline underline-offset-4 hover:text-fg">
+                      I've sent it
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="text-[12.5px] leading-relaxed text-muted">It's picked up by itself. Pasting your transaction ID starts it sooner.</div>
+                      <div className="flex gap-2">
+                        <input
+                          value={txInput}
+                          onChange={(e) => setTxInput(e.target.value)}
+                          placeholder="Transaction ID (optional)"
+                          className="h-10 min-w-0 flex-1 rounded-[10px] border border-line bg-card px-3 font-mono text-[13px] text-fg outline-none focus:border-fg"
+                        />
+                        <button
+                          disabled={live?.busy || txInput.trim().length < 16}
+                          onClick={() => void live?.giveTx(txInput.trim())}
+                          className="h-10 shrink-0 rounded-[10px] border border-line px-3.5 text-[13px] font-semibold text-fg hover:border-fg disabled:opacity-50"
+                        >
+                          {live?.busy ? 'Sending…' : 'Add'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+              {live?.problem && <div className="mt-3 text-center text-[13px] text-red">{live.problem}</div>}
+            </>
+          )}
+
+          {P?.simulator && it && (
+            <TestBox title="Test mode, pretend the coins arrived" note="This address is made up for testing, and no wallet will send to it. Nothing real can be lost.">
+              <TestButton primary busy={live?.busy} onClick={() => void live?.simulate('full')}>
+                Send {it.amount} {it.symbol}
+              </TestButton>
+            </TestBox>
+          )}
+        </>,
+      )}
+    </>
+  )
+
   const payScreens = (
     <>
-      {method === 'crypto' && asset && chain && (
+      {method === 'crypto' && pickOther && otherCoin && intentScreen}
+
+      {method === 'crypto' && !pickOther && asset && chain && (
         <>
           {backTo}
           {card(

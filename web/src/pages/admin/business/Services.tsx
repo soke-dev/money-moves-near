@@ -133,7 +133,7 @@ export function Services() {
     setDraft((d) => (d ? ({ ...d, [group]: typeof d[group] === 'object' ? { ...(d[group] as object), [key]: value } : value } as Platform) : d))
   const flip = (group: keyof Platform, key: string) => (v: boolean) => set(group, key, v)
 
-  const TABS: readonly (readonly [Tab, string, string[]])[] = [["switches","Switches",["payouts","newBusinesses","maintenance","identity"]],["pay","Ways to pay",["methods","coins","networks"]],["checkouts","Checkouts",["channels"]],["settle","Settlement",["destinations","settleChains"]],["fees","Fees",["fees"]],["limits","Limits & review",["limits","review","risk"]]]
+  const TABS: readonly (readonly [Tab, string, string[]])[] = [["switches","Switches",["payouts","newBusinesses","maintenance","identity"]],["pay","Ways to pay",["methods","coins","networks","intents","intentCoins"]],["checkouts","Checkouts",["channels"]],["settle","Settlement",["destinations","settleChains"]],["fees","Fees",["fees"]],["limits","Limits & review",["limits","review","risk"]]]
   // Each tab counts the changes waiting to be saved in it.
   const waiting = (keys: string[]) => [...diff].filter((d) => keys.includes(d.split('.')[0]!)).length
 
@@ -228,6 +228,30 @@ export function Services() {
         ))}
         {data.networks.map((n) => (
           <SwitchRow key={n} label={n} on={draft.networks[n] ?? true} onChange={flip('networks', n)} later={live?.networks[n]} changed={diff.has(`networks.${n}`)} />
+        ))}
+      </Group>
+      )}
+
+      {tab === 'pay' && (
+      <Group title="Other coins, through NEAR Intents" sub="Customers pay in BTC, ETH, SOL and more. NEAR Intents swaps it to the exact USDC price, delivered to the payment's own address, and it settles to the business like any stablecoin payment. A swap that can't finish is refunded to our NEAR Intents account, and the team hands it back.">
+        <SwitchRow
+          label="Pay with another coin"
+          sub={`Off: live checkouts show stablecoins only. Test mode always shows it. Lands as USDC on ${live?.intentLanding?.SOLANA ?? 'Solana'}, or on ${live?.intentLanding?.MONAD ?? 'Solana'} for businesses settling on Monad.`}
+          on={draft.intents.on}
+          onChange={flip('intents', 'on')}
+          later={live?.intents}
+          changed={diff.has('intents.on')}
+        />
+        <NumberRow
+          label="Swap fee"
+          sub="Ours, taken inside the swap, on top of the usual crypto fee. 0 for none."
+          unit="%"
+          value={draft.intents.feeBps / 100}
+          onChange={(v) => set('intents', 'feeBps', Math.max(0, Math.min(300, Math.round(v * 100))))}
+          changed={diff.has('intents.feeBps')}
+        />
+        {(data.intentCoins ?? []).map((c) => (
+          <SwitchRow key={c.key} label={`${c.symbol} on ${c.chain}`} sub={c.name} on={draft.intentCoins[c.key] ?? true} onChange={flip('intentCoins', c.key)} changed={diff.has(`intentCoins.${c.key}`)} />
         ))}
       </Group>
       )}

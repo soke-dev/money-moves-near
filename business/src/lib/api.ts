@@ -298,6 +298,8 @@ export interface PublicLink {
     methods: ApiMethod[]
     /** What crypto it takes, with anything switched off already taken out. */
     accept?: ApiAccept
+    /** Other coins it takes, swapped to USDC on the way. Empty or missing: stablecoins only. */
+    intents?: IntentOption[]
     redirectUrl: string | null
     askPhone: boolean
   /** Ask a bank or crypto customer their name; their email is always asked. */
@@ -399,6 +401,37 @@ export interface ApiOutlet {
   collectedUsd: number
 }
 
+/** A coin a checkout takes besides the stablecoins, by its key. */
+export interface IntentOption {
+  key: string
+  symbol: string
+  name: string
+  chain: string
+  /** Confirms slowly: the address is held for an hour. */
+  slow: boolean
+}
+
+export type IntentStatus = 'PENDING_DEPOSIT' | 'KNOWN_DEPOSIT_TX' | 'PROCESSING' | 'SUCCESS' | 'INCOMPLETE_DEPOSIT' | 'REFUNDED' | 'FAILED'
+
+export interface PaymentIntent {
+  coin: string
+  symbol: string
+  name: string
+  chain: string
+  address: string
+  memo: string | null
+  amount: string
+  /** What it comes to in dollars right now, the swap included. */
+  amountUsd: string | null
+  deadline: string
+  timeEstimate: number | null
+  status: IntentStatus
+  originTx: string | null
+  /** The network the USDC lands on. */
+  landsOn: string | null
+  test: boolean
+}
+
 export interface PublicPayment {
   token: string
   ref: string
@@ -427,8 +460,10 @@ export interface PublicPayment {
     received?: string | null
     left?: string | null
   } | null
+  /** Paid with another coin: what to send on the customer's own chain, and how the swap is going. */
+  intent?: PaymentIntent | null
   /** Live crypto that came in and goes back: over, short, late, another coin. */
-  returns?: { token: string | null; amount: string; coin: string; status: string | null; why: string | null }[]
+  returns?:{ token: string | null; amount: string; coin: string; status: string | null; why: string | null }[]
   /** Live crypto, while open: the transfer once it lands on chain, and its confirmations so far. */
   seen?: { tx: string; confirmations: number; needed: number } | null
   /** The processing fee added on top for the customer, when the business has them pay it. */
