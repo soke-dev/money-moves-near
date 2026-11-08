@@ -16,7 +16,8 @@ import { Prisma, type Payment } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { HttpError } from "../lib/http";
 import { log } from "../lib/log";
-import { addressKey } from "../lib/chains";
+import { addressKey, contractsOf, evmChain, hexNum, rpc, toHex } from "../lib/chains";
+import { env } from "../config/env";
 import { depositAddressFor } from "../lib/deposit-keys";
 import { effectiveChain } from "../lib/platform";
 import { IntentQuoteError, intentCoin, stableIntentCoin, intentPrice, intentStatus, intentsOffered, landingFor, quoteIntent, submitIntentDeposit, testLandingFor, type IntentStatus } from "../lib/intents";
@@ -48,6 +49,8 @@ export type Intent = {
   status: IntentStatus;
   originTx: string | null;
   destinationTx: string | null;
+  /** The customer's transaction, found on their chain and handed to 1Click so it starts at once. */
+  submittedTx?: string | null;
   /** A USDC or USDT payment routed through NEAR Intents by the Services switch, not a coin the customer picked. */
   stable?: boolean;
   /** Test mode: made up, nothing to send. */
@@ -170,6 +173,54 @@ export async function openStableViaIntents(c: Checkout, input: OpenInput, price:
 
 const looked = new Map<string, number>();
 
+const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+/** How far back an EVM look reaches: about five minutes of blocks, never more than 1,000 (what RPCs allow in one ask). */
+const blocksBack = (blockSeconds: number) => Math.min(1_000, Math.ceil(300 / blockSeconds));
+
+/**
+ * The customer's transfer to the 1Click address, found on their own chain.
+ * 1Click's own watcher can take a minute or more to notice a deposit; handed
+ * the transaction, it starts at once. Solana (any coin, by the address's
+ * signatures) and the EVM chains we read (USDC and USDT, by their Transfer
+ * logs). Elsewhere, and for native ETH, 1Click finds it by itself.
+ */
+async function findOriginTx(i: Intent): Promise<string | null> {
+  if (i.chain === "Solana") {
+    const url = env.SOLANA_RPC_URL;
+    if (!url) return null;
+    const sigs = await rpc<{ signature: string; err: unknown }[]>(url, "getSignaturesForAddress", [i.address, { limit: 10 }]);
+    // Newest first: the oldest one that succeeded is the customer's deposit; anything after is 1Click moving it on.
+    const ok = sigs.filter((s) => !s.err);
+    return ok.length ? ok[ok.length - 1]!.signature : null;
+  }
+  const c = evmChain(i.chain);
+  const url = c?.url();
+  const tokens = c ? contractsOf(c).filter((t) => t.coin === i.symbol) : [];
+  if (!c || !url || !tokens.length) return null;
+  const tip = hexNum(await rpc<string>(url, "eth_blockNumber", []));
+  const to = `0x${i.address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
+  const logs = await rpc<{ transactionHash: string }[]>(url, "eth_getLogs", [{ address: tokens.map((t) => t.address), topics: [TRANSFER_TOPIC, null, to], fromBlock: toHex(Math.max(0, tip - blocksBack(c.blockSeconds))), toBlock: toHex(tip) }]);
+  return logs[0]?.transactionHash ?? null;
+}
+
+/**
+ * While a swap waits for its deposit: look for the transfer ourselves and hand
+ * it to 1Click. Once only, once it's taken. Never in the way: a miss, or an
+ * error, just leaves it to 1Click's own watcher.
+ */
+async function nudge(p: Payment, intent: Intent): Promise<Intent> {
+  if (intent.status !== "PENDING_DEPOSIT" || intent.submittedTx) return intent;
+  try {
+    const tx = await findOriginTx(intent);
+    if (!tx || !(await submitIntentDeposit(intent.address, tx, intent.memo))) return intent;
+    log.info("[intents] handed the deposit to 1Click", { ref: p.ref, tx });
+    return { ...intent, submittedTx: tx };
+  } catch (e) {
+    log.warn("[intents] couldn't look for the deposit", { ref: p.ref, reason: e instanceof Error ? e.message : String(e) });
+    return intent;
+  }
+}
+
 /**
  * The swap's progress, read from 1Click while the checkout watches - at most
  * every five seconds per payment. Stored on the payment so the page, the
@@ -177,17 +228,21 @@ const looked = new Map<string, number>();
  * keeps the payment open for the swap to finish.
  */
 export async function watchIntent(p: Payment): Promise<Payment> {
-  const intent = intentOf(p);
-  if (!intent || intent.test || p.mode !== "LIVE") return p;
-  if (intent.status === "SUCCESS" || intent.status === "REFUNDED" || intent.status === "FAILED") return p;
+  const was = intentOf(p);
+  if (!was || was.test || p.mode !== "LIVE") return p;
+  if (was.status === "SUCCESS" || was.status === "REFUNDED" || was.status === "FAILED") return p;
   const last = looked.get(p.id) ?? 0;
-  if (Date.now() - last < 5_000) return p;
+  if (Date.now() - last < 4_000) return p;
   if (looked.size > 2_000) for (const [id, at] of looked) if (Date.now() - at > 30 * 60_000) looked.delete(id);
   looked.set(p.id, Date.now());
+  const intent = await nudge(p, was);
   try {
     const s = await intentStatus(intent.address, intent.memo);
-    if (!s || !s.status) return p;
-    const changed = s.status !== intent.status || s.originTx !== intent.originTx || s.destinationTx !== intent.destinationTx;
+    if (!s || !s.status) {
+      if (intent !== was) return await prisma.payment.update({ where: { id: p.id }, data: { intent: intent as unknown as Prisma.InputJsonValue } });
+      return p;
+    }
+    const changed = intent !== was || s.status !== intent.status || s.originTx !== intent.originTx || s.destinationTx !== intent.destinationTx;
     const underWay = s.status === "KNOWN_DEPOSIT_TX" || s.status === "PROCESSING" || s.status === "SUCCESS";
     const later = new Date(Date.now() + SWAP_MS);
     const extend = p.status === "OPEN" && underWay && p.expiresAt < later;
