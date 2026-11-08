@@ -473,12 +473,34 @@ async function syncAddress(userId: string, chain: AuroraDepositChain, address: s
     console.warn(`[AU-DEP] ${chain.kind} status read failed (${received.status}) for ${userId}`);
     return false;
   }
-  const deposits = received.data?.deposits ?? [];
+  /**
+   * Only this network's own coins. Aurora gives every EVM network the same address and lists that address's deposits
+   * whichever network is asked about, so without this one Ethereum deposit was claimed by Ethereum, BNB Chain and
+   * Arbitrum alike. A coin we don't list is left to the wallet watcher, which records the USDC as it lands.
+   */
+  const deposits = (received.data?.deposits ?? []).filter((d) => !d.asset_id || chain.assets.some((a) => a.assetId === d.asset_id));
 
-  const [success, failed] = await Promise.all([
+  const [successAll, failedAll] = await Promise.all([
     persistentDeposits(address, "success"),
     persistentDeposits(address, "failed"),
   ]);
+  /**
+   * And only payouts from this address. The payout lists come back for the whole account, so a Tron deposit still
+   * converting could otherwise be paired with an Ethereum payout and marked paid with the wrong money.
+   */
+  // Only when Aurora names the address on its payouts the way we do: if none of them match, the list is used whole
+  // (as before) rather than emptied, which would turn settled deposits back to converting.
+  const fromHere = (list: typeof successAll) => {
+    if (!list.ok || !list.data?.deposits?.length) return list;
+    const mine = list.data.deposits.filter((x) => (x.deposit_address ?? "").toLowerCase() === address.toLowerCase());
+    if (!mine.length) {
+      console.warn(`[AU-DEP] ${chain.kind} payouts name no matching address (first: ${list.data.deposits[0]?.deposit_address ?? "none"}), using them all`);
+      return list;
+    }
+    return { ...list, data: { ...list.data, deposits: mine } };
+  };
+  const success = fromHere(successAll);
+  const failed = fromHere(failedAll);
   // What Aurora says for this address, so a row that will not settle can be read rather than guessed at.
   console.log(
     `[AU-DEP] sync ${chain.kind} ${userId}: received ${deposits.length} [${deposits.map((d) => d.tx_hash.slice(0, 12)).join(",")}]` +
