@@ -62,6 +62,40 @@ export const INTENT_COINS: IntentCoin[] = [
 export const INTENT_KEYS = INTENT_COINS.map((c) => c.key);
 export const intentCoin = (key: string) => INTENT_COINS.find((c) => c.key === key);
 
+/**
+ * Our own stablecoins, as NEAR Intents names them - for when Services routes
+ * USDC and USDT through it too. Each checked with a live quote (2026-11-08).
+ * Not here, so always paid the default way: Arc (Intents isn't on it),
+ * Stellar (no quotes for it), Movement (no liquidity), Base USDT (not listed).
+ * BNB Chain is here but currently needs $1,000 or more; below that a payment
+ * simply goes the default way.
+ */
+const STABLE_IN: Record<string, { assetId: string; decimals: number }> = {
+  "USDC:Solana": { assetId: "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near", decimals: 6 },
+  "USDT:Solana": { assetId: "nep141:sol-c800a4bd850783ccb82c2b2c7e84175443606352.omft.near", decimals: 6 },
+  "USDC:Ethereum": { assetId: "nep141:eth-0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48.omft.near", decimals: 6 },
+  "USDT:Ethereum": { assetId: "nep141:eth-0xdac17f958d2ee523a2206206994597c13d831ec7.omft.near", decimals: 6 },
+  "USDC:Arbitrum": { assetId: "nep141:arb-0xaf88d065e77c8cc2239327c5edb3a432268e5831.omft.near", decimals: 6 },
+  "USDT:Arbitrum": { assetId: "nep141:arb-0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9.omft.near", decimals: 6 },
+  "USDC:Base": { assetId: "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near", decimals: 6 },
+  "USDC:BNB Chain": { assetId: "nep245:v2_1.omni.hot.tg:56_2w93GqMcEmQFDru84j3HZZWt557r", decimals: 18 },
+  "USDT:BNB Chain": { assetId: "nep245:v2_1.omni.hot.tg:56_2CMMyVTGZkeyNZTSvS5sarzfir6g", decimals: 18 },
+  "USDC:Optimism": { assetId: "nep245:v2_1.omni.hot.tg:10_A2ewyUyDp6qsue1jqZsGypkCxRJ", decimals: 6 },
+  "USDT:Optimism": { assetId: "nep245:v2_1.omni.hot.tg:10_359RPSJVdTxwTJT9TyGssr2rFoWo", decimals: 6 },
+  "USDT:TON": { assetId: "nep245:v2_1.omni.hot.tg:1117_3tsdfyziyc7EJbP2aULWSKU4toBaAcN4FdTgfm5W1mC4ouR", decimals: 6 },
+  "USDC:Monad": { assetId: "nep245:v2_1.omni.hot.tg:143_2dmLwYWkCQKyTjeUPAsGJuiVLbFx", decimals: 6 },
+  "USDT:Monad": { assetId: "nep245:v2_1.omni.hot.tg:143_4EJiJxSALvGoTZbnc8K7Ft9533et", decimals: 6 },
+};
+
+/** A stablecoin on one of our networks as a coin Intents takes, or null when it can't. */
+export function stableIntentCoin(coin: "USDC" | "USDT", network: Network): IntentCoin | null {
+  const s = STABLE_IN[`${coin}:${network}`];
+  if (!s) return null;
+  return { key: `${coin}_${network.replace(/\s+/g, "")}`, symbol: coin, name: coin === "USDC" ? "USD Coin" : "Tether USD", chain: network, assetId: s.assetId, decimals: s.decimals };
+}
+/** The networks each stablecoin can go through Intents on, for the console. */
+export const STABLE_INTENT_PAIRS = Object.keys(STABLE_IN);
+
 /** USDC where Intents delivers it, on the networks a payment can land on. Six decimals on both. */
 const USDC_OUT: Partial<Record<Network, string>> = {
   Solana: "nep141:sol-5ce3bf3a31af18be40ba30f721101b4341690186.omft.near",

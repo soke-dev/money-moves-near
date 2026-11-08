@@ -242,6 +242,14 @@ export function Services() {
           later={live?.intents}
           changed={diff.has('intents.on')}
         />
+        <SwitchRow
+          label="USDC and USDT through NEAR Intents too"
+          sub={`Off is the default: stablecoins come straight to our own addresses. On: a USDC or USDT payment gets a NEAR Intents address instead, the customer sends about 1% more to cover it, and it lands and settles the same way. Only on ${(data.stableIntentPairs ?? []).map((p) => p.replace(':', ' on ')).join(', ') || 'the networks it takes'}. Anything else, or any payment it can't quote (BNB Chain needs $1,000 or more for now), goes the default way by itself. Works whether or not other coins are on.`}
+          on={draft.intents.stablecoins ?? false}
+          onChange={flip('intents', 'stablecoins')}
+          later={live?.intents}
+          changed={diff.has('intents.stablecoins')}
+        />
         <NumberRow
           label="Swap fee"
           sub="Ours, taken inside the swap, on top of the usual crypto fee. 0 for none."

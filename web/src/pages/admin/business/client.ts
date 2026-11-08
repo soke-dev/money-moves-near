@@ -671,7 +671,7 @@ export type Platform = {
   settleChains: { MOVEMENT: boolean; ARC: boolean; MONAD: boolean; SOLANA: boolean; STELLAR: boolean }
   coins: { USDC: boolean; USDT: boolean }
   /** Paying with another coin through NEAR Intents: on at live checkouts, and our own fee inside the swap. */
-  intents: { on: boolean; feeBps: number }
+  intents: { on: boolean; feeBps: number; stablecoins: boolean }
   /** Each other coin by key; a missing key is on. */
   intentCoins: Record<string, boolean>
   networks: Record<string, boolean>
@@ -696,7 +696,7 @@ export type Live = {
   /** Where a swap lands for a business settling on Monad, on Solana, and anywhere else. Null: nowhere can. */
   intentLanding?: { MONAD: string | null; SOLANA: string | null; others: string | null }
 }
-export type PlatformData = { platform: Platform; defaults: Platform; networks: string[]; intentCoins?: { key: string; symbol: string; name: string; chain: string }[]; live?: Live; updatedBy: string | null; updatedAt: string | null }
+export type PlatformData = { platform: Platform; defaults: Platform; networks: string[]; intentCoins?: { key: string; symbol: string; name: string; chain: string }[]; stableIntentPairs?: string[]; live?: Live; updatedBy: string | null; updatedAt: string | null }
 
 /* ─── Words ────────────────────────────────────────────────────────── */
 

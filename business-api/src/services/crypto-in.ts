@@ -44,6 +44,7 @@ import { refreshStellar, stellarArrivals, stellarReceiveAddress } from "../lib/s
 import { refreshTon, tonArrivals, tonReceiveAddress } from "../lib/ton";
 import { admit, confirmArrival, newPayment, type Checkout, type OpenInput } from "./payments";
 import { closeEmptySolana, decideReturns, openSolanaAccount } from "./crypto-out";
+import { openStableViaIntents } from "./intent-in";
 
 export { EVM_CHAINS };
 
@@ -101,6 +102,11 @@ export async function openLiveCryptoPayment(c: Checkout, input: OpenInput, coin:
   const n = network as Network;
   if (!COIN_NETWORKS[k]?.includes(n) || !offered[k]?.includes(n) || !coinLiveReady(k, n)) {
     throw new HttpError(400, "Pick a coin and a network this checkout takes.", "bad_coin");
+  }
+  // Services can send stablecoins through NEAR Intents too. Wherever it can't take this one, it comes the default way below.
+  if (price.p.intents.stablecoins) {
+    const via = await openStableViaIntents(c, input, price, k, n);
+    if (via) return via;
   }
   const kind = kindFor(n);
   const treasury = treasuryFor(n);

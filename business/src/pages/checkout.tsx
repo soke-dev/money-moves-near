@@ -369,13 +369,19 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   useEffect(() => {
     if (!P) return
     setMethod(METHOD_FROM_API[P.method])
-    if (P.intent) {
+    if (P.intent && !P.intent.stable) {
       setPickOther(true)
       setOther(P.intent.coin)
     }
     if (P.deposit) {
       setAsset(P.deposit.coin as Asset)
       setChain(P.deposit.network as Chain)
+    }
+    // A stablecoin sent through NEAR Intents: still the coin and network the customer picked.
+    if (P.intent?.stable) {
+      setPickOther(false)
+      setAsset(P.intent.symbol as Asset)
+      setChain(P.intent.chain as Chain)
     }
   }, [P?.token]) // eslint-disable-line react-hooks/exhaustive-deps
   // ?ttl=10 shortens the window, to see what expiry looks like.
@@ -887,24 +893,49 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
 
   // Another coin: what to send on the customer's own chain, and where the swap has got to.
   const it = P?.intent ?? null
+  // A USDC or USDT payment the platform sends through NEAR Intents: viaCoin as that stablecoin, not as another coin.
+  const stableVia = !pickOther && !!it?.stable
+  const viaCoin = pickOther ? otherCoin : stableVia && it ? { key: it.coin, symbol: it.symbol, name: it.name, chain: it.chain, slow: false } : null
   const swapAt = it ? INTENT_STEP[it.status] ?? 0 : 0
-  const swapSteps = otherCoin
+  const swapSteps = viaCoin
     ? [
-        { title: `Send ${otherCoin.symbol} from your wallet`, sub: it?.timeEstimate ? `Usually done in about ${Math.max(1, Math.round(it.timeEstimate / 60))} min once it's sent.` : undefined },
-        { title: `Received on ${otherCoin.chain}`, sub: it?.originTx ? `Transaction ${shortTx(it.originTx)}` : undefined },
-        { title: 'Changed to USDC' },
+        { title: `Send ${viaCoin.symbol} from your wallet`, sub: it?.timeEstimate ? `Usually done in about ${Math.max(1, Math.round(it.timeEstimate / 60))} min once it's sent.` : undefined },
+        { title: `Received on ${NETWORK_NAME[viaCoin.chain as Chain] ?? viaCoin.chain}`, sub: it?.originTx ? `Transaction ${shortTx(it.originTx)}` : undefined },
+        { title: stableVia ? 'Delivered as USDC' : 'Changed to USDC' },
         { title: `Paid to ${merchant}` },
       ].map((st, i) => ({ ...st, state: (i < swapAt ? 'done' : i === swapAt ? 'now' : 'todo') as 'done' | 'now' | 'todo' }))
     : []
-  const intentScreen = otherCoin && (
+  const intentScreen = viaCoin && (
     <>
       {backTo}
       {card(
         <>
           <div className="flex flex-wrap gap-2">
+            {stableVia && asset && chain ? (
+              <>
+                <ChipMenu
+                  label={asset}
+                  icon={<TokenIcon asset={asset} size={22} />}
+                  options={coins.map((c) => ({ id: c.asset, title: c.asset, sub: c.asset === 'USDC' ? 'USD Coin' : 'Tether USD', icon: <TokenIcon asset={c.asset} size={22} /> }))}
+                  onPick={(a) => {
+                    const next = coins.find((c) => c.asset === a)
+                    const c = next && (next.chains.includes(chain) ? chain : [...next.chains].sort(byNetworkOrder)[0])
+                    if (c) switchTo(a as Asset, c)
+                  }}
+                  disabled={live?.busy || (!!it && it.status !== 'PENDING_DEPOSIT')}
+                />
+                <ChipMenu
+                  label={NETWORK_NAME[chain] ?? chain}
+                  icon={<ChainIcon chain={chain} size={22} />}
+                  options={chains.map((c) => ({ id: c, title: NETWORK_NAME[c] ?? c, sub: speedOf(c), icon: <ChainIcon chain={c} size={22} /> }))}
+                  onPick={(c) => switchTo(asset, c as Chain)}
+                  disabled={live?.busy || (!!it && it.status !== 'PENDING_DEPOSIT')}
+                />
+              </>
+            ) : (
             <ChipMenu
-              label={`${otherCoin.symbol} on ${otherCoin.chain}`}
-              icon={<CoinMark symbol={otherCoin.symbol} size={22} />}
+              label={`${viaCoin.symbol} on ${viaCoin.chain}`}
+              icon={<CoinMark symbol={viaCoin.symbol} size={22} />}
               options={others.map((o) => ({ id: o.key, title: o.symbol, sub: `on ${o.chain}`, icon: <CoinMark symbol={o.symbol} size={22} /> }))}
               onPick={(k) => {
                 if (k === otherKey) return
@@ -915,10 +946,11 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
               }}
               disabled={live?.busy || (!!it && it.status !== 'PENDING_DEPOSIT')}
             />
+            )}
           </div>
 
           {!it ? (
-            <div className="mt-5">{live?.problem ? <div className="text-[13px] text-red">{live.problem}</div> : waiting(`Getting your ${otherCoin.symbol} price`)}</div>
+            <div className="mt-5">{live?.problem ? <div className="text-[13px] text-red">{live.problem}</div> : waiting(`Getting your ${viaCoin.symbol} price`)}</div>
           ) : (
             <>
               <div className="mt-5 text-[13px] text-muted">Send</div>
@@ -930,12 +962,17 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
                 <CopyChip value={it.amount} />
               </div>
               <p className="mt-1.5 text-[12.5px] leading-relaxed text-muted">
-                {it.amountUsd && Number(it.amountUsd) > 0 ? <>About {usd(Number(it.amountUsd))} at today's price, the swap included. </> : null}It pays {merchant} {usd(amountUsd)} in USDC. If your wallet or exchange takes a fee, add it on top, so this much arrives.
+                {stableVia ? (
+                  it.amountUsd && Number(it.amountUsd) > amountUsd ? <>About {usd(Number(it.amountUsd) - amountUsd)} of that covers moving it across networks. </> : null
+                ) : it.amountUsd && Number(it.amountUsd) > 0 ? (
+                  <>About {usd(Number(it.amountUsd))} at today's price, the swap included. </>
+                ) : null}
+                It pays {merchant} {usd(amountUsd)} in USDC. If your wallet or exchange takes a fee, add it on top, so this much arrives.
               </p>
 
               <div className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-t border-line pt-4 sm:gap-4">
                 <div className="min-w-0">
-                  <div className="text-[12px] text-dim">To this {it.chain} address</div>
+                  <div className="text-[12px] text-dim">To this {NETWORK_NAME[it.chain as Chain] ?? it.chain} address</div>
                   <div className="mt-1 break-all font-mono text-[13px] leading-relaxed tracking-[0.02em] text-fg sm:text-[14px]">
                     {groups(it.address).map((g, i) => (
                       <span key={i} className="mr-[0.45em] inline-block">
@@ -1051,9 +1088,9 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
 
   const payScreens = (
     <>
-      {method === 'crypto' && pickOther && otherCoin && intentScreen}
+      {method === 'crypto' && viaCoin && intentScreen}
 
-      {method === 'crypto' && !pickOther && asset && chain && (
+      {method === 'crypto' && !pickOther && !stableVia && asset && chain && (
         <>
           {backTo}
           {card(
@@ -1577,7 +1614,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
             <div className="mt-8 border-t border-fg/10 pt-5">
               <div className="flex items-baseline justify-between gap-4">
                 <span className="text-[14px] text-muted">{invoice?.status === 'paid' ? 'Paid' : 'Total'}</span>
-                <span className={cx('tabular text-[16px] font-semibold', shown ? 'text-fg' : 'text-dim')}>{money}</span>
+                <span className={cx('tabular text-[16px] font-semibold', viaCoin ? 'text-fg' : 'text-dim')}>{money}</span>
               </div>
             </div>
             <div className="mt-6 border-t border-fg/10 pt-5">{rows}</div>

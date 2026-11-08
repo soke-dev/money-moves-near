@@ -19,7 +19,8 @@ import { log } from "../lib/log";
 import { addressKey } from "../lib/chains";
 import { depositAddressFor } from "../lib/deposit-keys";
 import { effectiveChain } from "../lib/platform";
-import { IntentQuoteError, intentCoin, intentPrice, intentStatus, intentsOffered, landingFor, quoteIntent, submitIntentDeposit, testLandingFor, type IntentStatus } from "../lib/intents";
+import { IntentQuoteError, intentCoin, stableIntentCoin, intentPrice, intentStatus, intentsOffered, landingFor, quoteIntent, submitIntentDeposit, testLandingFor, type IntentStatus } from "../lib/intents";
+import type { Network } from "../lib/accept";
 import { admit, newPayment, testAddress, type Checkout, type OpenInput } from "./payments";
 import { openSolanaAccount } from "./crypto-out";
 
@@ -47,6 +48,8 @@ export type Intent = {
   status: IntentStatus;
   originTx: string | null;
   destinationTx: string | null;
+  /** A USDC or USDT payment routed through NEAR Intents by the Services switch, not a coin the customer picked. */
+  stable?: boolean;
   /** Test mode: made up, nothing to send. */
   test?: boolean;
 };
@@ -114,6 +117,54 @@ export async function openIntentPayment(c: Checkout, input: OpenInput, key: stri
     if (e instanceof IntentQuoteError && e.leastUsd) throw new HttpError(400, `Paying with ${coin.symbol} starts from $${e.leastUsd.toFixed(2)}. Pick another coin, or pay with a stablecoin.`, "intent_too_small");
     log.warn("[intents] couldn't open a payment", { ref: payment.ref, coin: coin.key, reason: e instanceof Error ? e.message : String(e) });
     throw new HttpError(502, `We couldn't get a price in ${coin.symbol} just now. Try again, or pay with a stablecoin.`, "intent_quote_failed");
+  }
+}
+
+/**
+ * A USDC or USDT payment sent through NEAR Intents instead of straight to us,
+ * while Services has that switched on. Already admitted and checked by the
+ * stablecoin path that calls this. Null whenever Intents can't take it (that
+ * network isn't listed, nowhere to land, a minimum, no liquidity, no answer):
+ * the payment then opens the default way, and the customer never knows.
+ */
+export async function openStableViaIntents(c: Checkout, input: OpenInput, price: Awaited<ReturnType<typeof admit>>, coin: "USDC" | "USDT", network: Network): Promise<Payment | null> {
+  if (c.mode !== "LIVE" || !price.p.intents.stablecoins) return null;
+  const via = stableIntentCoin(coin, network);
+  const landing = landingFor(effectiveChain(c.business.settleChain, price.p));
+  if (!via || !landing) return null;
+  const deadline = new Date(Date.now() + WINDOW_MS);
+  const micros = BigInt(price.amountCents) * 10_000n;
+  const payment = await newPayment(c, input, "CRYPTO", price, { coin: "USDC", network: landing, depositKind: "OWN", expiresAt: deadline });
+  const own = addressKey(landing, depositAddressFor(landing, payment.id));
+  try {
+    const q = await quoteIntent({ coin: via, landing, recipient: own, micros, deadline, feeBps: 0 });
+    const intent: Intent = {
+      coin: via.key,
+      symbol: via.symbol,
+      name: via.name,
+      chain: via.chain,
+      address: q.depositAddress,
+      memo: q.depositMemo,
+      amount: q.amountInFormatted || formatUnits(q.amountIn, via.decimals),
+      minAmount: q.minAmountIn ? formatUnits(q.minAmountIn, via.decimals) : null,
+      amountUsd: q.amountInUsd,
+      deadline: q.deadline,
+      timeEstimate: q.timeEstimate,
+      correlationId: q.correlationId,
+      status: "PENDING_DEPOSIT",
+      originTx: null,
+      destinationTx: null,
+      stable: true,
+    };
+    const opened = await prisma.payment.update({ where: { id: payment.id }, data: { depositAddress: own, cryptoMicros: micros, receivedMicros: 0n, intent: intent as unknown as Prisma.InputJsonValue } });
+    if (landing === "Solana") void openSolanaAccount(own, "USDC").catch((e) => log.warn("[intents] couldn't open the Solana account ahead", { ref: opened.ref, reason: e instanceof Error ? e.message : String(e) }));
+    log.info("[intents] stablecoin payment opened through NEAR Intents", { ref: opened.ref, coin, network, landing, amount: intent.amount, usd: price.amountCents / 100 });
+    return opened;
+  } catch (e) {
+    // Never shown to anyone: just made, nothing points at it, and the default way takes over.
+    await prisma.payment.delete({ where: { id: payment.id } }).catch(() => prisma.payment.update({ where: { id: payment.id }, data: { status: "EXPIRED" } }).catch(() => {}));
+    log.info("[intents] stablecoin payment goes the default way", { coin, network, reason: e instanceof Error ? e.message.slice(0, 160) : String(e) });
+    return null;
   }
 }
 

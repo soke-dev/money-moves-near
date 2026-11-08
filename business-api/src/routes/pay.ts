@@ -115,6 +115,8 @@ function publicIntent(p: Payment) {
     originTx: i.originTx,
     /** The network the USDC lands on, ours. */
     landsOn: p.network,
+    /** A USDC or USDT payment routed through NEAR Intents: the page shows it as the stablecoin the customer picked. */
+    stable: !!i.stable,
     test: !!i.test,
   };
 }

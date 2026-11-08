@@ -25,7 +25,7 @@ import { REFUND_WITHIN_MS, markRefundSent } from "../services/refunds";
 import { requestShape } from "./requests";
 import adminSupportRoutes from "./admin-support";
 import { keepOneDefault, nameOnRecord, recheckBanks } from "../lib/banks";
-import { INTENT_COINS, landingFor } from "../lib/intents";
+import { INTENT_COINS, STABLE_INTENT_PAIRS, landingFor } from "../lib/intents";
 import { DEFAULT_CHAIN, NETWORKS, PLATFORM_DEFAULTS, WAYS, chainPaused, effectiveChain, kindLimitsNgn, nairaDefaults, ownCheckoutOf, ownCheckoutSchema, payoutsOn, platform, platformSchema, platformWithMeta, reviewLimits, savePlatform, type Platform, type Way } from "../lib/platform";
 import { wayLimitsNgn } from "./pay";
 import { assignDeposit, depositRow, directBalanceNgn, directPaymentRow, directTotals, markSettled, resolveDeposit, setDirectAllowed, setDirectLimits } from "../services/direct";
@@ -1548,7 +1548,7 @@ function whatsLive() {
 }
 
 router.get("/platform", async (_req, res) => {
-  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, intentCoins: INTENT_COINS.map(({ key, symbol, name, chain }) => ({ key, symbol, name, chain })), live: whatsLive() });
+  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, intentCoins: INTENT_COINS.map(({ key, symbol, name, chain }) => ({ key, symbol, name, chain })), stableIntentPairs: STABLE_INTENT_PAIRS, live: whatsLive() });
 });
 
 /** Every change here reaches every business within seconds, so every save takes the password. */
@@ -1567,7 +1567,7 @@ router.put("/platform", async (req, res) => {
     // Logged as the business's own chain change, so it reads the same wherever its history is shown.
     for (const m of moving) await audit(req, "settlement_chain_changed", { businessId: m.id, detail: { settleChain: DEFAULT_CHAIN, from: m.settleChain, reason: "chain_switched_off", admin: req.admin!.email } });
   }
-  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, intentCoins: INTENT_COINS.map(({ key, symbol, name, chain }) => ({ key, symbol, name, chain })), live: whatsLive(), changed });
+  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, intentCoins: INTENT_COINS.map(({ key, symbol, name, chain }) => ({ key, symbol, name, chain })), stableIntentPairs: STABLE_INTENT_PAIRS, live: whatsLive(), changed });
 });
 
 // ─── Crypto that came in: what goes back, what matched nothing, what's still to sweep ─

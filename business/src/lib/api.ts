@@ -429,6 +429,8 @@ export interface PaymentIntent {
   originTx: string | null
   /** The network the USDC lands on. */
   landsOn: string | null
+  /** A USDC or USDT payment routed through NEAR Intents by the platform: shown as that stablecoin. */
+  stable?: boolean
   test: boolean
 }
 
