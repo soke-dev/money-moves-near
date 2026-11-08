@@ -51,7 +51,12 @@ router.get(
       const auroraOn = isAuroraConfigured();
       // Each coin's own switch (the Converted tab) applies to whichever rail its network uses.
       const coinStates = await routedAssetStates();
-      const auroraAssets = auroraOn ? await auroraRoutedAssets(userId, coinStates).catch(() => []) : [];
+      const auroraAssets = auroraOn
+        ? await auroraRoutedAssets(userId, coinStates).catch((e: any) => {
+            console.error(`[ROUTED] Aurora list failed for ${userId}:`, e?.message ?? e);
+            return [];
+          })
+        : [];
 
       /**
        * The unavailable ones come too.

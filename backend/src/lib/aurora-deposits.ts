@@ -172,7 +172,8 @@ export async function ensureAuroraAddress(userId: string, chain: AuroraDepositCh
  * too low is somebody sending money that is not credited.
  */
 async function minimumInCoin(asset: AuroraDepositAsset, minUsd: number): Promise<string | null> {
-  const price = (await auroraTokens()).get(asset.assetId)?.price;
+  // No price list right now: no minimum shown, rather than no row.
+  const price = (await auroraTokens().catch(() => null))?.get(asset.assetId)?.price;
   if (!price || price <= 0) return null;
   // Enough places that a dollar floor still shows: six for BTC and ETH, four for SOL and BNB, two for the rest.
   const places = price >= 1_000 ? 6 : price >= 10 ? 4 : 2;
@@ -219,11 +220,12 @@ export async function auroraRoutedAssets(userId: string, coinStates: { chainId: 
     let address = "";
     let failed = false;
     if (rows.some((r) => r.st === "visible")) {
-      const r = await ensureAuroraAddress(userId, chain);
+      // One network failing (Aurora slow, or not letting us make this address) greys its own rows, never the list.
+      const r = await ensureAuroraAddress(userId, chain).catch((e: any) => ({ ok: false as const, reason: "unavailable" as const, error: String(e?.message ?? e) }));
       if (r.ok) address = r.address;
       else {
         failed = true;
-        console.warn(`[AU-DEP] ${chain.kind} unavailable for ${userId}: ${r.reason}`);
+        console.warn(`[AU-DEP] ${chain.kind} unavailable for ${userId}: ${r.reason}${"error" in r ? ` (${r.error})` : ""}`);
       }
     }
 
