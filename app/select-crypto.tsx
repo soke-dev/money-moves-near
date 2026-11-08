@@ -34,8 +34,9 @@ import {
  * networks in those coins' own dropdowns now, and ETH on Arbitrum is not
  * offered, so Arbitrum drops out of this list entirely.
  */
+// Arbitrum, NEAR (397) and Ethereum's stablecoins live in the USDC and USDT network lists, not here.
 const inOtherCrypto = (a: { chainId: number; symbol: string }) =>
-  a.chainId !== 42161 && !(a.chainId === 1 && (a.symbol === "USDC" || a.symbol === "USDT"));
+  a.chainId !== 42161 && a.chainId !== 397 && !(a.chainId === 1 && (a.symbol === "USDC" || a.symbol === "USDT"));
 const BTC_CHAIN = 10001;
 const TRON_CHAIN = 728126428;
 
@@ -43,7 +44,7 @@ const TRON_CHAIN = 728126428;
  * The converting networks each coin's deposit dropdown adds (see CONVERTED_NETS
  * in app/deposit.tsx), counted only when the server offers them.
  */
-const CONVERTED_IN: Record<string, number[]> = { USDT: [TRON_CHAIN, 1, 42161], USDC: [1, 42161] };
+const CONVERTED_IN: Record<string, number[]> = { USDT: [TRON_CHAIN, 1, 42161, 397], USDC: [1, 42161, 397] };
 
 const DIRECT = [
   { symbol: "USDC", name: "USD Coin" },
