@@ -82,9 +82,18 @@ export const AURORA_DEPOSIT_CHAINS: readonly AuroraDepositChain[] = [
 /** Bitcoin and Tron: Aurora only, never Stableyard, whatever the console says. */
 export const AURORA_CHAIN_IDS = AURORA_DEPOSIT_CHAINS.filter((c) => c.kind === "btc" || c.kind === "tron").map((c) => c.chainId);
 
+/** A token's contract inside Aurora's id for it, whichever way it's spelled. Native coins (no contract) only match exactly. */
+const contractIn = (id: string, assetId: string) => {
+  const c = /0x[0-9a-f]{40}/i.exec(assetId)?.[0]?.toLowerCase();
+  return !!c && id.includes(c);
+};
+
 /** The coin a deposit came as, by Aurora's asset id or the symbol we wrote down, else the network's first. */
 export function assetOf(chain: AuroraDepositChain, assetId?: string | null, symbol?: string | null): AuroraDepositAsset {
-  return chain.assets.find((a) => (assetId && a.assetId === assetId) || (symbol && a.symbol === symbol)) ?? chain.assets[0]!;
+  const id = (assetId ?? "").toLowerCase();
+  // Exactly, or by the token inside Aurora's id ("arb-0xfd08…" whichever way it's spelled).
+  const byId = id ? chain.assets.find((a) => a.assetId.toLowerCase() === id || contractIn(id, a.assetId)) : undefined;
+  return byId ?? chain.assets.find((a) => symbol && a.symbol === symbol) ?? chain.assets[0]!;
 }
 
 /**
@@ -467,6 +476,28 @@ function announceArrived(userId: string, sentAmount: string, symbol: string, usd
 }
 
 /** Read one address from Aurora and write what it says. Returns false if Aurora did not answer. */
+/** The networks that share one address on Aurora. Bitcoin, Tron and Solana each have their own. */
+const EVM_KINDS: AuroraDepositKind[] = ["eth", "bsc", "arb", "pol"];
+/** Aurora's chain names for them, as it may report a deposit's origin. */
+const EVM_CHAIN_NAMES: Record<string, AuroraDepositKind> = { eth: "eth", ethereum: "eth", "1": "eth", bsc: "bsc", bnb: "bsc", "56": "bsc", arb: "arb", arbitrum: "arb", "42161": "arb", pol: "pol", polygon: "pol", matic: "pol", "137": "pol" };
+
+/**
+ * Which EVM network a deposit to the shared address belongs to: by its coin when Aurora's asset id is one we list,
+ * else by the chain Aurora says it came from, else Ethereum's (so it's still recorded, once).
+ */
+function evmOwner(d: PersistentDeposit): AuroraDepositKind {
+  const id = (d.asset_id ?? "").toLowerCase();
+  if (id) {
+    for (const c of AURORA_DEPOSIT_CHAINS) {
+      if (!EVM_KINDS.includes(c.kind)) continue;
+      // Exactly, or by the contract inside it ("eth-0xa0b8…" in either spelling).
+      if (c.assets.some((a) => a.assetId.toLowerCase() === id || contractIn(id, a.assetId))) return c.kind;
+    }
+  }
+  const from = (d.fromChain ?? "").toLowerCase();
+  return EVM_CHAIN_NAMES[from] ?? "eth";
+}
+
 async function syncAddress(userId: string, chain: AuroraDepositChain, address: string): Promise<boolean> {
   const received = await persistentDeposits(address, "received", { limit: 100 });
   if (!received.ok) {
@@ -478,7 +509,12 @@ async function syncAddress(userId: string, chain: AuroraDepositChain, address: s
    * whichever network is asked about, so without this one Ethereum deposit was claimed by Ethereum, BNB Chain and
    * Arbitrum alike. A coin we don't list is left to the wallet watcher, which records the USDC as it lands.
    */
-  const deposits = (received.data?.deposits ?? []).filter((d) => !d.asset_id || chain.assets.some((a) => a.assetId === d.asset_id));
+  const all = received.data?.deposits ?? [];
+  if (all.length && EVM_KINDS.includes(chain.kind)) {
+    const d = all[all.length - 1]!;
+    console.log(`[AU-DEP] ${chain.kind} deposit shape: asset_id=${d.asset_id ?? "none"} fromChain=${d.fromChain ?? "none"}`);
+  }
+  const deposits = EVM_KINDS.includes(chain.kind) ? all.filter((d) => evmOwner(d) === chain.kind) : all;
 
   const [successAll, failedAll] = await Promise.all([
     persistentDeposits(address, "success"),
