@@ -612,16 +612,24 @@ export async function findEvmDeposit(
     const head = Number(BigInt(headHex || "0x0"));
     if (!head) return null;
     const from = Math.max(0, head - EVM_LOOKBACK_BLOCKS);
+    const topics = [ERC20_TRANSFER_TOPIC, null, "0x" + address.toLowerCase().replace(/^0x/, "").padStart(64, "0")];
 
-    const logs = await jsonRpc(rpcUrl, "eth_getLogs", [
-      {
-        address: tokenContract,
-        fromBlock: "0x" + from.toString(16),
-        toBlock: "latest",
-        // [event, from (any), to (us)]
-        topics: [ERC20_TRANSFER_TOPIC, null, "0x" + address.toLowerCase().replace(/^0x/, "").padStart(64, "0")],
-      },
-    ]);
+    let logs: any;
+    try {
+      // [event, from (any), to (us)]
+      logs = await jsonRpc(rpcUrl, "eth_getLogs", [{ address: tokenContract, fromBlock: "0x" + from.toString(16), toBlock: "latest", topics }]);
+    } catch (err: any) {
+      // A node that caps the range says how far ("up to a 10 block range"): walk back in its windows, newest first.
+      const said = Number(/(\d+)\s*block range/i.exec(String(err?.message))?.[1] ?? NaN);
+      if (!Number.isFinite(said) || said <= 0) throw err;
+      logs = [];
+      for (let end = head, n = 0; end >= from && n < 80 && !logs.length; n++) {
+        const start = Math.max(from, end - said + 1);
+        logs = await jsonRpc(rpcUrl, "eth_getLogs", [{ address: tokenContract, fromBlock: "0x" + start.toString(16), toBlock: "0x" + end.toString(16), topics }]);
+        if (!Array.isArray(logs)) logs = [];
+        end = start - 1;
+      }
+    }
 
     const last = Array.isArray(logs) && logs.length ? logs[logs.length - 1] : null;
     if (!last?.transactionHash) return null;
@@ -701,7 +709,10 @@ export async function findMonadDeposit(address: string, asset: string): Promise<
     let last: any = null;
     // Each pass either steps back past the window it read or, once, narrows
     // the window - so this ends within about sixty requests whatever happens.
-    for (let end = head; end >= 0 && end > head - MONAD_LOOKBACK_BLOCKS && !last; ) {
+    // At most eighty asks, however narrow the node makes the window: the deposit looked for is the one that just landed.
+    let requests = 0;
+    for (let end = head; end >= 0 && end > head - MONAD_LOOKBACK_BLOCKS && !last && requests < 80; ) {
+      requests++;
       const start = Math.max(0, end - span + 1);
       let logs: any;
       try {
@@ -714,8 +725,11 @@ export async function findMonadDeposit(address: string, asset: string): Promise<
           },
         ]);
       } catch (err: any) {
-        if (span > 100 && /range|limit/i.test(String(err?.message))) {
-          span = 100;
+        // The node's own limit when it says one ("up to a 10 block range"), else 100.
+        const said = Number(/(\d+)\s*block range/i.exec(String(err?.message))?.[1] ?? NaN);
+        const next = Number.isFinite(said) && said > 0 && said < span ? said : span > 100 && /range|limit/i.test(String(err?.message)) ? 100 : span;
+        if (next < span && requests < 80) {
+          span = next;
           continue;
         }
         throw err;

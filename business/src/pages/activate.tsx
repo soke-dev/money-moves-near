@@ -1814,7 +1814,7 @@ function ReviewStep({
       <div className="mt-6">
         <Checkbox checked={d.attest} onChange={(v) => set({ attest: v })}>
           I confirm these details are true, that I'm allowed to open this account{registered ? ' for the business' : ''}, and I accept the{' '}
-          <a href="#" className="font-medium text-fg underline underline-offset-2">merchant agreement</a>.
+          <a href="/legal/terms" target="_blank" rel="noreferrer" className="font-medium text-fg underline underline-offset-2">merchant agreement</a>.
         </Checkbox>
       </div>
       {problem && <p className="mt-5 text-[13.5px] text-red">{problem}</p>}

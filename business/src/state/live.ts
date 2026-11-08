@@ -60,6 +60,7 @@ export function toPayment(p: ApiPayment): Payment {
     destination: DEST_FROM_API[p.settlement?.destination ?? 'BANK'],
     txHash: p.method === 'CRYPTO' ? (p.payer?.session ?? '') : '',
     from: p.method === 'CRYPTO' ? (p.payer?.account ?? '') : '',
+    paidWith: p.method === 'CRYPTO' && p.paidWith ? p.paidWith : undefined,
     payer: p.payer ? { name: p.payer.name ?? '', bank: p.payer.bank ?? '', account: p.payer.account ?? '', session: p.payer.session ?? '' } : undefined,
     received: p.status === 'underpaid' && p.receivedNgn != null ? (p.method === 'NAIRA' ? p.receivedNgn : Math.round((p.receivedNgn / p.ngnPerUsd) * 100) / 100) : undefined,
     createdAt: p.createdAt,

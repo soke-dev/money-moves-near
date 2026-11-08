@@ -212,6 +212,8 @@ export interface Payment {
   destination: Destination
   txHash: string
   from: string
+  /** Paid through NEAR Intents: what the customer actually sent, on their own chain, and their transaction there. */
+  paidWith?: { coin: string; network: string; tx: string | null }
   /** For a naira transfer: the account it came from, as the sending bank reports it. */
   payer?: { name: string; bank: string; account: string; session: string }
   /** What actually arrived, when it wasn't the full amount. */

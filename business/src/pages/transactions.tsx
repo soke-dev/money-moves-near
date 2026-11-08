@@ -35,6 +35,7 @@ import { usePayments } from '@/state/live'
 import { downloadCsv, today } from '@/lib/csv'
 import { SUPPORT_EMAIL } from '@/lib/links'
 import { downloadTablePdf } from '@/lib/export'
+import { bareTx, explorerTxUrl } from '@/lib/explorer'
 
 /* ─── Payments ─────────────────────────────────────────────────────── */
 
@@ -215,6 +216,23 @@ function Copyable({ value, label }: { value: string; label: string }) {
   )
 }
 
+/** A transaction: opens on its explorer where we know one, else shown to copy. */
+function TxLink({ network, hash }: { network?: string; hash: string }) {
+  const url = explorerTxUrl(network, hash)
+  if (url)
+    return (
+      <a href={url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 font-mono text-accent">
+        {short(bareTx(hash), 8, 6)} <ExternalLink className="size-3" />
+      </a>
+    )
+  return (
+    <span className="flex min-w-0 items-center gap-1 font-mono text-fg">
+      <span className="truncate">{hash ? short(bareTx(hash), 8, 6) : 'Not recorded'}</span>
+      {hash && <Copyable value={bareTx(hash)} label="transaction" />}
+    </span>
+  )
+}
+
 /**
  * Where the money came from, in the terms of how it was sent: the sender's
  * bank account for a transfer, their username for the app, the wallet for
@@ -227,7 +245,7 @@ function PaidFrom({ p }: { p: Payment }) {
     <section className="mt-6 overflow-hidden rounded-[10px] border border-line">
       <div className="flex items-center justify-between bg-[#FAFAF8] px-4 py-2.5 text-[12px] font-medium text-dim">
         <span>Paid from</span>
-        <span>{p.method === 'naira' ? 'Bank transfer' : p.method === 'app' ? 'Money Moves app' : `${p.asset} on ${p.chain}`}</span>
+        <span>{p.method === 'naira' ? 'Bank transfer' : p.method === 'app' ? 'Money Moves app' : p.paidWith ? `${p.paidWith.coin} on ${p.paidWith.network}` : `${p.asset} on ${p.chain}`}</span>
       </div>
       <div className="flex items-center gap-3 px-4 py-3.5">
         {p.method === 'naira' && p.payer ? (
@@ -252,13 +270,19 @@ function PaidFrom({ p }: { p: Payment }) {
           </>
         ) : (
           <>
-            <TokenIcon asset={p.asset} chain={p.chain} size={36} />
+            <TokenIcon asset={p.paidWith?.coin ?? p.asset} chain={p.paidWith ? undefined : p.chain} size={36} />
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1 font-mono text-[13px] text-fg">
-                {p.from}
-                <Copyable value={p.from} label="address" />
+              {/* Through NEAR Intents the sender we see is the swap, not the customer: their wallet isn't shown. */}
+              {!p.paidWith && p.from && (
+                <div className="flex items-center gap-1 font-mono text-[13px] text-fg">
+                  {p.from}
+                  <Copyable value={p.from} label="address" />
+                </div>
+              )}
+              <div className={p.paidWith || !p.from ? 'text-[14px] font-semibold text-fg' : 'text-[12.5px] text-muted'}>
+                {p.paidWith ? `Customer's wallet on ${p.paidWith.network}` : `Sending wallet on ${p.chain}`}
               </div>
-              <div className="text-[12.5px] text-muted">Sending wallet on {p.chain}</div>
+              {p.paidWith && <div className="text-[12.5px] text-muted">Changed to USDC on the way</div>}
             </div>
           </>
         )}
@@ -272,9 +296,7 @@ function PaidFrom({ p }: { p: Payment }) {
               <Copyable value={p.payer.session} label="reference" />
             </span>
           ) : (
-            <a href="#" className="inline-flex items-center gap-1 font-mono text-accent">
-              {short(p.txHash, 8, 6)} <ExternalLink className="size-3" />
-            </a>
+            <TxLink network={p.paidWith ? p.paidWith.network : p.chain} hash={p.paidWith ? (p.paidWith.tx ?? '') : p.txHash} />
           )}
         </div>
       ) : null}

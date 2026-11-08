@@ -10,6 +10,12 @@ import { Router } from "express";
 import type { Payment, PaymentLink, Settlement } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { koboToCents } from "../lib/money";
+import { intentOf } from "../services/intent-in";
+
+const paidWith = (p: Payment) => {
+  const i = intentOf(p);
+  return i ? { coin: i.symbol, network: i.chain, tx: i.originTx ?? i.submittedTx ?? null } : null;
+};
 import { requireMember } from "../middleware/auth";
 import { HttpError } from "../lib/http";
 
@@ -65,6 +71,11 @@ export const paymentShape = (
   /** Crypto: the coin and the network it came on. */
   coin: p.coin,
   network: p.network,
+  /**
+   * Paid through NEAR Intents: what the customer actually sent, on their own chain, and their transaction there.
+   * coin and network above are where the USDC it became landed, ours.
+   */
+  paidWith: paidWith(p),
   createdAt: p.createdAt,
   paidAt: p.paidAt,
   settlement: p.settlement ? settlementBrief(p.settlement) : null,

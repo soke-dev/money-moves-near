@@ -223,6 +223,8 @@ export interface ApiPayment {
   /** Crypto: the coin and the network it came on. */
   coin?: string | null
   network?: string | null
+  /** Paid through NEAR Intents: what the customer actually sent, on their own chain, and their transaction there. */
+  paidWith?: { coin: string; network: string; tx: string | null } | null
   createdAt: string
   paidAt: string | null
   settlement: ApiSettlementBrief | null

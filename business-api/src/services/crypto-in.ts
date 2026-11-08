@@ -418,8 +418,11 @@ async function logsBetween(c: EvmChain, url: string, filter: { address: string[]
     try {
       logs = await rpc(url, "eth_getLogs", [{ ...filter, fromBlock: toHex(start), toBlock: toHex(end) }]);
     } catch (e) {
-      if (step > 5) {
-        step = Math.max(5, Math.floor(step / 4));
+      // The provider's own limit when it says one ("up to a 10 block range"), else a quarter as wide.
+      const said = Number(/(\d+)\s*block range/i.exec(e instanceof Error ? e.message : String(e))?.[1] ?? NaN);
+      const next = Number.isFinite(said) && said > 0 && said < step ? said : Math.max(5, Math.floor(step / 4));
+      if (next < step) {
+        step = next;
         steps.set(c.network, step);
         continue;
       }

@@ -161,9 +161,12 @@ async function evmDeposits(c: EvmChain, address: string): Promise<Deposit[]> {
     let logs: { address: string; topics: string[]; data: string; transactionHash: string; blockNumber: string }[];
     try {
       logs = await rpc(url, "eth_getLogs", [{ address: contracts.map((t) => t.address), topics: [TRANSFER, null, topic], fromBlock: toHex(start), toBlock: toHex(end) }]);
-    } catch {
-      if (step > 10) {
-        step = Math.max(10, Math.floor(step / 10));
+    } catch (e) {
+      // The provider's own limit when it says one ("up to a 10 block range"), else a tenth as wide.
+      const said = Number(/(\d+)\s*block range/i.exec(e instanceof Error ? e.message : String(e))?.[1] ?? NaN);
+      const next = Number.isFinite(said) && said > 0 && said < step ? said : Math.max(10, Math.floor(step / 10));
+      if (next < step) {
+        step = next;
         continue;
       }
       break;

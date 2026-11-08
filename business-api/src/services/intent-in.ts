@@ -143,6 +143,8 @@ export async function openStableViaIntents(c: Checkout, input: OpenInput, price:
   const via = stableIntentCoin(coin, network);
   const landing = landingFor(effectiveChain(c.business.settleChain, price.p));
   if (!via || !landing) return null;
+  // Already the coin it would become, on the chain it would land on: routing it would only cost the customer and add a wait.
+  if (coin === "USDC" && network === landing) return null;
   const deadline = new Date(Date.now() + WINDOW_MS);
   const micros = BigInt(price.amountCents) * 10_000n;
   const payment = await newPayment(c, input, "CRYPTO", price, { coin: "USDC", network: landing, depositKind: "OWN", expiresAt: deadline });
@@ -182,8 +184,6 @@ export async function openStableViaIntents(c: Checkout, input: OpenInput, price:
 const looked = new Map<string, number>();
 
 const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
-/** How far back an EVM look reaches: about five minutes of blocks, never more than 1,000 (what RPCs allow in one ask). */
-const blocksBack = (blockSeconds: number) => Math.min(1_000, Math.ceil(300 / blockSeconds));
 
 /**
  * The customer's transfer to the 1Click address, found on their own chain.
@@ -192,7 +192,7 @@ const blocksBack = (blockSeconds: number) => Math.min(1_000, Math.ceil(300 / blo
  * signatures) and the EVM chains we read (USDC and USDT, by their Transfer
  * logs). Elsewhere, and for native ETH, 1Click finds it by itself.
  */
-async function findOriginTx(i: Intent): Promise<{ tx: string; amount: string | null } | null> {
+async function findOriginTx(i: Intent): Promise<{ tx: string | null; amount: string | null } | null> {
   if (i.chain === "Solana") {
     const url = env.SOLANA_RPC_URL;
     if (!url) return null;
@@ -207,14 +207,34 @@ async function findOriginTx(i: Intent): Promise<{ tx: string; amount: string | n
   const url = c?.url();
   const tokens = c ? contractsOf(c).filter((t) => t.coin === i.symbol) : [];
   if (!c || !url || !tokens.length) return null;
-  const tip = hexNum(await rpc<string>(url, "eth_blockNumber", []));
   const to = `0x${i.address.toLowerCase().replace(/^0x/, "").padStart(64, "0")}`;
-  const logs = await rpc<{ transactionHash: string; address: string; data: string }[]>(url, "eth_getLogs", [{ address: tokens.map((t) => t.address), topics: [TRANSFER_TOPIC, null, to], fromBlock: toHex(Math.max(0, tip - blocksBack(c.blockSeconds))), toBlock: toHex(tip) }]);
-  const l = logs[0];
-  if (!l) return null;
-  const decimals = tokens.find((t) => t.address.toLowerCase() === l.address.toLowerCase())?.decimals ?? 6;
-  return { tx: l.transactionHash, amount: ethers.formatUnits(BigInt(l.data), decimals) };
+  // What's there now, read straight from the coin: no history needed, so it's seen the moment it lands.
+  let amount: string | null = null;
+  for (const t of tokens) {
+    const raw = BigInt(await rpc<string>(url, "eth_call", [{ to: t.address, data: `0x70a08231${to.slice(2)}` }, "latest"]));
+    if (raw > 0n) {
+      amount = ethers.formatUnits(raw, t.decimals);
+      break;
+    }
+  }
+  // The transaction itself, for handing to 1Click: searched forward from where the last look stopped, ten blocks at a
+  // time, since some RPC plans take no more (Monad's).
+  const tip = hexNum(await rpc<string>(url, "eth_blockNumber", []));
+  let from = scanFrom.get(i.address) ?? Math.max(0, tip - 40);
+  let tx: string | null = null;
+  for (let n = 0; n < 6 && from <= tip && !tx; n++) {
+    const end = Math.min(from + 9, tip);
+    const logs = await rpc<{ transactionHash: string }[]>(url, "eth_getLogs", [{ address: tokens.map((t) => t.address), topics: [TRANSFER_TOPIC, null, to], fromBlock: toHex(from), toBlock: toHex(end) }]);
+    if (logs[0]) tx = logs[0].transactionHash;
+    else from = end + 1;
+  }
+  if (scanFrom.size > 2_000) scanFrom.clear();
+  scanFrom.set(i.address, from);
+  return tx || amount ? { tx, amount } : null;
 }
+
+/** Where each EVM deposit address's search for its transaction got to. */
+const scanFrom = new Map<string, number>();
 
 /** How much the customer's Solana transaction put at the 1Click address: its USDC or USDT, or SOL itself. */
 async function solanaDeposited(url: string, sig: string, i: Intent): Promise<string | null> {
@@ -257,9 +277,14 @@ async function nudge(p: Payment, intent: Intent): Promise<Intent> {
   if (intent.status !== "PENDING_DEPOSIT" || intent.submittedTx) return intent;
   try {
     const found = await findOriginTx(intent);
-    if (!found || !(await submitIntentDeposit(intent.address, found.tx, intent.memo))) return intent;
-    log.info("[intents] handed the deposit to 1Click", { ref: p.ref, tx: found.tx, amount: found.amount });
-    return withSeen({ ...intent, submittedTx: found.tx, depositedAmount: found.amount ?? intent.depositedAmount ?? null });
+    if (!found) return intent;
+    let next: Intent = intent;
+    if (found.amount && found.amount !== intent.depositedAmount) next = { ...next, depositedAmount: found.amount };
+    if (found.tx && (await submitIntentDeposit(intent.address, found.tx, intent.memo))) {
+      next = { ...next, submittedTx: found.tx };
+      log.info("[intents] handed the deposit to 1Click", { ref: p.ref, tx: found.tx, amount: found.amount });
+    }
+    return next === intent ? intent : withSeen(next);
   } catch (e) {
     log.warn("[intents] couldn't look for the deposit", { ref: p.ref, reason: e instanceof Error ? e.message : String(e) });
     return intent;
