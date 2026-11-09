@@ -26,6 +26,7 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   CaretUpDownIcon,
+  CaretUpIcon,
   ChatCircleIcon,
   CheckIcon,
   CircleNotchIcon,
@@ -119,6 +120,7 @@ export const ChevronDown = make(CaretDownIcon)
 export const ChevronLeft = make(CaretLeftIcon)
 export const ChevronRight = make(CaretRightIcon)
 export const ChevronsUpDown = make(CaretUpDownIcon)
+export const ChevronUp = make(CaretUpIcon)
 export const Clock = make(ClockIcon)
 export const ClockCountdown = make(ClockCountdownIcon)
 export const Bitcoin = make(CurrencyBtcIcon)

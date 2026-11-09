@@ -476,6 +476,12 @@ export type BusinessDetail = {
     risk?: { ownLimitNgn: number | null; limitNgn: number; takenTodayNgn: number }
     /** Direct account checkouts: switched on or not, its account number once opened, and whether the API can open one. */
     direct?: { allowed: boolean; account: string | null; ready: boolean }
+    /** Ways to pay: on or off for everyone, and the off ones kept on for this business. */
+    ways?: { everyone: Record<'NAIRA' | 'APP' | 'CRYPTO', boolean>; keptOn: ('NAIRA' | 'APP' | 'CRYPTO')[] }
+    /** Every live settlement waits for us to pay it by hand. Never shown to the business. */
+    manualSettlement?: boolean
+    /** Its naira rails: who takes its bank transfers (null: Services) and who pays it out (null: Flutterwave). */
+    rails?: { collect: 'FLUTTERWAVE' | 'BACHS' | null; bachsReady: boolean }
     /** Where its live money goes: its default now, and how many live checkouts pick each place. */
     settlement?: {
       justMe: boolean
@@ -674,6 +680,8 @@ export type Platform = {
   intents: { on: boolean; feeBps: number; stablecoins: boolean }
   /** Each other coin by key; a missing key is on. */
   intentCoins: Record<string, boolean>
+  /** Which rail takes live bank transfers: off Flutterwave, on Bachs. */
+  nairaRails: { collectBachs: boolean }
   networks: Record<string, boolean>
   fees: { nairaRateBps: number; nairaCapNgn: number; cryptoRateBps: number; cryptoCapUsd: number; appRateBps: number; payoutNgn: number }
   /** The plain four are bank transfer; crypto* and app* are stablecoins and the Money Moves app. */
@@ -696,7 +704,7 @@ export type Live = {
   /** Where a swap lands for a business settling on Monad, on Solana, and anywhere else. Null: nowhere can. */
   intentLanding?: { MONAD: string | null; SOLANA: string | null; others: string | null }
 }
-export type PlatformData = { platform: Platform; defaults: Platform; networks: string[]; intentCoins?: { key: string; symbol: string; name: string; chain: string }[]; stableIntentPairs?: string[]; live?: Live; updatedBy: string | null; updatedAt: string | null }
+export type PlatformData = { platform: Platform; defaults: Platform; networks: string[]; intentCoins?: { key: string; symbol: string; name: string; chain: string }[]; stableIntentPairs?: string[]; bachsReady?: boolean; live?: Live; updatedBy: string | null; updatedAt: string | null }
 
 /* ─── Words ────────────────────────────────────────────────────────── */
 

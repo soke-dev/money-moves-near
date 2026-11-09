@@ -9,6 +9,33 @@ const p = 'mt-3 text-[15.5px] leading-[1.75] text-body'
 
 const WEEKS: Week[] = [
   {
+    week: 'Week of Nov 2, 2026',
+    entries: [
+      {
+        title: 'Customers can pay with almost any coin',
+        body: (
+          <>
+            <p className={p}>
+              Crypto checkouts can offer Another coin: Bitcoin, Ether, SOL, NEAR, XRP, Dogecoin and more. It's swapped to the exact price in USDC on the way, through NEAR Intents, and settles like any other crypto payment. A payment's{' '}
+              <C>crypto.paid_with</C> shows what the customer sent. <Link to="/payment-methods">Paying with another coin</Link>
+            </p>
+            <p className={p}>USDC and USDT can also be routed through NEAR Intents, so customers can pay from more chains, with nothing changing on your side.</p>
+          </>
+        ),
+      },
+      {
+        title: 'Payouts from each payment, on Solana or Monad',
+        body: (
+          <>
+            <p className={p}>
+              Every crypto payout is now paid out of that payment's own money. USDC payouts go out on Solana or Monad; businesses that chose Arc, Movement or Stellar receive on Monad for now, at the same address. Bank payouts are unchanged. <Link to="/settlement">Settlement</Link>
+            </p>
+          </>
+        ),
+      },
+    ],
+  },
+  {
     week: 'Week of Oct 19, 2026',
     entries: [
       {

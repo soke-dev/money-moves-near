@@ -12,7 +12,7 @@ import { body, HttpError } from "../lib/http";
 import { newMerchantId } from "../lib/crypto";
 import { audit } from "../lib/audit";
 import { requireMember, requireUser } from "../middleware/auth";
-import { DEFAULT_CHAIN, platform } from "../lib/platform";
+import { DEFAULT_CHAIN, platform, forMode } from "../lib/platform";
 import { ngnPerUsd } from "../lib/rates";
 import { canSimulate } from "../rails";
 import { limitsNgn } from "./pay";
@@ -20,7 +20,7 @@ import { brandOf } from "../lib/brand";
 import { MAX_IMAGE, imageUrl, storeImage } from "../lib/images";
 import { newReferralCode } from "../lib/money";
 import { dashboardUrl } from "../lib/email";
-import { methodStates } from "../lib/methods";
+import { landRules, methodOrder, methodStates } from "../lib/methods";
 import { defaultDestination } from "./v1";
 
 const router = Router();
@@ -215,10 +215,18 @@ const mode = (q: unknown) => (String(q).toLowerCase() === "test" ? "TEST" : "LIV
 router.get("/:businessId/payment-settings", requireMember(), async (req, res) => {
   const businessId = req.member!.businessId;
   const m = mode(req.query.mode);
-  const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { id: true, kind: true, methodsOff: true, apiSettleTo: true, apiBankAccountId: true } });
-  const [methods, now] = await Promise.all([methodStates(business, m), defaultDestination(businessId, "LIVE", await platform())]);
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { id: true, kind: true, methodsOff: true, methodOrder: true, landBy: true, methodsKeptOn: true, apiSettleTo: true, apiBankAccountId: true } });
+  const rules = await platform();
+  const [methods, now] = await Promise.all([methodStates(business, m), defaultDestination(businessId, "LIVE", rules)]);
   res.json({
     methods,
+    order: methodOrder(business.methodOrder),
+    landBy: landRules(business.landBy),
+    /** Live, paused on our side for this business (switched off for everyone, and not kept on for it). */
+    paused: (() => {
+      const live = forMode(rules, "LIVE", business).methods;
+      return { NAIRA: !live.naira, APP: !live.app, CRYPTO: !live.crypto };
+    })(),
     api: { settleTo: business.apiSettleTo, bankAccountId: business.apiBankAccountId, now: now.destination, nowBankAccountId: now.bankAccountId ?? null, justMe: business.kind === "INDIVIDUAL" },
   });
 });
@@ -238,6 +246,49 @@ router.patch("/:businessId/methods", requireMember(...SETTINGS_ROLES), async (re
   await prisma.business.update({ where: { id: businessId }, data: { methodsOff: [...off] } });
   await audit(req, b.on ? "method_on" : "method_off", { businessId, detail: { method: b.method } });
   res.json({ methods: await methodStates({ ...business, methodsOff: [...off] }, mode(req.query.mode)) });
+});
+
+/** The order the ways to pay appear in at checkout, first to last. */
+router.put("/:businessId/method-order", requireMember(...SETTINGS_ROLES), async (req, res) => {
+  const b = body(z.object({ order: z.array(z.enum(["NAIRA", "APP", "CRYPTO"])).length(3).refine((o) => new Set(o).size === 3, "Each way to pay once.") }), req);
+  const businessId = req.member!.businessId;
+  await prisma.business.update({ where: { id: businessId }, data: { methodOrder: b.order } });
+  await audit(req, "method_order", { businessId, detail: { order: b.order } });
+  res.json({ order: methodOrder(b.order) });
+});
+
+/**
+ * Where each way to pay lands, on every checkout: a bank account, the Money Moves account or the business wallet.
+ * A way to pay left out (null) lands where its checkout says. Only places the business has set up can be chosen.
+ */
+router.put("/:businessId/land-by", requireMember(...SETTINGS_ROLES), async (req, res) => {
+  const rule = z.object({ to: z.enum(["BANK", "MONEY_MOVES", "WALLET"]), bankAccountId: z.string().min(1).nullish() }).nullable();
+  const b = body(z.object({ NAIRA: rule.optional(), CRYPTO: rule.optional(), APP: rule.optional() }), req);
+  const businessId = req.member!.businessId;
+  const business = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { kind: true, landBy: true } });
+  if (business.kind === "INDIVIDUAL") throw new HttpError(400, "A Just me account settles everything to its business wallet.", "just_me");
+  const next = { ...landRules(business.landBy) } as Record<string, { to: string; bankAccountId?: string | null }>;
+  for (const m of ["NAIRA", "CRYPTO", "APP"] as const) {
+    const r = b[m];
+    if (r === undefined) continue;
+    if (r === null) {
+      delete next[m];
+      continue;
+    }
+    if (r.to === "BANK") {
+      const bank = await prisma.bankAccount.findFirst({ where: { businessId, removedAt: null, nameMatches: true, ...(r.bankAccountId ? { id: r.bankAccountId } : {}) } });
+      if (!bank) throw new HttpError(400, r.bankAccountId ? "That bank account isn't one you can be paid to." : "Add a bank account in Payout places first.", "place_not_ready");
+    } else if (r.to === "MONEY_MOVES") {
+      if (!(await prisma.moneyMovesLink.count({ where: { businessId, status: "LINKED" } }))) throw new HttpError(400, "Link your Money Moves account in Payout places first.", "place_not_ready");
+    } else if (!(await prisma.businessWallet.count({ where: { businessId } }))) {
+      throw new HttpError(400, "Create your business wallet first.", "place_not_ready");
+    }
+    next[m] = r.to === "BANK" ? { to: "BANK", bankAccountId: r.bankAccountId ?? null } : { to: r.to };
+  }
+  const value = Object.keys(next).length ? next : Prisma.DbNull;
+  await prisma.business.update({ where: { id: businessId }, data: { landBy: value } });
+  await audit(req, "land_by", { businessId, detail: { landBy: next } });
+  res.json({ landBy: landRules(next) });
 });
 
 /** Where API payments settle when a checkout doesn't say: a bank account, the Money Moves account, the business wallet, or automatic. */

@@ -133,7 +133,7 @@ export function Services() {
     setDraft((d) => (d ? ({ ...d, [group]: typeof d[group] === 'object' ? { ...(d[group] as object), [key]: value } : value } as Platform) : d))
   const flip = (group: keyof Platform, key: string) => (v: boolean) => set(group, key, v)
 
-  const TABS: readonly (readonly [Tab, string, string[]])[] = [["switches","Switches",["payouts","newBusinesses","maintenance","identity"]],["pay","Ways to pay",["methods","coins","networks","intents","intentCoins"]],["checkouts","Checkouts",["channels"]],["settle","Settlement",["destinations","settleChains"]],["fees","Fees",["fees"]],["limits","Limits & review",["limits","review","risk"]]]
+  const TABS: readonly (readonly [Tab, string, string[]])[] = [["switches","Switches",["payouts","newBusinesses","maintenance","identity"]],["pay","Ways to pay",["methods","coins","networks","intents","intentCoins","nairaRails"]],["checkouts","Checkouts",["channels"]],["settle","Settlement",["destinations","settleChains"]],["fees","Fees",["fees"]],["limits","Limits & review",["limits","review","risk"]]]
   // Each tab counts the changes waiting to be saved in it.
   const waiting = (keys: string[]) => [...diff].filter((d) => keys.includes(d.split('.')[0]!)).length
 
@@ -181,7 +181,7 @@ export function Services() {
       )}
 
       {tab === 'pay' && (
-      <Group title="Ways to pay" sub="What customers can pay with at checkout. Switching one off stops it for live payments; test mode keeps them all.">
+      <Group title="Ways to pay" sub="What customers can pay with at checkout. Switching one off stops it for live payments, except for businesses you keep it on for on their page. Test mode keeps them all.">
         <SwitchRow label="Bank transfer (naira)" sub="A one-time account for the exact amount." on={draft.methods.naira} onChange={flip('methods', 'naira')} changed={diff.has('methods.naira')} />
         <SwitchRow label="Money Moves app" on={draft.methods.app} onChange={flip('methods', 'app')} later={live?.methods.app} changed={diff.has('methods.app')} />
         <SwitchRow label="Crypto" on={draft.methods.crypto} onChange={flip('methods', 'crypto')} later={live?.methods.crypto} changed={diff.has('methods.crypto')} />
@@ -229,6 +229,22 @@ export function Services() {
         {data.networks.map((n) => (
           <SwitchRow key={n} label={n} on={draft.networks[n] ?? true} onChange={flip('networks', n)} later={live?.networks[n]} changed={diff.has(`networks.${n}`)} />
         ))}
+      </Group>
+      )}
+
+      {tab === 'pay' && (
+      <Group title="Bank transfers" sub="Who takes live bank transfers. Each business can be set apart on its page. Bachs never pays out: a bank payout for a transfer taken through Bachs waits in Settlements for the team to pay by hand.">
+        <SwitchRow
+          label="Take bank transfers through Bachs"
+          sub={
+            data.bachsReady
+              ? "Off: Flutterwave makes the one-time account and the checkout shows it. On: Bachs makes it, and the customer opens it on Bachs's own page from the checkout. Payments already open finish where they started."
+              : "Bachs isn't set up yet: add BACHS_SECRET_KEY to the Business API, then this can be switched on. Until then Flutterwave takes every transfer."
+          }
+          on={draft.nairaRails?.collectBachs ?? false}
+          onChange={flip('nairaRails', 'collectBachs')}
+          changed={diff.has('nairaRails.collectBachs')}
+        />
       </Group>
       )}
 

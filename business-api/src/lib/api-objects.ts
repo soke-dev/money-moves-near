@@ -19,6 +19,12 @@ export const METHOD_IN = { bank_transfer: "NAIRA", app: "APP", crypto: "CRYPTO" 
 const PAYMENT_STATUS = { OPEN: "open", PAID: "successful", UNDERPAID: "underpaid", EXPIRED: "expired" } as const;
 
 /** A payment: one attempt by a customer to pay, by one method. */
+/** A payment paid in another coin through NEAR Intents: the coin, its chain and the customer's transaction there. */
+function paidWith(p: Payment): { coin: string; network: string; transaction: string | null } | null {
+  const i = p.intent && typeof p.intent === "object" ? (p.intent as { symbol?: string; chain?: string; originTx?: string | null; submittedTx?: string | null }) : null;
+  return i?.symbol && i.chain ? { coin: i.symbol, network: i.chain, transaction: i.originTx ?? i.submittedTx ?? null } : null;
+}
+
 export function paymentObject(p: Payment, link?: Pick<PaymentLink, "id" | "metadata" | "reference" | "apiKeyId"> | null) {
   const tx = (p.method === "CRYPTO" || p.method === "APP") && p.payerSession ? p.payerSession.split(":")[0]! : null;
   return {
@@ -44,7 +50,8 @@ export function paymentObject(p: Payment, link?: Pick<PaymentLink, "id" | "metad
     received_ngn: naira(p.receivedKobo),
     rate_ngn_per_usd: p.ngnPerUsd,
     method: METHOD_OUT[p.method],
-    crypto: p.method === "CRYPTO" ? { coin: p.coin, network: p.network, address: p.depositAddress, memo: p.depositMemo, transaction: tx } : null,
+    // coin and network are the USDC it became; paid_with is what the customer sent, when it came in another coin (or was routed).
+    crypto: p.method === "CRYPTO" ? { coin: p.coin, network: p.network, address: p.depositAddress, memo: p.depositMemo, transaction: tx, paid_with: paidWith(p) } : null,
     customer: { email: p.customerEmail, name: p.customerName, phone: p.customerPhone },
     payer: p.status === "OPEN" || p.status === "EXPIRED" ? null : { name: p.payerName, bank: p.payerBank, account: p.payerAccount },
     /** A link the customer can open to see or download their receipt, once it's paid. */
@@ -73,6 +80,7 @@ export function checkoutObject(l: PaymentLink, paid: Payment | null) {
     customer: { email: l.customerEmail, name: l.customerName },
     fee_payer: l.feePayer ? (l.feePayer === "CUSTOMER" ? "customer" : "business") : null,
     redirect_url: l.redirectUrl,
+    redirect_label: l.redirectLabel,
     payment: paid ? paymentObject(paid, l) : null,
     expires_at: iso(l.expiresAt),
     created_at: iso(l.createdAt),

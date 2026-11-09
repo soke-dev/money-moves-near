@@ -56,6 +56,8 @@ export const platformSchema = z.object({
    */
   intents: z.object({ on, feeBps: z.number().int().min(0).max(300), stablecoins: on }),
   intentCoins: z.record(z.string().max(20), on),
+  /** Which rail takes live bank transfers. collectBachs off: Flutterwave. On: Bachs's one-time accounts. A business can be set apart. */
+  nairaRails: z.object({ collectBachs: on }),
   networks: z.object(Object.fromEntries(NETWORKS.map((n) => [n, on])) as Record<(typeof NETWORKS)[number], typeof on>),
   fees: z.object({
     nairaRateBps: z.number().int().min(0).max(1000),
@@ -129,6 +131,7 @@ export const PLATFORM_DEFAULTS: Platform = {
   coins: { USDC: true, USDT: true },
   intents: { on: false, feeBps: 0, stablecoins: false },
   intentCoins: {},
+  nairaRails: { collectBachs: false },
   networks: Object.fromEntries(NETWORKS.map((n) => [n, true])) as Platform["networks"],
   fees: { nairaRateBps: 200, nairaCapNgn: 4_000, cryptoRateBps: 30, cryptoCapUsd: 1, appRateBps: 0, payoutNgn: 100 },
   limits: {
@@ -315,8 +318,12 @@ export function reviewLimits(p: Platform, b: OwnLimits) {
  * exist to stop real money. Fees and limits still apply, so a test behaves
  * like the real thing.
  */
-export function forMode(p: Platform, mode: Mode): Platform {
-  if (mode !== "TEST") return p;
+export function forMode(p: Platform, mode: Mode, business?: { methodsKeptOn?: string[] | null } | null): Platform {
+  if (mode !== "TEST") {
+    const kept = business?.methodsKeptOn ?? [];
+    if (!kept.length) return p;
+    return { ...p, methods: { ...p.methods, naira: p.methods.naira || kept.includes("NAIRA"), app: p.methods.app || kept.includes("APP"), crypto: p.methods.crypto || kept.includes("CRYPTO") } };
+  }
   const allOn = <T extends Record<string, boolean>>(o: T) => Object.fromEntries(Object.keys(o).map((k) => [k, true])) as T;
   return { ...p, maintenance: false, payouts: true, methods: allOn(p.methods), channels: allOn(p.channels), destinations: allOn(p.destinations), coins: allOn(p.coins), networks: allOn(p.networks) };
 }

@@ -78,6 +78,12 @@ export interface ApiMethodState {
 /** The business's payment settings: its checkout methods, and where API payments settle. */
 export interface ApiPaymentSettings {
   methods: Record<'NAIRA' | 'APP' | 'CRYPTO', ApiMethodState>
+  /** The order they appear in at checkout, first to last. */
+  order?: ('NAIRA' | 'APP' | 'CRYPTO')[]
+  /** Where each way to pay lands on every checkout; one left out lands where its checkout says. */
+  landBy?: Partial<Record<'NAIRA' | 'APP' | 'CRYPTO', { to: ApiDestination; bankAccountId?: string | null }>>
+  /** Live, paused on our side for this business. */
+  paused?: Record<'NAIRA' | 'APP' | 'CRYPTO', boolean>
   api: { settleTo: ApiDestination | null; bankAccountId: string | null; now: ApiDestination; nowBankAccountId: string | null; justMe: boolean }
 }
 
@@ -191,6 +197,7 @@ export interface ApiLink {
   destination: ApiDestination
   bankAccountId: string | null
   redirectUrl: string | null
+  redirectLabel?: string | null
   askPhone: boolean
   /** Ask a bank or crypto customer their name; their email is always asked. */
   askName?: boolean
@@ -306,6 +313,8 @@ export interface PublicLink {
     /** Other coins it takes, swapped to USDC on the way. Empty or missing: stablecoins only. */
     intents?: IntentOption[]
     redirectUrl: string | null
+    /** The words on the button back to redirectUrl. */
+    redirectLabel?: string | null
     askPhone: boolean
   /** Ask a bank or crypto customer their name; their email is always asked. */
   askName?: boolean
@@ -450,6 +459,8 @@ export interface PublicPayment {
   amountUsd: number
   ngnPerUsd: number
   account: { bank: string; number: string; name: string } | null
+  /** The one-time account is on our bank partner's page: open it, transfer, come back. */
+  bankPage?: string | null
   /** Live, by the app: the link that opens the payment in Money Moves (tapped, or as a QR). */
   app?: { link: string } | null
   /**

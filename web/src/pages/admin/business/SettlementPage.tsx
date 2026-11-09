@@ -284,6 +284,10 @@ function Approve({ s, onClose }: { s: Settle; onClose: () => void }) {
 function MarkDelivered({ s, onClose }: { s: Settle; onClose: () => void }) {
   const [reference, setReference] = useState('')
   const [note, setNote] = useState('')
+  // How it was paid: the business sees the place. Same: leave where it was headed as it is.
+  const [via, setVia] = useState<'SAME' | 'BANK' | 'CRYPTO' | 'MONEY_MOVES'>('SAME')
+  const [chain, setChain] = useState('')
+  const [toAddress, setToAddress] = useState('')
   const [password, setPassword] = useState('')
   const { busy, said, run } = useAction()
   return (
@@ -296,9 +300,36 @@ function MarkDelivered({ s, onClose }: { s: Settle; onClose: () => void }) {
             : "For money that reached the business another way - sent by hand from the rail's dashboard, say. Say how, so the next person can trace it."
         }
       >
+        <div className="mb-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)]">
+          <Field label="Paid with">
+            <Select value={via} onChange={(e) => setVia(e.target.value as typeof via)}>
+              <option value="SAME">Where it was headed</option>
+              <option value="BANK">Bank transfer, to its bank account</option>
+              <option value="CRYPTO">Crypto</option>
+              <option value="MONEY_MOVES">Money Moves, to its linked account</option>
+            </Select>
+          </Field>
+          {via === 'CRYPTO' && (
+            <>
+              <Field label="Chain">
+                <Select value={chain} onChange={(e) => setChain(e.target.value)}>
+                  <option value="">{s.chain ? `As it was (${s.chain})` : 'Solana'}</option>
+                  {['SOLANA', 'MONAD', 'MOVEMENT', 'ARC', 'STELLAR'].map((c) => (
+                    <option key={c} value={c}>
+                      {c.charAt(0) + c.slice(1).toLowerCase()}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Sent to (optional)">
+                <Input value={toAddress} onChange={(e) => setToAddress(e.target.value)} placeholder="Its business wallet if empty" />
+              </Field>
+            </>
+          )}
+        </div>
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
           <Field label="Reference">
-            <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Session ID or transfer ID" />
+            <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder={via === 'CRYPTO' ? 'Transaction hash' : 'Session ID or transfer ID'} />
           </Field>
           <Field label="How it was delivered">
             <Textarea rows={1} value={note} onChange={(e) => setNote(e.target.value)} />
@@ -313,7 +344,14 @@ function MarkDelivered({ s, onClose }: { s: Settle; onClose: () => void }) {
             tone="primary"
             disabled={busy || !password}
             onClick={async () => {
-              const body = { password, reference: reference.trim() || undefined, note: note.trim() || undefined }
+              const body = {
+                password,
+                reference: reference.trim() || undefined,
+                note: note.trim() || undefined,
+                ...(via !== 'SAME' ? { via } : {}),
+                ...(via === 'CRYPTO' && chain ? { chain } : {}),
+                ...(via === 'CRYPTO' && toAddress.trim() ? { toAddress: toAddress.trim() } : {}),
+              }
               if (await run(() => biz(`/settlements/${s.id}/mark-settled`, { method: 'POST', body }), 'Marked delivered.')) onClose()
             }}
           >

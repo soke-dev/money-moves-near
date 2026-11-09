@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { useLandByNote } from '@/components/ApiSettleTo'
 import { Link } from 'react-router-dom'
 import { createPortal } from 'react-dom'
 import { AlertTriangle, ArrowDownLeft, ArrowLeft, ArrowRight, Bell, Bitcoin, Check, Clock, Copy, Download, ExternalLink, FileText, Landmark, Link2, MapPin, MoreHorizontal, Pause, Pencil, Play, Plus, QrMark, Receipt, Send, Store, Trash2 } from '@/components/icons'
@@ -65,6 +66,7 @@ function toPayLink(l: ApiLink): PayLink {
     createdAt: l.createdAt,
     about: l.description,
     redirect: l.redirectUrl,
+    redirectLabel: l.redirectLabel ?? null,
     min: l.min,
     askPhone: l.askPhone,
     askName: l.askName ?? true,
@@ -671,6 +673,7 @@ type PayLink = {
   /** Live: what the builder needs to edit it as it is. */
   about?: string | null
   redirect?: string | null
+  redirectLabel?: string | null
   min?: number | null
   askPhone?: boolean
   askName?: boolean
@@ -973,9 +976,11 @@ function CurrencySelect({ value, onChange, label = 'Currency at checkout' }: { v
 /** "Settlement": where this one's payments go, folded until it's wanted. */
 function SettleFold({ pay }: { pay: ReturnType<typeof usePayOptions> }) {
   const { business } = useSession()
+  const landNote = useLandByNote()
   return (
     <Fold label="Settlement" value={DESTINATIONS[effectiveDest(business, pay.dest)].label}>
       <p className="mb-3 text-[12.5px] leading-relaxed text-dim">Whatever the customer pays with is converted for you and sent here the moment it's paid.</p>
+      {LIVE && landNote && <p className="mb-3 text-[12.5px] leading-relaxed text-fg">{landNote}</p>}
       <SettlementChoice value={pay.dest} onChange={pay.setDest} bankId={pay.bankId} onBank={pay.setBankId} mmId={pay.mmId} onMm={pay.setMmId} />
     </Fold>
   )
@@ -1002,7 +1007,7 @@ function usePreviewBasics() {
 function previewLink(
   basics: ReturnType<typeof usePreviewBasics>,
   pay: ReturnType<typeof usePayOptions>,
-  link: { slug: string; name: string; description?: string | null; currency: Currency; amount: number | null; min?: number | null; redirectUrl?: string | null; askPhone?: boolean; askName?: boolean; feePayer?: FeePick },
+  link: { slug: string; name: string; description?: string | null; currency: Currency; amount: number | null; min?: number | null; redirectUrl?: string | null; redirectLabel?: string | null; askPhone?: boolean; askName?: boolean; feePayer?: FeePick },
 ): PublicLink {
   return {
     link: {
@@ -1017,6 +1022,7 @@ function previewLink(
       methods: pay.methods.map((m) => METHOD_TO_API[m]),
       accept: pay.crypto ? (pay.accept as ApiAccept) : undefined,
       redirectUrl: link.redirectUrl ?? null,
+      redirectLabel: link.redirectLabel ?? null,
       askPhone: !!link.askPhone,
       askName: link.askName ?? true,
       feePayer: link.feePayer ?? null,
@@ -1085,7 +1091,7 @@ function MadeIt({ title, sub, children }: { title: string; sub: string; children
 
 /* ─── Create a payment link ───────────────────────────────────────── */
 
-const BLANK_LINK = { name: '', about: '', fixed: 'fixed', amount: '', min: '', currency: 'NGN', redirect: '', slug: '' }
+const BLANK_LINK = { name: '', about: '', fixed: 'fixed', amount: '', min: '', currency: 'NGN', redirect: '', redirectLabel: '', slug: '' }
 /** Left-to-right mark: keeps an address's slashes in place inside a box trimmed from its start. */
 const LRM = String.fromCharCode(0x200e)
 type LinkDraft = typeof BLANK_LINK
@@ -1171,6 +1177,7 @@ function CreateLink({ open, onClose, initial, onSave }: { open: boolean; onClose
           amount: initial.fixed ? String(initial.currency === 'NGN' && initial.amountNgn ? initial.amountNgn : initial.amountUsd) : '',
           min: initial.min != null ? String(initial.min) : '',
           redirect: initial.redirect ?? '',
+          redirectLabel: initial.redirectLabel ?? '',
           slug: initial.slug,
         }
       : BLANK_LINK
@@ -1209,6 +1216,7 @@ function CreateLink({ open, onClose, initial, onSave }: { open: boolean; onClose
       destination: DEST_TO_API[pay.dest],
       bankAccountId: pay.savedBank ?? null,
       redirectUrl: f.redirect.trim() || null,
+      redirectLabel: f.redirectLabel.trim() || null,
       askPhone: phone,
       askName,
       feePayer,
@@ -1280,6 +1288,7 @@ function CreateLink({ open, onClose, initial, onSave }: { open: boolean; onClose
       amount: fixed ? amount : null,
       min: !fixed && Number(f.min) > 0 ? Number(f.min) : null,
       redirectUrl: f.redirect.trim() || null,
+      redirectLabel: f.redirectLabel.trim() || null,
       askPhone: phone,
       askName,
       feePayer,
@@ -1358,6 +1367,13 @@ function CreateLink({ open, onClose, initial, onSave }: { open: boolean; onClose
               <Field label="Send them here after paying" optional>
                 <Input value={f.redirect} onChange={(e) => setF((p) => ({ ...p, redirect: e.target.value }))} placeholder="https://yoursite.com/thanks" />
               </Field>
+              {f.redirect.trim() && (
+                <div className="mt-3">
+                  <Field label="Button text" optional hint="What the button says after they pay. Leave it empty to use “Return to” and your site’s name.">
+                    <Input value={f.redirectLabel} maxLength={40} onChange={(e) => setF((p) => ({ ...p, redirectLabel: e.target.value }))} placeholder="Back to your tickets" />
+                  </Field>
+                </div>
+              )}
             </Fold>
           </div>
 

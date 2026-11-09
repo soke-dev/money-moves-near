@@ -174,6 +174,20 @@ model Business {
   apiBankAccountId     String?      @map("api_bank_account_id")
   /// Ways to pay the business has switched off on every checkout. The rest are on wherever their money has somewhere to go.
   methodsOff           PayMethod[]  @default([]) @map("methods_off")
+  /// The order its ways to pay appear in at checkout, first to last. Empty: crypto, the app, then bank transfer.
+  methodOrder          PayMethod[]  @default([]) @map("method_order")
+  /// Where each way to pay lands, on every checkout: {"NAIRA":{"to":"BANK","bankAccountId":".."},"CRYPTO":{"to":"WALLET"},"APP":{"to":"MONEY_MOVES"}}.
+  /// A way to pay left out lands where the checkout says.
+  landBy               Json?        @map("land_by")
+  /// Set by our team: ways to pay kept on for this business while they're switched off for everyone in Services.
+  methodsKeptOn        PayMethod[]  @default([]) @map("methods_kept_on")
+  /// Set by our team, never shown to the business: every live settlement waits for us to pay it by hand and mark
+  /// it settled. The business sees each one as on its way until then.
+  manualSettlement     Boolean      @default(false) @map("manual_settlement")
+  /// Set by our team: which rail takes its bank transfers ("FLUTTERWAVE" or "BACHS"). Null: what Services says.
+  nairaCollect         String?      @map("naira_collect")
+  /// No longer used: Bachs never pays out. Kept so old rows read.
+  payoutRail           String?      @map("payout_rail")
 
   /// Direct account checkout: a hidden, API-only naira checkout paid into the business's own
   /// Flutterwave subaccount. Our team grants it; we settle the business by hand. Off hides it
@@ -402,6 +416,8 @@ model PaymentLink {
   /// Which bank account, when it settles to a bank. Null: the default one.
   bankAccountId String?     @map("bank_account_id")
   redirectUrl   String?     @map("redirect_url")
+  /// The words on the button that takes the customer there after paying. Null: "Return to" and the site's name.
+  redirectLabel String?     @map("redirect_label")
   askPhone      Boolean     @default(false) @map("ask_phone")
   /// Whether a bank or crypto customer is asked their name; their email is always asked.
   askName       Boolean     @default(true) @map("ask_name")
@@ -587,6 +603,8 @@ model Payment {
   accountBank      String?        @map("account_bank")
   accountNumber    String?        @map("account_number")
   accountName      String?        @map("account_name")
+  /// A transfer taken through Bachs: the page that shows its one-time account. No account number of ours then.
+  bankPage      String?   @map("bank_page")
   providerRef      String?        @map("provider_ref")
   /// A direct account payment: paid into the business's subaccount, matched by exact amount, never settled automatically.
   direct           Boolean        @default(false)
@@ -686,6 +704,8 @@ model Settlement {
   mode        Mode
   destination Destination
   status      SettlementStatus @default(QUEUED)
+  /// The rail a bank payout went through: "bachs", or null for the usual one.
+  rail        String?
 
   /// What it was sent to, as it was at the time - kept even if the account is removed later.
   bankAccountId String? @map("bank_account_id")

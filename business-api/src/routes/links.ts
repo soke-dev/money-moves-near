@@ -47,6 +47,8 @@ const fields = {
   destination: z.enum(["BANK", "MONEY_MOVES", "WALLET"]),
   bankAccountId: z.string().nullish(),
   redirectUrl: z.union([webAddress, z.literal("")]).nullish(),
+  /** The words on the button back to redirectUrl. Empty: "Return to" and the site's name. */
+  redirectLabel: z.string().trim().max(40, "Keep the button text to 40 characters.").nullish(),
   askPhone: z.boolean().optional(),
   askName: z.boolean().optional(),
   /** Who pays the fee on this one: BUSINESS, CUSTOMER, or null to follow the business. */
@@ -72,6 +74,7 @@ export const linkShape = (l: PaymentLink, s?: Stats) => ({
   destination: l.destination,
   bankAccountId: l.bankAccountId,
   redirectUrl: l.redirectUrl,
+  redirectLabel: l.redirectLabel,
   askPhone: l.askPhone,
   askName: l.askName,
   feePayer: l.feePayer,
@@ -118,6 +121,7 @@ router.post("/", requireMember(...MANAGE), async (req, res) => {
     destination,
     bankAccountId,
     redirectUrl: b.redirectUrl || null,
+    redirectLabel: b.redirectLabel || null,
     askPhone: b.askPhone ?? false,
     askName: b.askName ?? true,
     feePayer: b.feePayer ?? null,
@@ -165,6 +169,7 @@ router.patch("/:linkId", requireMember(...MANAGE), async (req, res) => {
   }
   if (b.min !== undefined) data.minMinor = b.min == null ? null : await minorFor(b.min, currency, "The minimum", limits);
   if (b.redirectUrl !== undefined) data.redirectUrl = b.redirectUrl || null;
+  if (b.redirectLabel !== undefined) data.redirectLabel = b.redirectLabel || null;
   if (b.askPhone !== undefined) data.askPhone = b.askPhone;
   if (b.askName !== undefined) data.askName = b.askName;
   if (b.feePayer !== undefined) data.feePayer = b.feePayer;

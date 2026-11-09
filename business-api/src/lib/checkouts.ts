@@ -55,7 +55,8 @@ export async function minorFor(amount: number, currency: "NGN" | "USD", what: st
  * in one mode. Returns the columns to save.
  */
 export async function placesFor(businessId: string, mode: Mode, v: { methods: string[]; destination: Destination; bankAccountId?: string | null }) {
-  const p = forMode(await platform(), mode);
+  const owner = await prisma.business.findUniqueOrThrow({ where: { id: businessId }, select: { methodsKeptOn: true } });
+  const p = forMode(await platform(), mode, owner);
   // Live app payments need the app's side switched on. Test mode simulates all three.
   if (mode === "LIVE" && v.methods.includes("APP") && !appPayReady()) {
     throw new HttpError(400, "Paying with the Money Moves app isn't switched on for live payments yet. All three work in test mode.", "method_unavailable");

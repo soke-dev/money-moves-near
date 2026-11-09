@@ -92,7 +92,9 @@ export const flutterwave: NairaRails = {
   resolve: (bankCode, accountNumber) => flutterwaveResolve(bankCode, accountNumber),
 
   async openAccount({ reference, amountKobo, expiresAt, merchantName, businessId }) {
+    const started = Date.now();
     const [identity, customerId] = await Promise.all([identityFor(businessId), customerFor(businessId)]);
+    const ready = Date.now();
     const r = await flutterwaveOneTimeAccount({
       customerId,
       reference,
@@ -100,6 +102,17 @@ export const flutterwave: NairaRails = {
       expirySeconds: (expiresAt.getTime() - Date.now()) / 1000,
       narration: narrationFor(merchantName),
       identity,
+    });
+    // How long the customer waited, and how much of it was Flutterwave making the account.
+    log.info("[flutterwave] account asked for", {
+      reference,
+      ok: r.ok,
+      status: r.status,
+      setupMs: ready - started,
+      accountMs: Date.now() - ready,
+      // Which identity opened it (never the number itself): the business's own BVN, or our collections one.
+      identity: "bvn" in identity ? (identity.bvn === env.FLUTTERWAVE_COLLECTIONS_BVN ? "collections_bvn" : "business_bvn") : "collections_nin",
+      ...(r.ok ? {} : { reason: r.message, traceId: r.traceId, requestId: r.requestId }),
     });
     if (!r.ok || !r.data?.account_number) throw new Error(`Flutterwave account not opened (${r.status}): ${r.message}`);
     return {

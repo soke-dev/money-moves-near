@@ -67,6 +67,11 @@ const schema = z.object({
   FLUTTERWAVE_CLIENT_ID: z.string().trim().optional(),
   FLUTTERWAVE_CLIENT_SECRET: z.string().trim().optional(),
   FLUTTERWAVE_BASE_URL: z.string().url().default("https://developersandbox-api.flutterwave.com"),
+  /** Bachs, the second naira rail: its secret key (sk_sandbox_ or sk_live_), and its address when not the one the key implies. */
+  BACHS_SECRET_KEY: emptyAsUnset(z.string().min(10).optional()),
+  BACHS_BASE_URL: emptyAsUnset(z.string().url().optional()),
+  /** The email Bachs is given for every customer, so its receipts come to us and customers only hear from Money Moves. */
+  BACHS_RECEIPT_EMAIL: z.string().email().default("support@usemoneymoves.xyz"),
   FLUTTERWAVE_TOKEN_URL: z.string().url().default("https://idp.flutterwave.com/realms/flutterwave/protocol/openid-connect/token"),
   /** The company named on payouts - the same one the app pays out under. */
   FLUTTERWAVE_SENDER_NAME: z.string().default("Movers Digital Technologies Ltd"),

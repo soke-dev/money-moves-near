@@ -87,8 +87,8 @@ import { actionWord, activityDetail, byTeam, paymentColumns, paymentFlag, settle
 import { ApplicationReview } from './Application'
 import { InfoRequests } from './Requests'
 
-type TabId = 'overview' | 'payments' | 'settlements' | 'checkouts' | 'banks' | 'team' | 'verification' | 'activity'
-const TAB_IDS: TabId[] = ['overview', 'payments', 'settlements', 'checkouts', 'banks', 'team', 'verification', 'activity']
+type TabId = 'overview' | 'controls' | 'payments' | 'settlements' | 'checkouts' | 'banks' | 'team' | 'verification' | 'activity'
+const TAB_IDS: TabId[] = ['overview', 'controls', 'payments', 'settlements', 'checkouts', 'banks', 'team', 'verification', 'activity']
 type Go = (t: TabId, extra?: Record<string, string | null>) => void
 type Biz = BusinessDetail['business']
 
@@ -226,6 +226,7 @@ export function BusinessPage({ id }: { id: string }) {
         onChange={(t) => go(t)}
         items={[
           ['overview', 'Overview'],
+          ['controls', 'Controls'],
           ['payments', 'Payments', live.pays + test.pays],
           ['settlements', 'Settlements', live.settles + test.settles],
           ['checkouts', 'Checkouts', data.links.filter((l) => !l.deleted).length + data.invoices.filter((i) => i.status !== 'VOID').length + data.outlets.filter((o) => !o.deleted).length],
@@ -238,6 +239,7 @@ export function BusinessPage({ id }: { id: string }) {
 
       <div className="pt-5">
         {tab === 'overview' && <OverviewTab data={data} go={go} />}
+        {tab === 'controls' && <ControlsTab b={b} />}
         {tab === 'payments' && <PaymentsTab businessId={b.id} name={b.name} links={data.links} invoices={data.invoices} outlets={data.outlets} />}
         {tab === 'settlements' && <SettlementsTab businessId={b.id} name={b.name} />}
         {tab === 'checkouts' && <CheckoutsTab data={data} go={go} />}
@@ -479,14 +481,31 @@ function OverviewTab({ data, go }: { data: BusinessDetail; go: Go }) {
       </div>
       <aside className="space-y-5 min-w-0">
         <DetailsPanel data={data} />
-        <FeePanel b={b} />
-        <LimitPanel b={b} />
-        <OwnLimitsPanel b={b} />
-        <DirectPanel b={b} />
-        <TwoStepResetPanel email={b.owner?.email ?? ''} />
         <VerificationPanel app={app} onOpen={() => go('verification')} />
         <NotesPanel b={b} />
       </aside>
+    </div>
+  )
+}
+
+/** Our levers for this business, side by side: fees, limits, how it settles, its rails and ways to pay, and access. */
+function ControlsTab({ b }: { b: Biz }) {
+  return (
+    <div className="grid items-start gap-5 md:grid-cols-2 xl:grid-cols-3">
+      <div className="space-y-5 min-w-0">
+        <FeePanel b={b} />
+        <LimitPanel b={b} />
+      </div>
+      <div className="space-y-5 min-w-0">
+        <OwnLimitsPanel b={b} />
+        <ManualSettlementPanel b={b} />
+      </div>
+      <div className="space-y-5 min-w-0">
+        <WaysPanel b={b} />
+        <RailsPanel b={b} />
+        <DirectPanel b={b} />
+        <TwoStepResetPanel email={b.owner?.email ?? ''} />
+      </div>
     </div>
   )
 }
@@ -910,6 +929,175 @@ function EditOwnLimits({ b, onClose }: { b: Biz; onClose: () => void }) {
   )
 }
 
+/**
+ * Settling this business by hand: every live settlement waits in review, whatever the customer paid with, until
+ * someone pays it and marks it settled with how. The business only ever sees "on its way", then settled.
+ */
+function ManualSettlementPanel({ b }: { b: Biz }) {
+  const on = !!b.manualSettlement
+  const [asking, setAsking] = useState(false)
+  const [password, setPassword] = useState('')
+  const { busy, said, run } = useAction()
+  const turn = async () => {
+    const ok = await run(() => biz(`/businesses/${b.id}`, { method: 'PATCH', body: { manualSettlement: !on, password } }), on ? 'Settling automatically again.' : 'Settling by hand from now on.')
+    if (ok) {
+      setAsking(false)
+      setPassword('')
+    }
+  }
+  return (
+    <Panel title="Manual settlement" action={!asking && <TextButton onClick={() => setAsking(true)}>{on ? 'Switch off' : 'Switch on'}</TextButton>}>
+      {asking ? (
+        <div className="space-y-3">
+          <p className="text-[12.5px] leading-relaxed" style={{ color: C.muted }}>
+            {on
+              ? 'New settlements go out automatically again. Ones already waiting stay in Settlements, under review, until you send or mark them.'
+              : 'Every live settlement waits for you in Settlements, under review, whatever the customer paid with. Pay it yourself, then mark it settled and say how: bank, crypto or Money Moves. The business only sees it as on its way until then.'}
+          </p>
+          <PasswordInput full value={password} onChange={setPassword} />
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button small onClick={() => setAsking(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button small tone={on ? undefined : 'primary'} disabled={busy || !password} onClick={() => void turn()}>
+              {busy ? 'Saving…' : on ? 'Switch off' : 'Switch on'}
+            </Button>
+          </div>
+          {said && !said.ok && <Said {...said} />}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Facts rows={[['State', <Tag tone={on ? 'good' : undefined}>{on ? 'On, settled by hand' : 'Off'}</Tag>]]} />
+          {on && (
+            <p className="text-[12.5px]" style={{ color: C.dim }}>
+              Its settlements wait under review in Settlements. The business isn't told.
+            </p>
+          )}
+          {said?.ok && <Said {...said} />}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+/**
+ * Who takes its bank transfers: Services' choice unless set here. Bachs never pays out: a bank payout for money taken
+ * through Bachs waits in Settlements for the team to pay by hand.
+ */
+function RailsPanel({ b }: { b: Biz }) {
+  const r = b.rails
+  const [asking, setAsking] = useState(false)
+  const [collect, setCollect] = useState<string>(r?.collect ?? '')
+  const { busy, said, run } = useAction()
+  if (!r) return null
+  const save = async () => {
+    if (await run(() => biz(`/businesses/${b.id}`, { method: 'PATCH', body: { nairaCollect: collect || null } }), 'Saved.')) setAsking(false)
+  }
+  const collectName = r.collect === 'BACHS' ? 'Bachs' : r.collect === 'FLUTTERWAVE' ? 'Flutterwave' : 'As Services says'
+  return (
+    <Panel
+      title="Bank transfers"
+      action={
+        !asking && (
+          <TextButton
+            onClick={() => {
+              setCollect(r.collect ?? '')
+              setAsking(true)
+            }}
+          >
+            Change
+          </TextButton>
+        )
+      }
+    >
+      {asking ? (
+        <div className="space-y-3">
+          <Field label="Takes bank transfers through">
+            <Select value={collect} onChange={(e) => setCollect(e.target.value)}>
+              <option value="">As Services says</option>
+              <option value="FLUTTERWAVE">Flutterwave</option>
+              <option value="BACHS" disabled={!r.bachsReady}>
+                Bachs{r.bachsReady ? '' : ' (not set up)'}
+              </option>
+            </Select>
+          </Field>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button small onClick={() => setAsking(false)} disabled={busy}>
+              Cancel
+            </Button>
+            <Button small tone="primary" disabled={busy} onClick={() => void save()}>
+              {busy ? 'Saving…' : 'Save'}
+            </Button>
+          </div>
+          {said && !said.ok && <Said {...said} />}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <Facts rows={[['Takes transfers', collectName]]} />
+          <p className="text-[12.5px] leading-relaxed" style={{ color: C.dim }}>
+            Bachs never pays out. A bank payout for a transfer taken through Bachs waits in Settlements for you to pay by hand and mark paid. The business sees it on its way.
+          </p>
+          {said?.ok && <Said {...said} />}
+        </div>
+      )}
+    </Panel>
+  )
+}
+
+const WAY_NAMES = [
+  ['NAIRA', 'Bank transfer'],
+  ['APP', 'Money Moves app'],
+  ['CRYPTO', 'Crypto'],
+] as const
+
+/**
+ * Ways to pay switched off for everyone in Services can be kept on for this one business.
+ * One that's on for everyone needs nothing here.
+ */
+function WaysPanel({ b }: { b: Biz }) {
+  const w = b.ways
+  const { busy, said, run } = useAction()
+  if (!w) return null
+  const flip = (k: 'NAIRA' | 'APP' | 'CRYPTO') => {
+    const kept = w.keptOn.includes(k)
+    const next = kept ? w.keptOn.filter((x) => x !== k) : [...w.keptOn, k]
+    void run(() => biz(`/businesses/${b.id}`, { method: 'PATCH', body: { methodsKeptOn: next } }), kept ? 'Back to what everyone has.' : 'Kept on for this business.')
+  }
+  return (
+    <Panel title="Ways to pay">
+      <div className="space-y-2.5">
+        {WAY_NAMES.map(([k, label]) => {
+          const everyone = w.everyone[k]
+          const kept = w.keptOn.includes(k)
+          return (
+            <div key={k} className="flex items-center justify-between gap-3 text-[13px]">
+              <div className="min-w-0">
+                <div style={{ color: C.text }}>{label}</div>
+                <div className="text-[12px]" style={{ color: C.dim }}>
+                  {everyone ? 'On for everyone' : kept ? 'Off for everyone, kept on here' : 'Off for everyone'}
+                </div>
+              </div>
+              {everyone ? (
+                <Tag tone="good">On</Tag>
+              ) : (
+                <Button small tone={kept ? undefined : 'primary'} disabled={busy} onClick={() => flip(k)}>
+                  {kept ? 'Switch off here' : 'Keep on here'}
+                </Button>
+              )}
+            </div>
+          )
+        })}
+        {w.keptOn.some((k) => w.everyone[k]) && (
+          <p className="text-[12px]" style={{ color: C.dim }}>
+            Kept on here too, for whenever it's switched off for everyone.
+          </p>
+        )}
+        {said && <Said {...said} />}
+      </div>
+    </Panel>
+  )
+}
+
 /** Someone who lost their phone and their recovery codes: back to codes by email, once it's checked it's really them. */
 /**
  * Direct account checkouts for this business: an account of its own, paid
@@ -1185,6 +1373,9 @@ function SettlementsTab({ businessId, name }: { businessId: string; name: string
           ]}
         />
         <Segmented value={mode} onChange={setMode} items={[['live', 'Live'], ['test', 'Test']]} />
+        <div className="ml-auto">
+          <MarkAllSettled businessId={businessId} onDone={() => void reload()} />
+        </div>
       </div>
       <Panel flush>
         {loading && !data ? (
@@ -1204,6 +1395,89 @@ function SettlementsTab({ businessId, name }: { businessId: string; name: string
         )}
         {data && <Pager page={data.pagination.page} pages={data.pagination.pages} total={data.pagination.total} unit="settlement" onPage={setPage} />}
       </Panel>
+    </div>
+  )
+}
+
+/**
+ * Everything of this business's that waits for a person (in review, held or failed), live, marked paid by hand in one
+ * go: how many and how much first, then how it was paid and the password. Ones already with a rail are left to it.
+ */
+function MarkAllSettled({ businessId, onDone }: { businessId: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false)
+  const [count, setCount] = useState<{ count: number; totalNgn: number } | null>(null)
+  const [via, setVia] = useState<'BANK' | 'CRYPTO' | 'MONEY_MOVES'>('BANK')
+  const [reference, setReference] = useState('')
+  const [note, setNote] = useState('')
+  const [password, setPassword] = useState('')
+  const { busy, said, run } = useAction(onDone)
+  const path = `/businesses/${businessId}/settlements/mark-all-settled`
+  const start = async () => {
+    setOpen(true)
+    setCount(null)
+    setCount(await biz<{ count: number; totalNgn: number }>(path, { method: 'POST', body: {} }).catch(() => ({ count: 0, totalNgn: 0 })))
+  }
+  if (!open) return <Button small onClick={() => void start()}>Mark all as paid</Button>
+  return (
+    <div className="fixed inset-0 z-40 grid place-items-center p-4" style={{ background: 'rgba(0,0,0,0.55)' }}>
+      <div className="w-full max-w-[460px] rounded-[12px] p-5" style={{ background: C.card, border: `1px solid ${C.line}` }}>
+        <div className="text-[15px] font-semibold" style={{ color: C.text }}>
+          Mark all as paid
+        </div>
+        <p className="mt-1 text-[12.5px] leading-relaxed" style={{ color: C.muted }}>
+          {count == null
+            ? 'Counting what waits for a person…'
+            : count.count
+              ? `${plural(count.count, 'settlement')} waiting for a person, ${naira(count.totalNgn)} in all, live. Each is marked paid the way you say, and the business sees it settled.`
+              : 'Nothing of this business waits for a person right now.'}
+        </p>
+        {!!count?.count && (
+          <div className="mt-4 space-y-3">
+            <Field label="Paid with">
+              <Select value={via} onChange={(e) => setVia(e.target.value as typeof via)}>
+                <option value="BANK">Bank transfer, to its bank account</option>
+                <option value="CRYPTO">Crypto, to its business wallet</option>
+                <option value="MONEY_MOVES">Money Moves, to its linked account</option>
+              </Select>
+            </Field>
+            <Field label="Reference">
+              <Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Session ID, transfer ID or batch name" />
+            </Field>
+            <Field label="Note">
+              <Input value={note} onChange={(e) => setNote(e.target.value)} />
+            </Field>
+            <PasswordInput full value={password} onChange={setPassword} />
+          </div>
+        )}
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <Button small onClick={() => setOpen(false)} disabled={busy}>
+            {said?.ok ? 'Close' : 'Cancel'}
+          </Button>
+          {!!count?.count && !said?.ok && (
+            <Button
+              small
+              tone="primary"
+              disabled={busy || !password}
+              onClick={() =>
+                void run(async () => {
+                  const r = await biz<{ marked: number; of: number; problems: string[] }>(path, {
+                    method: 'POST',
+                    body: { confirm: true, via, password, reference: reference.trim() || undefined, note: note.trim() || undefined },
+                  })
+                  if (r.problems.length) throw new Error(`Marked ${r.marked} of ${r.of}. Not marked: ${r.problems.join('; ')}`)
+                }, `All ${count.count} marked paid.`)
+              }
+            >
+              {busy ? 'Marking…' : `Mark ${count.count} as paid`}
+            </Button>
+          )}
+        </div>
+        {said && (
+          <div className="mt-3">
+            <Said {...said} />
+          </div>
+        )}
+      </div>
     </div>
   )
 }

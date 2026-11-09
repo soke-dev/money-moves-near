@@ -7,6 +7,7 @@
  * these: every step that moves money claims its row first, so two workers
  * can't both send the same settlement.
  */
+import { keepFlutterwaveSignedIn } from "../lib/flutterwave";
 import { prisma } from "../lib/prisma";
 import { log } from "../lib/log";
 import { checkPayment, followUpSettlement, sendSettlement } from "../services/payments";
@@ -32,8 +33,8 @@ const STUCK_SENDING_MS = 30_000;
 async function checkOpenPayments() {
   // Least recently checked first, so a burst of new payments can't starve older ones.
   const open = await prisma.payment.findMany({
-    // Bank transfers with an account to ask about; test app and crypto payments only to see them lapse.
-    where: { status: "OPEN", OR: [{ accountNumber: { not: null } }, { method: { in: ["APP", "CRYPTO"] } }] },
+    // Bank transfers with an account to ask about (ours, or a Bachs checkout); test app and crypto payments only to see them lapse.
+    where: { status: "OPEN", OR: [{ accountNumber: { not: null } }, { providerRef: { startsWith: "bachs:" } }, { method: { in: ["APP", "CRYPTO"] } }] },
     orderBy: { lastCheckedAt: { sort: "asc", nulls: "first" } },
     take: 25,
   });
@@ -129,7 +130,7 @@ function every(ms: number, name: string, fn: () => Promise<void>) {
 }
 
 export function startWorker() {
-  const timers = [every(PAYMENTS_EVERY_MS, "payments", checkOpenPayments), every(SETTLEMENTS_EVERY_MS, "settlements", moveSettlements), every(IDENTITY_EVERY_MS, "identity", recheckIdentities), every(LINKS_EVERY_MS, "money-moves", recheckLinks), every(REFUNDS_EVERY_MS, "refunds", moveRefunds), every(60_000, "disputes", moveDisputes), every(5 * 60_000, "recurring-invoices", moveInvoices), every(5_000, "wallet-sends", followWalletSends), every(5_000, "crypto", scanCrypto), every(8_000, "intents", followIntents), every(60_000, "own-transfers", settleOwnTransfers), every(30_000, "direct-accounts", scanDirectAccounts), every(15_000, "crypto-out", moveCryptoOut), every(120_000, "networks", refreshNetworks), every(5_000, "webhooks", deliverDue), every(6 * 3_600_000, "developer-records", pruneDeveloperRecords), every(3_600_000, "failing-endpoints", watchFailingEndpoints)];
+  const timers = [every(PAYMENTS_EVERY_MS, "payments", checkOpenPayments), every(SETTLEMENTS_EVERY_MS, "settlements", moveSettlements), every(IDENTITY_EVERY_MS, "identity", recheckIdentities), every(LINKS_EVERY_MS, "money-moves", recheckLinks), every(REFUNDS_EVERY_MS, "refunds", moveRefunds), every(60_000, "disputes", moveDisputes), every(5 * 60_000, "recurring-invoices", moveInvoices), every(5_000, "wallet-sends", followWalletSends), every(5_000, "crypto", scanCrypto), every(8_000, "intents", followIntents), every(60_000, "own-transfers", settleOwnTransfers), every(30_000, "direct-accounts", scanDirectAccounts), every(15_000, "crypto-out", moveCryptoOut), every(120_000, "networks", refreshNetworks), every(120_000, "flutterwave-sign-in", keepFlutterwaveSignedIn), every(5_000, "webhooks", deliverDue), every(6 * 3_600_000, "developer-records", pruneDeveloperRecords), every(3_600_000, "failing-endpoints", watchFailingEndpoints)];
   // Stellar and TON are offered once they've been read, so read them now rather than in two minutes.
   void refreshNetworks();
   log.info("[worker] checking payments and settlements");

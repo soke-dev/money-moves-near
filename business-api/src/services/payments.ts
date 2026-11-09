@@ -36,6 +36,8 @@ import {
   toMinor,
 } from "../lib/money";
 import { canSimulate, railsFor } from "../rails";
+import { bachsReady } from "../lib/bachs";
+import { isBachsRef, bachsOpenTransfer, bachsFindArrival, bachsCheckPayout } from "../rails/bachs";
 import { checkDirectDaily, directLimits, directOn, uniqueDirectAmount } from "../lib/direct";
 import { chainPaused, cryptoDefaults, effectiveChain, payoutChain, forMode, limitsFor, nairaDefaults, needsReview, payoutsOn, platform, reviewLimits, type Platform } from "../lib/platform";
 import { treasuryFor } from "../lib/chains";
@@ -50,7 +52,7 @@ import { env } from "../config/env";
 import { paymentEvent, settlementEvent } from "./events";
 import { askRefund } from "./refunds";
 import { overDailyLimit } from "../lib/risk";
-import { methodsOpen } from "../lib/methods";
+import { methodsOpen, landRules } from "../lib/methods";
 
 const reason = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -169,7 +171,7 @@ export async function admit(c: Checkout, method: PayMethod, input: OpenInput) {
   // Live app payments need the app's side switched on; in test mode the simulator stands in.
   if (method === "APP" && c.mode === "LIVE" && !appPayReady()) throw new HttpError(503, "Paying with the Money Moves app isn't switched on yet. Use a bank transfer or stablecoins.", "method_unavailable");
   if (c.mode === "LIVE" && c.business.status !== "VERIFIED") throw new HttpError(403, "This business can't take payments yet.", "business_unverified");
-  const p = forMode(await platform(), c.mode);
+  const p = forMode(await platform(), c.mode, c.business);
   if (!p.channels[CHANNEL[c.kind]]) throw new HttpError(503, PAUSED[c.kind], "channel_paused");
   if (!p.methods[method === "NAIRA" ? "naira" : method === "APP" ? "app" : "crypto"]) throw new HttpError(503, METHOD_PAUSED[method], "method_paused");
   const rate = await ngnPerUsd();
@@ -242,6 +244,21 @@ export async function openNairaPayment(c: Checkout, input: OpenInput): Promise<P
   // The row first, so every account we ever open belongs to a payment we know about.
   const payment = await newPayment(c, input, "NAIRA", price);
 
+  // Through Bachs, where Services or our team says: its one-time account is on its own page.
+  if (rails.name === "flutterwave" && bachsReady()) {
+    const choice = c.business.nairaCollect;
+    if (choice === "BACHS" || (choice !== "FLUTTERWAVE" && (await platform()).nairaRails.collectBachs)) {
+      try {
+        const t = await bachsOpenTransfer({ reference: railRef(payment.ref), amountKobo, expiresAt: payment.expiresAt, email: input.email, name: input.name ?? null, returnTo: await afterBankPage(payment) });
+        return await prisma.payment.update({ where: { id: payment.id }, data: { providerRef: t.providerRef, bankPage: t.page } });
+      } catch (e) {
+        await prisma.payment.update({ where: { id: payment.id }, data: { status: "EXPIRED" } });
+        log.error("[payments] couldn't open a Bachs checkout", { ref: payment.ref, reason: reason(e) });
+        throw new HttpError(502, "We couldn't start this bank transfer. Try again in a moment, or pay another way.", "account_failed");
+      }
+    }
+  }
+
   try {
     const acct = await rails.openAccount({ reference: railRef(payment.ref), amountKobo, expiresAt: payment.expiresAt, merchantName: c.business.name, businessId: c.business.id, email: input.email });
     return await prisma.payment.update({ where: { id: payment.id }, data: { accountBank: acct.bank, accountNumber: acct.number, accountName: acct.name, providerRef: acct.providerRef } });
@@ -299,9 +316,11 @@ const APP_CHAIN_NAME: Record<string, string> = { MOVE: "Movement", SOL: "Solana"
 export async function checkPayment(p: Payment): Promise<Payment> {
   if (p.status !== "OPEN") return p;
   if (p.method === "NAIRA") {
-    if (!p.accountNumber) return p;
+    const viaBachs = isBachsRef(p.providerRef);
+    if (!p.accountNumber && !viaBachs) return p;
     if (!p.direct) {
-      const arrival = await railsFor(p.mode).findArrival(railRef(p.ref));
+      // Followed on the rail it was opened on, whatever the switch says now.
+      const arrival = viaBachs ? await bachsFindArrival(p.providerRef!, p.amountKobo) : await railsFor(p.mode).findArrival(railRef(p.ref));
       if (arrival) return confirmArrival(p, arrival);
     }
   }
@@ -564,6 +583,14 @@ async function settlementFor(
   const places = rules.destinations;
   const base = { ref: newSettlementRef(), paymentId: p.id, businessId: p.businessId, mode: p.mode, amountKobo, feeKobo };
   let dest = business.kind === "INDIVIDUAL" ? "WALLET" : (source?.destination ?? "WALLET");
+  // The business's own rule for this way to pay ("bank transfers land in the bank, crypto in the wallet") wins over
+  // the checkout's, as long as that place is there to take it. Live only: a test payment follows its checkout.
+  let bankAccountId = source?.bankAccountId ?? null;
+  const rule = business.kind === "INDIVIDUAL" || p.mode !== "LIVE" ? undefined : landRules(business.landBy)[p.method];
+  if (rule && (await placeReady(tx, p.businessId, rule.to))) {
+    dest = rule.to;
+    if (rule.to === "BANK") bankAccountId = rule.bankAccountId ?? null;
+  }
 
   if (p.mode === "TEST") {
     if (dest === "BANK") return { why: null, data: { ...base, destination: "BANK", status: "QUEUED", bankCode: "TEST", bankName: "Test Bank", accountNumber: "0000000001", accountName: business.name.toUpperCase() } };
@@ -571,14 +598,15 @@ async function settlementFor(
   }
   // Held for a person, before the payout size is even looked at: a deactivated business, or one past its daily limit.
   const over = business.status === "SUSPENDED" ? null : await overDailyLimit(tx, business, rules);
-  const held = business.status === "SUSPENDED" ? { reason: "deactivated" } : over ? { reason: "daily_limit", ...over } : null;
+  const held = business.status === "SUSPENDED" ? { reason: "deactivated" } : business.manualSettlement ? { reason: "manual_settlement" } : over ? { reason: "daily_limit", ...over } : null;
 
   // Settling to a bank switched off on Services: it waits, like a business with no checked account.
   if (dest === "BANK" && places.bank) {
     const banks = await tx.bankAccount.findMany({ where: { businessId: p.businessId, removedAt: null, nameMatches: true }, orderBy: { createdAt: "asc" } });
-    const pick = banks.find((b) => b.id === source?.bankAccountId) ?? banks.find((b) => b.isDefault) ?? banks[0];
+    const pick = banks.find((b) => b.id === bankAccountId) ?? banks.find((b) => b.isDefault) ?? banks[0];
     if (pick) {
-      const why = held ?? (needsReview(rules, business, { kobo: amountKobo }) ? { limitNgn: reviewLimits(rules, business).nairaAboveNgn } : null);
+      // Taken through Bachs: the money is in Bachs, not with our payout rail. The team pays it by hand.
+      const why = held ?? (isBachsRef(p.providerRef) ? { reason: "collected_through_bachs" } : needsReview(rules, business, { kobo: amountKobo }) ? { limitNgn: reviewLimits(rules, business).nairaAboveNgn } : null);
       return {
         why,
         data: { ...base, destination: "BANK", status: why ? "REVIEW" : "QUEUED", bankAccountId: pick.id, bankCode: pick.bankCode, bankName: pick.bankName, accountNumber: pick.accountNumber, accountName: pick.accountName },
@@ -619,6 +647,13 @@ async function settlementFor(
   return { why, data: { ...base, destination: "WALLET", status: why ? "REVIEW" : "QUEUED", chain, toAddress, amountMicros, failureReason: pausedNote(chain, rules) } };
 }
 
+/** Whether the business has this place set up: a checked bank account, a linked Money Moves account, its wallet. */
+async function placeReady(tx: Prisma.TransactionClient, businessId: string, to: "BANK" | "MONEY_MOVES" | "WALLET"): Promise<boolean> {
+  if (to === "BANK") return (await tx.bankAccount.count({ where: { businessId, removedAt: null, nameMatches: true } })) > 0;
+  if (to === "MONEY_MOVES") return (await tx.moneyMovesLink.count({ where: { businessId, status: "LINKED" } })) > 0;
+  return (await tx.businessWallet.count({ where: { businessId } })) > 0;
+}
+
 const CHAIN_NAME: Record<string, string> = { MOVEMENT: "Movement", ARC: "Arc", MONAD: "Monad", SOLANA: "Solana", STELLAR: "Stellar" };
 /** A chain switched off on Services: the settlement is made, and waits in the queue until it's back on. */
 const pausedNote = (chain: SettleChain, rules: Platform) => (chainPaused(chain, rules) ? `Paying out on ${CHAIN_NAME[chain] ?? chain} is paused right now.` : null);
@@ -638,12 +673,21 @@ export async function sendSettlement(s: Settlement, opts: { from?: "QUEUED" | "R
   if (s.destination !== "BANK") return;
   if (s.mode === "LIVE" && !(await payoutsOn())) return;
   if (from === "QUEUED" && s.mode === "LIVE") {
-    const owner = await prisma.business.findUnique({ where: { id: s.businessId }, select: { status: true } });
-    if (owner?.status === "SUSPENDED") {
+    const owner = await prisma.business.findUnique({ where: { id: s.businessId }, select: { status: true, manualSettlement: true } });
+    if (owner?.status === "SUSPENDED" || owner?.manualSettlement) {
       const held = await prisma.settlement.updateMany({ where: { id: s.id, status: "QUEUED" }, data: { status: "REVIEW" } });
-      if (held.count) await logSettlement(s.id, "review", { reason: "deactivated" });
+      if (held.count) await logSettlement(s.id, "review", { reason: owner.status === "SUSPENDED" ? "deactivated" : "manual_settlement" });
       return;
     }
+  }
+  // Money taken through Bachs stays in Bachs, and neither Bachs nor our payout rail pays it out: the team pays it by
+  // hand and marks it paid. One that reached the queue anyway goes to review instead.
+  if ((await prisma.payment.findUnique({ where: { id: s.paymentId }, select: { providerRef: true } }))?.providerRef?.startsWith("bachs:")) {
+    if (from === "QUEUED") {
+      const held = await prisma.settlement.updateMany({ where: { id: s.id, status: "QUEUED" }, data: { status: "REVIEW" } });
+      if (held.count) await logSettlement(s.id, "review", { reason: "collected_through_bachs" });
+    }
+    return;
   }
   const claimed = await prisma.settlement.updateMany({ where: { id: s.id, status: from }, data: { status: "SENDING", sentAt: new Date() } });
   if (claimed.count === 0) return;
@@ -744,10 +788,10 @@ async function sendOnChain(s: Settlement, from: "QUEUED" | "REVIEW"): Promise<vo
   // Its chain switched off on Services: it waits, queued, and goes once the chain is back on.
   if (from === "QUEUED" && s.mode === "LIVE" && s.chain && chainPaused(s.chain, await platform())) return;
   if (from === "QUEUED" && s.mode === "LIVE") {
-    const owner = await prisma.business.findUnique({ where: { id: s.businessId }, select: { status: true } });
-    if (owner?.status === "SUSPENDED") {
+    const owner = await prisma.business.findUnique({ where: { id: s.businessId }, select: { status: true, manualSettlement: true } });
+    if (owner?.status === "SUSPENDED" || owner?.manualSettlement) {
       const held = await prisma.settlement.updateMany({ where: { id: s.id, status: "QUEUED" }, data: { status: "REVIEW" } });
-      if (held.count) await logSettlement(s.id, "review", { reason: "deactivated" });
+      if (held.count) await logSettlement(s.id, "review", { reason: owner.status === "SUSPENDED" ? "deactivated" : "manual_settlement" });
       return;
     }
   }
@@ -828,7 +872,7 @@ export async function followUpSettlement(s: Settlement): Promise<void> {
     }
     return;
   }
-  const state = await railsFor(s.mode).checkPayout(s.ref, s.providerRef);
+  const state = await checkPayoutOf(s);
   if (state.state === "unknown") {
     // "Sending" a good while now, and the rail has never heard of it: it didn't get there. Ops checks, then resends.
     // Not sooner: a rail that's slow to list a payout must never look like one that didn't take it.
@@ -840,6 +884,32 @@ export async function followUpSettlement(s: Settlement): Promise<void> {
     return;
   }
   await recordPayout(s.id, state);
+}
+
+/**
+ * Where Bachs's page sends the customer once they've paid: the business's own site when the checkout has one
+ * (where the "Return to" button goes), otherwise back to our checkout, which picks the payment up from ?p=.
+ */
+async function afterBankPage(p: Payment): Promise<string | null> {
+  if (p.linkId) {
+    const l = await prisma.paymentLink.findUnique({ where: { id: p.linkId }, select: { slug: true, redirectUrl: true } });
+    if (l?.redirectUrl) return l.redirectUrl;
+    if (l) return checkoutLink(`${l.slug}?p=${p.token}`);
+  }
+  if (p.invoiceId) {
+    const i = await prisma.invoice.findUnique({ where: { id: p.invoiceId }, select: { token: true } });
+    if (i) return checkoutLink(`i/${i.token}?p=${p.token}`);
+  }
+  if (p.outletId) {
+    const o = await prisma.outlet.findUnique({ where: { id: p.outletId }, select: { slug: true } });
+    if (o) return checkoutLink(`o/${o.slug}?p=${p.token}`);
+  }
+  return null;
+}
+
+/** Where a bank payout stands, asked of the rail it went through. */
+export function checkPayoutOf(s: Settlement) {
+  return s.rail === "bachs" ? bachsCheckPayout(s.ref, s.providerRef) : railsFor(s.mode).checkPayout(s.ref, s.providerRef);
 }
 
 /** The chain names the app uses, and the coin it calls USDC on each. */

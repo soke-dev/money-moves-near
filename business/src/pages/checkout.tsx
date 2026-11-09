@@ -183,6 +183,13 @@ function useLiveCheckout(base: string | null) {
         setInfo(r)
         // An account already opened for it: carry on with that one.
         if (r.payment) setPayment(r.payment)
+        // Back from our bank partner's page (?p=): the payment it was for, paid or still on its way.
+        const back = new URLSearchParams(window.location.search).get('p')
+        if (!r.payment && back && /^[A-Za-z0-9_-]{8,80}$/.test(back)) {
+          api<{ payment: PublicPayment }>('GET', `/pay/p/${back}`)
+            .then((x) => setPayment(x.payment))
+            .catch(() => {})
+        }
       })
       .catch((e) => setMissing(e instanceof ApiError ? e.message : "This checkout can't load right now. Try again in a moment."))
   }, [base])
@@ -368,6 +375,14 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   const money = payIn === 'NGN' ? ngn(nairaAmount) : usd(amountUsd)
   const other = payIn === 'NGN' ? usd(amountUsd) : ngn(nairaAmount)
   const ref = P?.ref ?? invoice?.paid?.ref ?? (L ? '' : REF)
+  // The button back after paying: the business's own words, else the site it goes to, else the business.
+  const returnSite = (() => {
+    try {
+      return L?.link.redirectUrl ? new URL(L.link.redirectUrl).hostname.replace(/^www\./, '') : null
+    } catch {
+      return null
+    }
+  })()
   const title = L ? L.link.name : outlet ? outlet.name : invoice ? `Invoice ${invoice.number}` : (link?.name ?? 'Payment')
 
   // Coins and networks: the link's or outlet's own list, else the business default.
@@ -381,8 +396,9 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   const allowed: Method[] = L
     ? L.link.methods.map((m) => METHOD_FROM_API[m])
     : invoice?.methods || (link && 'methods' in link && link.methods) || (outlet && 'methods' in outlet && outlet.methods) || defaultMethods || ['app', 'crypto', 'naira']
-  // Always stablecoins, then the app, then bank transfer, whatever order the link stored them in.
-  const offered = allowed.filter((m) => m !== 'crypto' || coins.length > 0).sort((a, b) => METHOD_ORDER.indexOf(a) - METHOD_ORDER.indexOf(b))
+  // Live, in the order the business chose (the API sends them in it); the preview, crypto, the app, then bank transfer.
+  const usable = allowed.filter((m) => m !== 'crypto' || coins.length > 0)
+  const offered = L ? usable : usable.sort((a, b) => METHOD_ORDER.indexOf(a) - METHOD_ORDER.indexOf(b))
   // Each way to pay has its own range: the amount box takes the widest of the ways offered here.
   const W = L?.wayLimits
   const maxNgn = W && offered.length ? Math.max(...offered.map((m) => W[m].maxNgn)) : (L?.limits.maxNgn ?? MAX_NGN)
@@ -463,6 +479,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
   // Live: the page follows the payment. A transfer that lands after the clock ran out still counts.
   useEffect(() => {
     if (!P) return
+    if (METHOD_FROM_API[P.method] && METHOD_FROM_API[P.method] !== method) setMethod(METHOD_FROM_API[P.method])
     if (P.status === 'PAID') {
       setStage('confirming')
       setFound(0)
@@ -500,9 +517,17 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
     amount: fixed ? undefined : typed,
     currency: fixed ? undefined : payIn,
   })
+  // Bank transfer through our partner's page: Pay now goes straight there, once, for a payment opened here.
+  const openBankPage = useRef(false)
+  useEffect(() => {
+    if (!openBankPage.current || !P?.bankPage || P.status !== 'OPEN') return
+    openBankPage.current = false
+    window.location.assign(P.bankPage)
+  }, [P?.token, P?.bankPage, P?.status])
   const go = () => {
     if (preview) return
     if (!live) return setStage('pay')
+    openBankPage.current = method === 'naira'
     void live.start(method, { ...startBody(), ...(method === 'crypto' && pickOther && otherKey ? { intent: otherKey } : method === 'crypto' && asset && chain ? { coin: asset, network: chain } : {}) })
   }
   const maxLabel = payIn === 'NGN' ? ngn(MAX_PAY.NGN).replace('.00', '') : usd(MAX_PAY.USD).replace('.00', '')
@@ -1306,6 +1331,43 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
         </>
       )}
 
+      {method === 'naira' && live && !P?.account && P?.bankPage && (
+        <>
+          {backTo}
+          {card(
+            <>
+              <div className="text-[13.5px] font-medium text-muted">Transfer exactly</div>
+              <div className="mt-1 flex items-center justify-between gap-3">
+                <span className="display tabular text-[32px] font-semibold leading-none tracking-[-0.03em] text-fg">{ngn(nairaAmount)}</span>
+                <CopyChip value={String(nairaAmount)} />
+              </div>
+              <div className="mt-1.5 text-[13px] leading-relaxed text-muted">Your one-time account opens on a secure page. Transfer the exact amount to it in one go, and you're brought back once it's paid.</div>
+              <div className="mt-4">
+                {payButton('Show account details', () => {
+                  window.location.assign(P.bankPage!)
+                })}
+              </div>
+              <div className="mt-4 flex gap-2.5 rounded-[12px] border border-[#F2C9A6] bg-[#FDF0E6] px-3.5 py-3 text-[12.5px] leading-relaxed text-[#9A4A10]">
+                <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                Don't save or reuse that account. It's for this payment only and closes when the timer runs out.
+              </div>
+              <div className="mt-4">{waiting('Waiting for your transfer')}</div>
+              <div className="mt-3">
+                <button
+                  onClick={() => {
+                    void live?.check()
+                    setStage('confirming')
+                  }}
+                  className="flex h-11 w-full items-center justify-center rounded-full border border-line text-[14px] font-semibold text-fg"
+                >
+                  I've sent the money
+                </button>
+              </div>
+            </>,
+          )}
+        </>
+      )}
+
       {method === 'naira' && (!live || P?.account) && (
         <>
           {backTo}
@@ -1536,7 +1598,7 @@ export function CheckoutPage({ outlet: isOutlet, invoice: isInvoice, live, previ
       <div className="mt-5 space-y-2">
         {(!L || L.link.redirectUrl) && (
           <button onClick={() => L?.link.redirectUrl && window.location.assign(L.link.redirectUrl)} className="flex h-12 w-full items-center justify-center rounded-full text-[15px] font-semibold" style={solid}>
-            Return to {merchant.split(' ')[0]}
+            {L?.link.redirectLabel?.trim() || `Return to ${returnSite ?? merchant.split(' ')[0]}`}
           </button>
         )}
         <button

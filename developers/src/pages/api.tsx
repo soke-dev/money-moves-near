@@ -131,6 +131,7 @@ export function ApiCheckouts() {
           { name: 'customer', type: 'object', children: <><C>email</C> and <C>name</C>, filled in for the customer on the page.</> },
           { name: 'fee_payer', type: 'enum | null', children: 'Who pays the processing fee on this checkout, whichever way the customer pays. If null, each way to pay follows your account setting.', values: ['business', 'customer'] },
           { name: 'redirect_url', type: 'string | null', children: 'The URL customers are sent to after payment.' },
+          { name: 'redirect_label', type: 'string | null', children: 'The words on the button that takes them there.' },
           { name: 'payment', type: 'object | null', children: <>The associated <Link to="/api/payments">payment</Link>, once paid.</> },
           { name: 'expires_at', type: 'timestamp | null', children: 'When the checkout expires. Null means it has no expiry.' },
           { name: 'created_at', type: 'timestamp', children: 'When the checkout was created.' },
@@ -160,6 +161,7 @@ export function ApiCheckouts() {
             { name: 'fee_payer', type: 'enum', children: <>Who pays the processing fee on this checkout, whichever way the customer pays. If omitted, bank transfer and crypto each follow your account setting. See <Link to="/fees">Fees</Link>.</>, values: ['business', 'customer'] },
             { name: 'settle_to', type: 'enum', children: <>The settlement destination. If omitted, funds go where you chose for API payments in the dashboard, or on Automatic to a verified bank account, then a linked Money Moves account, then your business wallet. See <Link to="/settlement">Settlement</Link>.</>, values: ['bank', 'money_moves', 'wallet'] },
             { name: 'redirect_url', type: 'string', children: 'An HTTPS URL where the customer is sent after payment.' },
+            { name: 'redirect_label', type: 'string', children: 'What the button back to redirect_url says, up to 40 characters, such as "Back to your tickets". Default: "Return to" and your site’s name.' },
           ]}
         />
         <Request
@@ -215,7 +217,16 @@ export function ApiPayments() {
           { name: 'customer_fee_ngn', type: 'number | null', children: 'The fee charged to the customer, if applicable.' },
           { name: 'rate_ngn_per_usd', type: 'number', children: 'The exchange rate fixed for this payment.' },
           { name: 'method', type: 'enum', children: 'The method used to pay.', values: ['bank_transfer', 'app', 'crypto'] },
-          { name: 'crypto', type: 'object | null', children: <>For crypto: <C>coin</C>, <C>network</C>, the <C>address</C> it was paid to, a <C>memo</C> on Stellar and TON, and the <C>transaction</C>.</> },
+          {
+            name: 'crypto',
+            type: 'object | null',
+            children: (
+              <>
+                For crypto: <C>coin</C>, <C>network</C>, the <C>address</C> it was paid to, a <C>memo</C> on Stellar and TON, and the <C>transaction</C>. For a payment made in another coin, <C>paid_with</C> holds what the customer sent (
+                <C>coin</C>, <C>network</C>, <C>transaction</C>), and <C>coin</C> and <C>network</C> show the USDC it became. See <Link to="/payment-methods">Paying with another coin</Link>.
+              </>
+            ),
+          },
           { name: 'customer', type: 'object', children: <><C>email</C>, <C>name</C> and <C>phone</C> provided by the customer.</> },
           { name: 'payer', type: 'object | null', children: 'Payer details, when available: name, bank and account for transfers, or the sending wallet for crypto.' },
           { name: 'receipt_url', type: 'string | null', children: "The customer's receipt URL, once the payment succeeds." },

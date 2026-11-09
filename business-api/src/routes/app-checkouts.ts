@@ -69,7 +69,7 @@ async function blocker(x: Awaited<ReturnType<typeof load>>): Promise<{ code: str
   if (x.paid) return { code: "paid", message: "This invoice has been paid already." };
   if (!c.active) return { code: "closed", message: "This checkout isn't taking payments right now." };
   if (c.business.status !== "VERIFIED") return { code: "closed", message: "This business can't take payments yet." };
-  const p = forMode(await platform(), c.mode);
+  const p = forMode(await platform(), c.mode, c.business);
   if (p.maintenance) return { code: "paused", message: "Payments are paused for a short while for maintenance. Try again soon." };
   if (!c.methods.includes("APP") || !p.methods.app || !appPayReady()) return { code: "no_app", message: `${c.business.name} doesn't take Money Moves on this checkout. Open it in your browser to pay another way.` };
   return null;
@@ -79,7 +79,7 @@ async function blocker(x: Awaited<ReturnType<typeof load>>): Promise<{ code: str
 router.get("/:kind/:ref", async (req, res) => {
   const x = await load(kindOf(req.params.kind), String(req.params.ref));
   const { c } = x;
-  const p = forMode(await platform(), c.mode);
+  const p = forMode(await platform(), c.mode, c.business);
   const stop = await blocker(x);
   res.json({
     checkout: {

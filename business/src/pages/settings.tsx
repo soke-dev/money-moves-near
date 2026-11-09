@@ -35,13 +35,13 @@ import { useInvoices } from '@/state/invoices'
 import { MoneyMovesLinker } from '@/components/MoneyMovesLinker'
 import { ALL_ACCEPT, useAccept, useMethods } from '@/state/accept'
 import { TokenPicker } from '@/components/TokenPicker'
-import { Loader2 } from '@/components/icons'
+import { ChevronDown, ChevronUp, Loader2 } from '@/components/icons'
 import { ApiError, LIVE, api, applicationPath, type ApiApplication, type ApiBank, type ApiLiveMethods, type ApiPaymentSettings, type ApiPlatform, type SettleChain } from '@/lib/api'
 import { reload, useApi } from '@/lib/useApi'
 import { feeOn, pct, useFees, type Fees, type Payers } from '@/state/fees'
 import { LogoControl } from '@/components/Pictures'
 import { useCan } from '@/state/roles'
-import { ApiSettleSetting } from '@/components/ApiSettleTo'
+import { ApiSettleSetting, LandBySetting } from '@/components/ApiSettleTo'
 
 function Section({ title, sub, children, aside }: { title: string; sub?: string; children: ReactNode; aside?: ReactNode }) {
   return (
@@ -267,6 +267,28 @@ function MethodsLive() {
   const [busy, setBusy] = useState<Method | null>(null)
   const [problem, setProblem] = useState('')
   const note = (m: Method) => (m === 'crypto' && live?.crypto ? `${METHODS[m].sub} Live on ${networks.join(', ')}.` : METHODS[m].sub)
+  // Listed in the order customers see them at checkout.
+  const FROM_KEY = { NAIRA: 'naira', APP: 'app', CRYPTO: 'crypto' } as const
+  const [order, setOrder] = useState<Method[] | null>(null)
+  const shown: Method[] = order ?? settings.data?.order?.map((k) => FROM_KEY[k]) ?? ['crypto', 'app', 'naira']
+  const [moving, setMoving] = useState(false)
+  const move = async (i: number, by: -1 | 1) => {
+    if (!business) return
+    const next = [...shown]
+    ;[next[i], next[i + by]] = [next[i + by], next[i]]
+    setOrder(next)
+    setMoving(true)
+    setProblem('')
+    try {
+      await api('PUT', `/businesses/${business.id}/method-order`, { order: next.map((m) => METHOD_KEY[m]) })
+      reload(path!)
+    } catch (e) {
+      setOrder(null)
+      setProblem(e instanceof ApiError ? e.message : "That didn't go through. Try again in a moment.")
+    } finally {
+      setMoving(false)
+    }
+  }
   const flip = async (m: Method, on: boolean) => {
     if (!business) return
     setBusy(m)
@@ -282,13 +304,23 @@ function MethodsLive() {
   }
   return (
     <>
-    <Section title="Checkout methods" sub="How customers can pay you, on every payment link, invoice, outlet and API checkout. Each one turns on once there’s somewhere for its money to go.">
+    <Section title="Checkout methods" sub="How customers can pay you, on every payment link, invoice, outlet and API checkout, in the order they appear at checkout. Each one turns on once there’s somewhere for its money to go.">
       <div className="grid gap-3">
-        {(['naira', 'app', 'crypto'] as Method[]).map((m) => {
+        {shown.map((m, i) => {
           const s = settings.data?.methods[METHOD_KEY[m]]
-          const paused = live && !live[m]
+          const paused = settings.data?.paused ? settings.data.paused[METHOD_KEY[m]] || (m === 'app' && live && !live.app) : live && !live[m]
           return (
             <div key={m} className="flex items-center gap-4 rounded-[10px] border border-line bg-card p-4">
+              {can('settlement') && (
+                <div className="-my-1 -ml-1 flex flex-col">
+                  <button type="button" disabled={i === 0 || moving} onClick={() => void move(i, -1)} aria-label={`Show ${METHODS[m].label} earlier at checkout`} className="grid size-6 place-items-center rounded text-dim hover:text-fg disabled:opacity-30 disabled:hover:text-dim">
+                    <ChevronUp className="size-3.5" />
+                  </button>
+                  <button type="button" disabled={i === shown.length - 1 || moving} onClick={() => void move(i, 1)} aria-label={`Show ${METHODS[m].label} later at checkout`} className="grid size-6 place-items-center rounded text-dim hover:text-fg disabled:opacity-30 disabled:hover:text-dim">
+                    <ChevronDown className="size-3.5" />
+                  </button>
+                </div>
+              )}
               <MethodIcon method={m} size={36} />
               <div className="min-w-0 flex-1">
                 <div className="text-[14.5px] font-semibold text-fg">{METHODS[m].label}</div>
@@ -320,7 +352,14 @@ function MethodsLive() {
       </div>
       {settings.error && <p className="mt-3 text-[12.5px] text-red">{settings.error.message}</p>}
       {problem && <p className="mt-3 text-[12.5px] text-red">{problem}</p>}
-      {!can('settlement') && <p className="mt-3 text-[12.5px] text-dim">The owner, admins and finance can turn these on and off.</p>}
+      {can('settlement') ? (
+        <p className="mt-3 text-[12.5px] text-dim">Use the arrows to choose which one customers see first. The first one that’s on is picked for them when the checkout opens.</p>
+      ) : (
+        <p className="mt-3 text-[12.5px] text-dim">The owner, admins and finance can turn these on and off and change their order.</p>
+      )}
+    </Section>
+    <Section title="Where each way to pay lands" sub="Send bank transfers to your bank account and crypto to your wallet, for example. Each one settles the moment it's paid.">
+      <LandBySetting />
     </Section>
     <Section title="API payments" sub="Where live checkouts you make with the API, from your website or app, settle. Each one settles the moment it's paid.">
       <ApiSettleSetting />

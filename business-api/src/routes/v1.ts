@@ -279,6 +279,8 @@ const createInput = z
     expires_at: z.string().datetime({ offset: true, message: "expires_at has to be an ISO 8601 time, like 2026-10-20T12:00:00Z." }).optional(),
     fee_payer: z.enum(["business", "customer"]).optional(),
     settle_to: z.enum(["bank", "money_moves", "wallet"]).optional(),
+    /** The words on the button back to redirect_url. Default: "Return to" and the site's name. */
+    redirect_label: z.string().trim().max(40, "Keep the button text to 40 characters.").optional(),
     redirect_url: z
       .string()
       .trim()
@@ -290,8 +292,8 @@ const createInput = z
   .strict();
 
 /** The ways to pay that work right now in this mode, for a checkout that doesn't say. */
-function defaultMethods(mode: Mode, p: Platform): PayMethod[] {
-  const on = forMode(p, mode).methods;
+function defaultMethods(mode: Mode, p: Platform, business?: { methodsKeptOn?: string[] | null }): PayMethod[] {
+  const on = forMode(p, mode, business).methods;
   const out: PayMethod[] = [];
   if (on.naira) out.push("NAIRA");
   if (on.app && (mode === "TEST" || appPayReady())) out.push("APP");
@@ -382,6 +384,7 @@ async function createDirectCheckout(key: ApiKey, b: z.infer<typeof createInput>)
           destination: "BANK",
           bankAccountId: null,
           redirectUrl: b.redirect_url || null,
+          redirectLabel: b.redirect_label || null,
           apiKeyId: key.id,
           direct: true,
           reference: b.reference || null,
@@ -409,9 +412,9 @@ router.post("/checkouts", async (req, res) => {
   }
   const p = await platform();
   // The business's own switches: a way to pay it turned off, or has nowhere to settle, isn't offered.
-  const owner = await prisma.business.findUniqueOrThrow({ where: { id: key.businessId }, select: { id: true, kind: true, methodsOff: true } });
+  const owner = await prisma.business.findUniqueOrThrow({ where: { id: key.businessId }, select: { id: true, kind: true, methodsOff: true, methodsKeptOn: true } });
   const states = await methodStates(owner, key.mode);
-  const wanted: PayMethod[] = b.methods ? [...new Set(b.methods.map((m) => METHOD_IN[m]))] : defaultMethods(key.mode, p);
+  const wanted: PayMethod[] = b.methods ? [...new Set(b.methods.map((m) => METHOD_IN[m]))] : defaultMethods(key.mode, p, owner);
   const shut = wanted.filter((m) => !states[m].on);
   if (b.methods && shut.length) {
     const name = { NAIRA: "bank_transfer", APP: "app", CRYPTO: "crypto" } as const;
@@ -442,6 +445,7 @@ router.post("/checkouts", async (req, res) => {
           destination,
           bankAccountId,
           redirectUrl: b.redirect_url || null,
+          redirectLabel: b.redirect_label || null,
           apiKeyId: key.id,
           reference: b.reference || null,
           metadata: b.metadata ?? Prisma.DbNull,

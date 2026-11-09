@@ -15,6 +15,35 @@ import { prisma } from "./prisma";
 
 export const METHODS: PayMethod[] = ["NAIRA", "APP", "CRYPTO"];
 
+/** The order ways to pay appear in at checkout when the business hasn't chosen one. */
+export const DEFAULT_ORDER: PayMethod[] = ["CRYPTO", "APP", "NAIRA"];
+
+/** The business's full order: what it chose, then anything it left out, in the default order. */
+export function methodOrder(order: PayMethod[] | null | undefined): PayMethod[] {
+  const chosen = (order ?? []).filter((m, i, a) => METHODS.includes(m) && a.indexOf(m) === i);
+  return [...chosen, ...DEFAULT_ORDER.filter((m) => !chosen.includes(m))];
+}
+
+export type LandRule = { to: "BANK" | "MONEY_MOVES" | "WALLET"; bankAccountId?: string | null };
+const DESTS = ["BANK", "MONEY_MOVES", "WALLET"];
+
+/** Where each way to pay lands for this business; a way to pay left out lands where its checkout says. */
+export function landRules(raw: unknown): Partial<Record<PayMethod, LandRule>> {
+  const out: Partial<Record<PayMethod, LandRule>> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const m of METHODS) {
+    const r = (raw as Record<string, unknown>)[m] as { to?: unknown; bankAccountId?: unknown } | undefined;
+    if (r && typeof r.to === "string" && DESTS.includes(r.to)) out[m] = { to: r.to as LandRule["to"], bankAccountId: typeof r.bankAccountId === "string" ? r.bankAccountId : null };
+  }
+  return out;
+}
+
+/** These ways to pay, in the business's order. */
+export function inOrder(methods: PayMethod[], order: PayMethod[] | null | undefined): PayMethod[] {
+  const o = methodOrder(order);
+  return [...methods].sort((a, b) => o.indexOf(a) - o.indexOf(b));
+}
+
 export type MethodState = { on: boolean; off: boolean; ready: boolean; why: string | null };
 
 export async function methodStates(b: Pick<Business, "id" | "kind" | "methodsOff">, mode: Mode): Promise<Record<PayMethod, MethodState>> {

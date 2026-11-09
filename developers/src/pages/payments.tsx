@@ -142,6 +142,7 @@ export function Checkout() {
           [<C>fee_payer</C>, <>Have the customer pay the processing fee on this checkout, or pay it yourself, whichever way they pay. Left out, bank transfer and crypto each follow your Settings choice. See <Link to="/fees">Fees</Link>.</>],
           [<C>settle_to</C>, <>Send this checkout's money to your bank, a Money Moves account or your business wallet.</>],
           [<C>redirect_url</C>, 'Where the page sends the customer after they pay.'],
+          [<C>redirect_label</C>, 'What the button back to your site says. Default: "Return to" and your site’s name.'],
         ]}
       />
 
@@ -272,7 +273,7 @@ export function PaymentMethods() {
         rows={[
           ['Local fiat', 'The customer pays in NGN from any bank app to a one-time account created for the payment.', <C>bank_transfer</C>],
           ['Money Moves app', 'The customer approves a payment request in the app or scans a code with another phone.', <C>app</C>],
-          ['Crypto', 'The customer sends USDC or USDT from a wallet or exchange to the address provided for the payment.', <C>crypto</C>],
+          ['Crypto', 'The customer sends USDC or USDT, or almost any other coin, from a wallet or exchange to the address provided for the payment.', <C>crypto</C>],
         ]}
       />
 
@@ -309,7 +310,27 @@ export function PaymentMethods() {
       <P>
         On Stellar and TON, the memo identifies which payment a transfer belongs to. The checkout displays the memo next to the address. If a customer omits it, the funds may still arrive, but they should contact support with the transaction details so we can identify the payment.
       </P>
-      <Note>Crypto payments settle as USDC on the network you selected, or in local currency if you chose a bank account as the settlement destination.</Note>
+
+      <H2>Paying with another coin</H2>
+      <P>
+        Crypto checkouts can also offer <b>Another coin</b>: Bitcoin, Ether (on Ethereum, Base or Arbitrum), SOL, NEAR, XRP, Dogecoin, Litecoin, Bitcoin Cash, Zcash, Sui, Avalanche, Polygon, Cardano, and USDT or TRX on Tron. The customer sends
+        that coin to an address made for the payment, and it's swapped to the exact price in USDC on the way, through NEAR Intents. You receive the full price, just as with a USDC payment.
+      </P>
+      <UL>
+        <li>The checkout shows exactly how much of the coin to send, and holds the address for 30 minutes, or an hour for coins that confirm slowly, such as Bitcoin.</li>
+        <li>Some coins have a minimum while their route is thin. The checkout tells the customer if a payment is too small for the coin they picked, so they can choose another.</li>
+        <li>The customer sees the payment as paid as soon as enough of their coin arrives. The payment becomes <C>successful</C>, and <C>payment.successful</C> is sent, once the USDC reaches us, usually within a minute.</li>
+        <li>If a customer sends too little or too late, the swap is refunded and returned to them. You're never told a payment succeeded for money that didn't arrive.</li>
+      </UL>
+      <P>
+        In the API, such a payment has the method <C>crypto</C>. <C>crypto.coin</C> and <C>crypto.network</C> show the USDC it became, and <C>crypto.paid_with</C> shows what the customer sent: its <C>coin</C>, <C>network</C> and their{' '}
+        <C>transaction</C> on that network.
+      </P>
+      <H3>USDC and USDT from more chains</H3>
+      <P>USDC and USDT payments can also be routed through NEAR Intents, so customers can pay from chains beyond the list above. Nothing changes for you: the payment and its settlement look the same.</P>
+      <Note>
+        Crypto payments settle in seconds: in local fiat to your bank account, or as USDC to your business wallet or a linked Money Moves account. See <Link to="/settlement">Settlement</Link>.
+      </Note>
     </Page>
   )
 }

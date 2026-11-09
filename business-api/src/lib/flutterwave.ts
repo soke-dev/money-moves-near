@@ -49,12 +49,26 @@ async function accessToken(): Promise<string> {
   return inflight;
 }
 
+/**
+ * Signs in again before the token runs low, so a customer opening a bank account never waits for a sign-in.
+ * Run by the worker every couple of minutes; does nothing while the token has more than three minutes left.
+ */
+export async function keepFlutterwaveSignedIn(): Promise<void> {
+  if (!flutterwaveReady()) return;
+  if (token && Date.now() < token.expiresAt - 3 * 60_000) return;
+  token = null;
+  await accessToken();
+}
+
 export interface FlwAnswer<T> {
   ok: boolean;
   status: number;
   data: T | null;
   /** What went wrong, in Flutterwave's words - the field and the reason when it gives them. */
   message: string;
+  /** For Flutterwave support: the trace id we sent, and their own request id when they give one. */
+  traceId?: string;
+  requestId?: string | null;
 }
 
 /**
@@ -75,26 +89,51 @@ function describe(json: any): string {
   return parts.filter(Boolean).join(" | ").slice(0, 300);
 }
 
-async function flw<T>(method: "GET" | "POST", path: string, body?: unknown, opts: { idempotencyKey?: string; retried?: boolean } = {}): Promise<FlwAnswer<T>> {
-  const res = await fetch(`${env.FLUTTERWAVE_BASE_URL.replace(/\/$/, "")}${path}`, {
+const timedOut = (e: unknown) => e instanceof Error && (e.name === "TimeoutError" || e.name === "AbortError");
+
+async function flw<T>(
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+  opts: { idempotencyKey?: string; retried?: boolean; timeoutMs?: number; retryOnTimeout?: boolean; timedOutOnce?: boolean } = {},
+): Promise<FlwAnswer<T>> {
+  let res: Response;
+  const traceId = randomUUID();
+  try {
+    res = await fetch(`${env.FLUTTERWAVE_BASE_URL.replace(/\/$/, "")}${path}`, {
     method,
     headers: {
       Authorization: `Bearer ${await accessToken()}`,
       "Content-Type": "application/json",
-      "X-Trace-Id": randomUUID(),
+      "X-Trace-Id": traceId,
       // Our reference doubles as the key, so a repeat after a timeout reads the first answer instead of acting twice.
       ...(opts.idempotencyKey ? { "X-Idempotency-Key": opts.idempotencyKey } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(20_000),
+    signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
   });
+  } catch (e) {
+    // Slow, not refused: opening an account (never a payout) is asked once more under the same idempotency key.
+    // Flutterwave answers a repeat with the first call's result, so no second account is made.
+    if (timedOut(e) && opts.retryOnTimeout && opts.idempotencyKey && !opts.timedOutOnce) return flw<T>(method, path, body, { ...opts, timedOutOnce: true, timeoutMs: 15_000 });
+    throw e;
+  }
   // A token we thought was live was turned down: once more with a fresh one, never in a loop.
   if (res.status === 401 && !opts.retried) {
     token = null;
     return flw<T>(method, path, body, { ...opts, retried: true });
   }
-  const json = (await res.json().catch(() => null)) as { data?: T } | null;
-  return { ok: res.ok, status: res.status, data: json?.data ?? null, message: res.ok ? "" : describe(json) };
+  // Read as text first: a failure can come back as an HTML or empty page, and that is worth seeing too.
+  const text = await res.text().catch(() => "");
+  let json: { data?: T } | null = null;
+  try {
+    json = text ? JSON.parse(text) : null;
+  } catch {
+    json = null;
+  }
+  const requestId = res.headers.get("x-request-id") ?? res.headers.get("x-trace-id") ?? res.headers.get("cf-ray");
+  const message = res.ok ? "" : describe(json) || (text ? `non JSON reply: ${text.replace(/\s+/g, " ").slice(0, 160)}` : "empty reply");
+  return { ok: res.ok, status: res.status, data: json?.data ?? null, message, traceId, requestId };
 }
 
 // ─── Banks and account names ──────────────────────────────────────────────
@@ -237,7 +276,8 @@ export async function flutterwaveOneTimeAccount(p: {
       narration: p.narration,
       ...p.identity,
     },
-    { idempotencyKey: p.reference },
+    // The customer is waiting on this one: a shorter first try, then one repeat under the same key.
+    { idempotencyKey: p.reference, timeoutMs: 12_000, retryOnTimeout: true },
   );
 }
 

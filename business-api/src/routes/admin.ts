@@ -12,6 +12,8 @@
 import { Router, type Request } from "express";
 import { z } from "zod";
 import { Prisma } from "@prisma/client";
+import { settlementEvent } from "../services/events";
+import { bachsReady } from "../lib/bachs";
 import type { BankAccount, Business, BusinessStatus, CryptoArrival, Mode, Payment, PaymentLink, Refund, RefundEvent, SettleChain, Settlement, SettlementEvent, SettlementStatus, User } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 import { body, HttpError } from "../lib/http";
@@ -19,8 +21,7 @@ import { audit } from "../lib/audit";
 import { limited } from "../lib/limits";
 import { needActionPassword, requireAdmin } from "../lib/admin";
 import { newSettlementRef } from "../lib/money";
-import { railsFor } from "../rails";
-import { logSettlement, recordPayout, sendSettlement } from "../services/payments";
+import { logSettlement, recordPayout, sendSettlement, checkPayoutOf } from "../services/payments";
 import { REFUND_WITHIN_MS, markRefundSent } from "../services/refunds";
 import { requestShape } from "./requests";
 import adminSupportRoutes from "./admin-support";
@@ -437,6 +438,12 @@ router.get("/businesses/:id", async (req, res) => {
       adminNote: b.adminNote,
       referral: { code: b.referralCode, referredBy: referrer, referred: referredCount },
       direct: { allowed: b.directAllowed, account: b.psaAccountNumber, ready: psaReady() },
+      /** Our team settles it by hand: every live settlement waits in review. Never shown to the business. */
+      manualSettlement: b.manualSettlement,
+      /** Its naira rails: who takes its bank transfers (null: Services) and who pays it out (null: Flutterwave). */
+      rails: { collect: b.nairaCollect, bachsReady: bachsReady() },
+      /** Ways to pay: on or off for everyone in Services, and which of those off ones it keeps. */
+      ways: { everyone: { NAIRA: p.methods.naira, APP: p.methods.app, CRYPTO: p.methods.crypto }, keptOn: b.methodsKeptOn },
       /** Past this in a day, its live settlements wait for a person. */
       settlement: await settlementOf(b, p),
       risk: { ownLimitNgn: b.dailyLimitNgn, limitNgn: dailyLimitNgn(b, p), takenTodayNgn: (await takenTodayKobo(prisma, b.id)) / 100 },
@@ -538,6 +545,12 @@ const editInput = z.object({
   ownCheckout: ownCheckoutSchema.nullish(),
   reviewNairaAboveNgn: z.number().int().min(0).max(100_000_000).nullish(),
   reviewCryptoAboveUsd: z.number().min(0).max(1_000_000).nullish(),
+  /** Ways to pay kept on for this business while they're off for everyone. */
+  methodsKeptOn: z.array(z.enum(["NAIRA", "APP", "CRYPTO"])).max(3).optional(),
+  /** Every live settlement waits for our team to pay it by hand. */
+  manualSettlement: z.boolean().optional(),
+  /** Who takes its bank transfers: null follows Services. Who pays it out: null is Flutterwave. */
+  nairaCollect: z.enum(["FLUTTERWAVE", "BACHS"]).nullable().optional(),
   password: z.string().max(200).optional(),
 });
 
@@ -549,7 +562,8 @@ router.patch("/businesses/:id", async (req, res) => {
   // A name decides whose bank accounts can be paid, and a fee is money: both take the password. A note doesn't.
   const ownLimits = b.ownCheckout !== undefined || b.reviewNairaAboveNgn !== undefined || b.reviewCryptoAboveUsd !== undefined;
   const ownFees = b.feeRateBps !== undefined || b.feeCapNgn !== undefined || b.cryptoRateBps !== undefined || b.cryptoCapUsd !== undefined;
-  const sensitive = b.name !== undefined || b.kind !== undefined || b.dailyLimitNgn !== undefined || ownFees || ownLimits;
+  const sensitive = b.name !== undefined || b.kind !== undefined || b.dailyLimitNgn !== undefined || b.manualSettlement !== undefined || ownFees || ownLimits;
+  if (b.nairaCollect === "BACHS" && !bachsReady()) throw new HttpError(400, "Bachs isn't set up yet: add BACHS_SECRET_KEY to the Business API first.", "bachs_not_ready");
   if (sensitive) await needActionPassword(req, b.password, "edit_business");
   // The least has to stay under the most, counting the platform's for whichever isn't set here.
   if (b.ownCheckout !== undefined || b.kind !== undefined) {
@@ -579,6 +593,9 @@ router.patch("/businesses/:id", async (req, res) => {
   }
   if (b.reviewNairaAboveNgn !== undefined) data.reviewNairaAboveNgn = b.reviewNairaAboveNgn;
   if (b.reviewCryptoAboveUsd !== undefined) data.reviewCryptoAboveUsd = b.reviewCryptoAboveUsd;
+  if (b.methodsKeptOn !== undefined) data.methodsKeptOn = [...new Set(b.methodsKeptOn)];
+  if (b.manualSettlement !== undefined) data.manualSettlement = b.manualSettlement;
+  if (b.nairaCollect !== undefined) data.nairaCollect = b.nairaCollect;
   await prisma.business.update({ where: { id }, data });
   if (b.name !== undefined || b.kind !== undefined) await recheckBanks(id);
   const changed = Object.keys(data);
@@ -588,6 +605,9 @@ router.patch("/businesses/:id", async (req, res) => {
   await record(req, "business_edited", id, {
     fields: changed,
     ...(b.name !== undefined ? { from: before.name, to: b.name } : {}),
+    ...(b.methodsKeptOn !== undefined ? { keptOn: { from: before.methodsKeptOn, to: [...new Set(b.methodsKeptOn)] } } : {}),
+    ...(b.manualSettlement !== undefined ? { manualSettlement: { from: before.manualSettlement, to: b.manualSettlement } } : {}),
+    ...(b.nairaCollect !== undefined ? { nairaCollect: { from: before.nairaCollect, to: b.nairaCollect } } : {}),
     ...(ownLimits || b.dailyLimitNgn !== undefined ? { limits: { from: limitsWere, to: Object.fromEntries(Object.entries(limitsNow).filter(([, v]) => v !== undefined)) } } : {}),
   });
   res.json({ ok: true, changed });
@@ -743,7 +763,7 @@ router.post("/settlements/:id/check", async (req, res) => {
   if (!s) throw SETTLEMENT_NOT_FOUND();
   if (s.destination !== "BANK" || !s.bankCode) throw new HttpError(400, "Nothing went to a bank for this one, so there's nothing to check with the rail.", "nothing_to_check");
   if (s.status === "QUEUED" || s.status === "HELD") throw new HttpError(400, "It hasn't been sent yet.", "not_sent");
-  const answer = await railsFor(s.mode).checkPayout(s.ref, s.providerRef);
+  const answer = await checkPayoutOf(s);
   await logSettlement(s.id, "checked", { answer: answer.state, ...("reason" in answer ? { reason: answer.reason } : {}) }, req.admin!.email);
   if (s.status === "SENDING" || s.status === "SENT") await recordPayout(s.id, answer, req.admin!.email);
   else if (s.status === "FAILED") {
@@ -776,7 +796,7 @@ router.post("/settlements/:id/resend", async (req, res) => {
   const by = req.admin!.email;
 
   if (s.status === "FAILED" && s.bankCode) {
-    const answer = await railsFor(s.mode).checkPayout(s.ref, s.providerRef);
+    const answer = await checkPayoutOf(s);
     await logSettlement(s.id, "checked", { answer: answer.state, before: "resend" }, by);
     if (answer.state === "settled") {
       await prisma.settlement.update({ where: { id: s.id }, data: { status: "SETTLED", settledAt: new Date(), failureReason: null } });
@@ -850,6 +870,8 @@ router.post("/settlements/:id/approve", async (req, res) => {
   if (!s) throw SETTLEMENT_NOT_FOUND();
   if (s.status !== "REVIEW") throw new HttpError(409, "Only a payout waiting for review can be approved.", "not_in_review");
   if (s.destination !== "BANK" || !s.bankCode || !s.accountNumber) throw new HttpError(409, "This one can't go through the rail yet, pay it by hand, then mark it delivered.", "not_sendable");
+  if ((await prisma.payment.findUnique({ where: { id: s.paymentId }, select: { providerRef: true } }))?.providerRef?.startsWith("bachs:"))
+    throw new HttpError(409, "This payment came in through Bachs, so its money is in Bachs. Pay it by hand, then mark it paid.", "collected_through_bachs");
   if (!(await payoutsOn())) throw new HttpError(409, "Payouts are switched off in Services. Approve it once they're back on.", "payouts_off");
   await logSettlement(s.id, "approved", { to: `${s.bankName} ${s.accountNumber}` }, req.admin!.email);
   await record(req, "settlement_approved", s.businessId, { settlementId: s.id, ref: s.ref });
@@ -860,22 +882,104 @@ router.post("/settlements/:id/approve", async (req, res) => {
   res.json({ result: "sending", status: after.status });
 });
 
+const markInput = z.object({
+  password: z.string().max(200).optional(),
+  reference: z.string().trim().max(120).optional(),
+  note: z.string().trim().max(500).optional(),
+  /** How our team paid it: a bank transfer, crypto, or the Money Moves account. The business sees it there. */
+  via: z.enum(["BANK", "CRYPTO", "MONEY_MOVES"]).optional(),
+  /** For a bank transfer: which of the business's accounts. Default: its default checked account. */
+  bankAccountId: z.string().min(1).optional(),
+  /** For crypto: the chain and the address it went to. Default: the settlement's own, else the business wallet's. */
+  chain: z.enum(["MOVEMENT", "ARC", "MONAD", "SOLANA", "STELLAR"]).optional(),
+  toAddress: z.string().trim().min(10).max(120).optional(),
+});
+
+/** Marks one settlement paid by hand. False when it isn't in a state that can be (settled, or queued to send). */
+async function markPaidByHand(req: Request, s: Settlement, b: z.infer<typeof markInput>, statuses: SettlementStatus[]): Promise<boolean> {
+  // Queued on a chain switched off on Services, it waits for exactly this: the team paying it by hand.
+  const pausedHere = s.status === "QUEUED" && !!s.chain && chainPaused(s.chain, await platform());
+  // Where it really went, so the business sees the place it was paid to.
+  const where = b.via ? await paidByHand(s, b) : {};
+  const done = await prisma.settlement.updateMany({
+    where: { id: s.id, status: { in: [...statuses, ...(pausedHere ? ["QUEUED"] : [])] as SettlementStatus[] } },
+    data: { status: "SETTLED", settledAt: new Date(), failureReason: null, ...where },
+  });
+  if (!done.count) return false;
+  await logSettlement(s.id, "marked_settled", { reference: b.reference || null, note: b.note || null, via: b.via ?? null, ...(b.via ? { to: JSON.parse(JSON.stringify(where, (_k, v) => (typeof v === "bigint" ? v.toString() : v))) } : {}) }, req.admin!.email);
+  await record(req, "settlement_marked_settled", s.businessId, { settlementId: s.id, reference: b.reference || null, via: b.via ?? null });
+  // The business's webhook hears it's done, as it would for any settlement.
+  void settlementEvent(s.id);
+  return true;
+}
+
 router.post("/settlements/:id/mark-settled", async (req, res) => {
-  const b = body(z.object({ password: z.string().max(200).optional(), reference: z.string().trim().max(120).optional(), note: z.string().trim().max(500).optional() }), req);
+  const b = body(markInput, req);
   await needActionPassword(req, b.password, "mark_settled");
   const s = await prisma.settlement.findUnique({ where: { id: String(req.params.id) } });
   if (!s) throw SETTLEMENT_NOT_FOUND();
-  // Queued on a chain switched off on Services, it waits for exactly this: the team paying it by hand.
-  const pausedHere = s.status === "QUEUED" && !!s.chain && chainPaused(s.chain, await platform());
-  const done = await prisma.settlement.updateMany({
-    where: { id: s.id, status: { in: ["FAILED", "HELD", "REVIEW", "SENDING", "SENT", ...(pausedHere ? ["QUEUED"] : [])] as SettlementStatus[] } },
-    data: { status: "SETTLED", settledAt: new Date(), failureReason: null },
-  });
-  if (!done.count) throw new HttpError(409, s.status === "SETTLED" ? "It's already settled." : "It's queued to send, wait for it, or check it once it's sent.", "not_markable");
-  await logSettlement(s.id, "marked_settled", { reference: b.reference || null, note: b.note || null }, req.admin!.email);
-  await record(req, "settlement_marked_settled", s.businessId, { settlementId: s.id, reference: b.reference || null });
+  if (!(await markPaidByHand(req, s, b, ["FAILED", "HELD", "REVIEW", "SENDING", "SENT"]))) {
+    throw new HttpError(409, s.status === "SETTLED" ? "It's already settled." : "It's queued to send, wait for it, or check it once it's sent.", "not_markable");
+  }
   res.json({ ok: true });
 });
+
+/**
+ * Everything of one business's that waits for a person (in review, held, or failed), live: how many and how much,
+ * or, with confirm, all marked paid by hand the same way. Ones already handed to a rail are left to it.
+ */
+const WAITING: SettlementStatus[] = ["REVIEW", "HELD", "FAILED"];
+router.post("/businesses/:id/settlements/mark-all-settled", async (req, res) => {
+  const b = body(markInput.extend({ confirm: z.boolean().optional() }), req);
+  const businessId = String(req.params.id);
+  const rows = await prisma.settlement.findMany({ where: { businessId, mode: "LIVE", status: { in: WAITING } }, orderBy: { createdAt: "asc" }, take: 500 });
+  const totalNgn = rows.reduce((n, s) => n + s.amountKobo, 0) / 100;
+  if (!b.confirm) {
+    res.json({ count: rows.length, totalNgn });
+    return;
+  }
+  await needActionPassword(req, b.password, "mark_settled");
+  let marked = 0;
+  const problems: string[] = [];
+  for (const s of rows) {
+    try {
+      if (await markPaidByHand(req, s, b, WAITING)) marked++;
+    } catch (e) {
+      problems.push(`${s.ref}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  res.json({ marked, of: rows.length, problems: problems.slice(0, 10) });
+});
+
+/** The columns that say where a settlement paid by hand went: one of the business's own places, never anyone else's. */
+async function paidByHand(
+  s: Settlement,
+  b: { via?: "BANK" | "CRYPTO" | "MONEY_MOVES"; bankAccountId?: string; chain?: SettleChain; toAddress?: string; reference?: string },
+): Promise<Prisma.SettlementUpdateManyMutationInput> {
+  const none = { bankAccountId: null, bankCode: null, bankName: null, accountNumber: null, accountName: null };
+  if (b.via === "BANK") {
+    const banks = await prisma.bankAccount.findMany({ where: { businessId: s.businessId, removedAt: null, nameMatches: true }, orderBy: { createdAt: "asc" } });
+    const pick = b.bankAccountId ? banks.find((x) => x.id === b.bankAccountId) : (banks.find((x) => x.isDefault) ?? banks[0]);
+    if (!pick) throw new HttpError(400, b.bankAccountId ? "That isn't one of this business's checked bank accounts." : "This business has no checked bank account.", "no_bank");
+    return { destination: "BANK", bankAccountId: pick.id, bankCode: pick.bankCode, bankName: pick.bankName, accountNumber: pick.accountNumber, accountName: pick.accountName, chain: null, toAddress: null, txHash: null };
+  }
+  if (b.via === "MONEY_MOVES") {
+    const link = await prisma.moneyMovesLink.findFirst({ where: { businessId: s.businessId, status: "LINKED" }, orderBy: [{ isDefault: "desc" }, { createdAt: "asc" }] });
+    if (!link) throw new HttpError(400, "This business has no linked Money Moves account.", "no_money_moves");
+    return { ...none, destination: "MONEY_MOVES", providerRef: link.appLinkId, txHash: b.reference && /^(0x)?[0-9a-zA-Z]{40,}$/.test(b.reference) ? b.reference : s.txHash };
+  }
+  // Crypto: to the business wallet on a chain, or an address our team names.
+  const chain = b.chain ?? s.chain ?? "SOLANA";
+  let to = b.toAddress ?? (s.chain === chain ? s.toAddress : null);
+  if (!to) {
+    const w = await prisma.businessWallet.findUnique({ where: { businessId: s.businessId } });
+    to = w ? (chain === "MOVEMENT" ? w.movementAddress : chain === "SOLANA" || chain === "STELLAR" ? w.solanaAddress : w.evmAddress) : null;
+  }
+  if (!to) throw new HttpError(400, "Say the address it was sent to: this business has no wallet on that chain.", "no_address");
+  const payment = await prisma.payment.findUnique({ where: { id: s.paymentId }, select: { ngnPerUsd: true } });
+  const micros = s.amountMicros ?? (payment?.ngnPerUsd ? BigInt(Math.floor((s.amountKobo / 100 / payment.ngnPerUsd) * 1e6)) : null);
+  return { ...none, destination: "WALLET", chain, toAddress: to, amountMicros: micros, txHash: b.reference || null };
+}
 
 router.post("/settlements/:id/note", async (req, res) => {
   const b = body(z.object({ note: z.string().trim().min(1, "Write the note.").max(1000) }), req);
@@ -1548,7 +1652,7 @@ function whatsLive() {
 }
 
 router.get("/platform", async (_req, res) => {
-  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, intentCoins: INTENT_COINS.map(({ key, symbol, name, chain }) => ({ key, symbol, name, chain })), stableIntentPairs: STABLE_INTENT_PAIRS, live: whatsLive() });
+  res.json({ ...(await platformWithMeta()), defaults: PLATFORM_DEFAULTS, networks: NETWORKS, intentCoins: INTENT_COINS.map(({ key, symbol, name, chain }) => ({ key, symbol, name, chain })), stableIntentPairs: STABLE_INTENT_PAIRS, bachsReady: bachsReady(), live: whatsLive() });
 });
 
 /** Every change here reaches every business within seconds, so every save takes the password. */

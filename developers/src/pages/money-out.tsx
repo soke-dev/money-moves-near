@@ -27,7 +27,8 @@ export function Settlement() {
         ]}
       />
       <P>
-        Crypto payments settle as USDC, regardless of which coin and network the customer used. Choose a settlement network in settings: Solana, Movement, Stellar, Arc or Monad. You can change it at any time. If you settle to a bank account, funds are converted to local currency at the rate set for the payment.
+        Crypto payments settle as USDC, whichever coin and network the customer used, and each is paid out of that payment's own money. Choose a settlement network in settings. USDC payouts go out on Solana or Monad: if you choose Arc,
+        Movement or Stellar, your payouts arrive on Monad for now, at the same address. You can change it at any time. If you settle to a bank account, funds are paid in local fiat at the rate set for the payment.
       </P>
 
       <H2>Which place each payment uses</H2>

@@ -41,7 +41,7 @@ import { appPayReady } from "../lib/app-pay";
 import { checkPayment, confirmSimulated, fromInvoice, fromLink, fromOutlet, openNairaPayment, openSimulatedPayment, testAddress, type Checkout } from "../services/payments";
 import { itemsOf } from "./invoices";
 import { brandOf } from "../lib/brand";
-import { methodsOpen } from "../lib/methods";
+import { inOrder, methodsOpen } from "../lib/methods";
 import { CUSTOMER_REASONS, RAISE_WITHIN_DAYS, customerAccept, customerReply, customerShape, raiseCustomerDispute } from "../services/disputes";
 
 const router = Router();
@@ -146,6 +146,8 @@ const publicPayment = (p: Payment, seen: Seen | null = null, returns: Awaited<Re
   amountUsd: p.amountCents / 100,
   ngnPerUsd: p.ngnPerUsd,
   account: p.accountNumber ? { bank: p.accountBank, number: p.accountNumber, name: p.accountName } : null,
+  /** A transfer whose one-time account is shown on our bank partner's own page: open it, transfer, come back. */
+  bankPage: p.status === "OPEN" ? (p.bankPage ?? null) : null,
   /**
    * Live, by the app: one link that opens the payment in Money Moves - tapped on
    * the phone it's on, or shown as a QR to scan from another.
@@ -474,11 +476,11 @@ const invoiceTitle = (inv: Invoice) => `Invoice ${inv.number}`;
 router.get("/i/:token", watching, async (req, res) => {
   const inv = await loadInvoice(String(req.params.token));
   const rate = await ngnPerUsd().catch(() => null);
-  const p = forMode(await platform(), inv.mode);
+  const p = forMode(await platform(), inv.mode, inv.business);
   // The first time the customer opens it is worth knowing.
   if (inv.status === "OPEN" && !inv.viewedAt) await prisma.invoice.update({ where: { id: inv.id }, data: { viewedAt: new Date() } });
   const takes = await methodsOpen(inv.business, inv.mode);
-  const methods = usableMethods(inv.methods, inv.mode, inv.accept, p).filter((m) => takes.has(m));
+  const methods = inOrder(usableMethods(inv.methods, inv.mode, inv.accept, p).filter((m) => takes.has(m)), inv.business.methodOrder);
   const [paid, open] = await Promise.all([
     inv.status === "PAID" ? prisma.payment.findFirst({ where: { invoiceId: inv.id, status: "PAID" }, orderBy: { paidAt: "desc" } }) : null,
     inv.status === "OPEN" ? openPaymentFor(inv.id) : null,
@@ -557,9 +559,9 @@ export const loadOutlet = async (slug: string) => {
 router.get("/o/:slug", watching, async (req, res) => {
   const o = await loadOutlet(String(req.params.slug).toLowerCase());
   const rate = await ngnPerUsd().catch(() => null);
-  const p = forMode(await platform(), o.mode);
+  const p = forMode(await platform(), o.mode, o.business);
   const takes = await methodsOpen(o.business, o.mode);
-  const methods = usableMethods(o.methods, o.mode, o.accept, p).filter((m) => takes.has(m));
+  const methods = inOrder(usableMethods(o.methods, o.mode, o.accept, p).filter((m) => takes.has(m)), o.business.methodOrder);
   res.json({
     link: {
       slug: o.slug,
@@ -615,10 +617,10 @@ router.get("/:slug", watching, async (req, res) => {
   const link = await loadLink(String(req.params.slug).toLowerCase());
   // The rate is for showing the other currency; a link priced in naira works without it.
   const rate = await ngnPerUsd().catch(() => null);
-  const p = forMode(await platform(), link.mode);
+  const p = forMode(await platform(), link.mode, link.business);
   // Only the ways to pay that work today and are switched on.
   const takes = await methodsOpen(link.business, link.mode);
-  const methods = usableMethods(link.methods, link.mode, link.accept, p).filter((m) => takes.has(m));
+  const methods = inOrder(usableMethods(link.methods, link.mode, link.accept, p).filter((m) => takes.has(m)), link.business.methodOrder);
   // An API checkout can be given an end.
   const expired = !!link.expiresAt && link.expiresAt.getTime() <= Date.now();
   res.json({
@@ -640,6 +642,7 @@ router.get("/:slug", watching, async (req, res) => {
       accept: offeredAccept(link.accept, p, link.mode),
       intents: methods.includes("CRYPTO") && !link.direct ? intentsOffered(p, link.mode, effectiveChain(link.business.settleChain, p)) : [],
       redirectUrl: link.redirectUrl,
+      redirectLabel: link.redirectLabel,
       askPhone: link.askPhone,
       askName: link.askName,
       feePayer: link.feePayer ?? link.business.feePayer,
