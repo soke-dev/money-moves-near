@@ -39,7 +39,7 @@ function parse(stored: string): { salt: Buffer; key: Buffer } | null {
   // Forgiving of the usual pastes: the whole "NAME=value" line, or quotes.
   const value = stored
     .trim()
-    .replace(/^ADMIN_ACTION_PASSWORD_HASH\s*=\s*/, "")
+    .replace(/^ADMIN_(ACTION|ID_CHECK)_PASSWORD_HASH\s*=\s*/, "")
     .replace(/^["']|["']$/g, "");
   const [prefix, salt, key] = value.split(":");
   if (prefix !== PREFIX || !/^[0-9a-f]{32}$/i.test(salt ?? "") || !/^[0-9a-f]{64}$/i.test(key ?? "")) return null;
@@ -50,7 +50,11 @@ const fails = new Map<string, number[]>();
 
 export type ActionPasswordCheck = { ok: true } | { ok: false; status: number; error: string };
 
-export async function checkActionPassword(who: string, password: unknown, action: string): Promise<ActionPasswordCheck> {
+/**
+ * `idChecks`: an ID check decision, which the second admin's password (ADMIN_ID_CHECK_PASSWORD_HASH) also opens.
+ * Every other action takes the main password only.
+ */
+export async function checkActionPassword(who: string, password: unknown, action: string, opts: { idChecks?: boolean } = {}): Promise<ActionPasswordCheck> {
   const stored = env.ADMIN_ACTION_PASSWORD_HASH ? parse(env.ADMIN_ACTION_PASSWORD_HASH) : null;
   if (!stored) {
     if (env.ADMIN_ACTION_PASSWORD_HASH) {
@@ -75,6 +79,14 @@ export async function checkActionPassword(who: string, password: unknown, action
   const got = await scrypt(password, stored.salt, KEYLEN);
   if (crypto.timingSafeEqual(got, stored.key)) {
     fails.delete(who);
+    return { ok: true };
+  }
+  // The second admin's password, for ID checks only.
+  const second = opts.idChecks && env.ADMIN_ID_CHECK_PASSWORD_HASH ? parse(env.ADMIN_ID_CHECK_PASSWORD_HASH) : null;
+  if (opts.idChecks && env.ADMIN_ID_CHECK_PASSWORD_HASH && !second) console.error("[ADMIN] ADMIN_ID_CHECK_PASSWORD_HASH is not a valid scrypt hash");
+  if (second && crypto.timingSafeEqual(await scrypt(password, second.salt, KEYLEN), second.key)) {
+    fails.delete(who);
+    console.log(`[ADMIN] ${action} by ${who} with the ID check password`);
     return { ok: true };
   }
 

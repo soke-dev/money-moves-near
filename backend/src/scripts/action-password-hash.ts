@@ -3,7 +3,8 @@
  * asks for before a naira rate changes or an account is closed (see
  * lib/action-password.ts).
  *
- *   npx tsx src/scripts/action-password-hash.ts
+ *   npx tsx src/scripts/action-password-hash.ts               the main password (everything)
+ *   npx tsx src/scripts/action-password-hash.ts --id-checks   a second admin's password, for ID checks only
  *
  * Asks for the password without echoing it, so it never lands in shell
  * history, and prints only the hash. Paste that into Railway; to change the
@@ -32,7 +33,8 @@ async function main() {
   const pw = await ask("Action password: ");
   if (pw.length < 8) throw new Error("Use at least 8 characters.");
   if ((await ask("Again: ")) !== pw) throw new Error("Those did not match.");
-  console.log(`\nADMIN_ACTION_PASSWORD_HASH=${await hashActionPassword(pw)}`);
+  const name = process.argv.includes("--id-checks") ? "ADMIN_ID_CHECK_PASSWORD_HASH" : "ADMIN_ACTION_PASSWORD_HASH";
+  console.log(`\n${name}=${await hashActionPassword(pw)}`);
 }
 
 main().catch((err) => {

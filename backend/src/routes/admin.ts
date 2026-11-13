@@ -3243,7 +3243,7 @@ router.post("/identity-checks/:id/decision", requireAdmin, async (req: Request, 
       .safeParse(req.body);
     if (!b.success) return res.status(400).json({ error: "That decision isn't complete." });
     if (b.data.decision !== "redo") {
-      const gate = await checkActionPassword(by, b.data.password, `identity_${b.data.decision}`);
+      const gate = await checkActionPassword(by, b.data.password, `identity_${b.data.decision}`, { idChecks: true });
       if (!gate.ok) return res.status(gate.status).json({ error: gate.error });
     }
     const { password: _pw, ...d } = b.data;

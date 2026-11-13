@@ -390,6 +390,10 @@ const envSchema = z.object({
   // Unset = both locked.
   ADMIN_ACTION_PASSWORD_HASH: z.string().optional(),
 
+  // A second admin's password, for ID check decisions only (approve, decline). The main one above still opens
+  // those and everything else; this one opens nothing else. Made with the same script, --id-checks.
+  ADMIN_ID_CHECK_PASSWORD_HASH: z.string().optional(),
+
   // App-review accounts (comma-separated) — skip the login email OTP. Set on Railway; unset, there are none.
   REVIEW_EMAILS: z
     .string()
