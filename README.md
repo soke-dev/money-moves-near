@@ -100,6 +100,19 @@ To see each piece, open these files.
 | Cross-chain swaps through NEAR Intents | `backend/src/lib/aurora-swap.ts`, `backend/src/routes/swap.ts`, `app/swap.tsx` |
 | The deposit screens: converted networks in the USDC and USDT network lists, NEAR among them | `app/deposit.tsx`, `app/select-crypto.tsx`, `services/routed-deposits.ts` |
 
+## Agent Economy
+
+AI agents can already pay and get paid with Money Moves:
+
+- **Pay.** The Money Moves plugin for PayBox lets an assistant in ChatGPT, Claude or any MCP client pay a Money Moves payment link, invoice or store QR. The agent reads the checkout, tells the person who they're paying and how much, opens the payment and proposes the exact transfer to that payment's own address. The person approves it in PayBox. Agent payments are made in USDC on Solana today.
+- **Get paid.** A business can run its own checkout from the same assistant: make payment links and invoices, and follow its payments. The developer API and webhooks give any agent the same.
+- **With NEAR.** The checkouts agents pay are the same ones that take almost any coin through NEAR Intents and settle in seconds, so a business reached by agents is also open to customers paying in USDC, USDT, BTC, ETH, SOL, NEAR and more.
+
+| To see | Open |
+|---|---|
+| The plugin agents use | `paybox-plugin/src/money-moves.ts` |
+| How to connect an assistant and pay | `developers/src/pages/agents.tsx` ([docs.usemoneymoves.xyz/agents](https://docs.usemoneymoves.xyz/agents)) |
+
 ## How a payment in another coin works
 
 ```
