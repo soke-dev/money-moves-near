@@ -13,7 +13,7 @@
 
 Money Moves is a self-custodial finance app for holding, spending and cashing out stablecoins, and **Money Moves Business** is a payments platform for businesses (checkout links, invoices, store QR codes, an API). Both are live with real users. This repository is our NEAR Hackathon submission (track: **Real-World Money**, with **Agent Economy** as a second fit).
 
-**What we built for the hackathon:** NEAR now sits underneath how money comes in and goes out across both products, through NEAR Intents (any coin payments, conversions and swaps), Aurora (deposit addresses) and USDC on NEAR:
+**What we built for the hackathon:** Money Moves has used NEAR since day one, for swaps and for Bitcoin and Tron deposits. For the hackathon, NEAR went much further: it now sits underneath how money comes in and goes out across both products, through NEAR Intents (any coin payments, conversions and swaps), Aurora (deposit addresses) and USDC on NEAR:
 
 1. **Businesses take almost any coin.** A customer pays in USDC, USDT, BTC, ETH, SOL, NEAR, XRP, DOGE and more. A NEAR Intents (1Click) *exact output* quote turns it into the exact price in USDC, delivered to an address made for that one payment.
 2. **Stablecoins from more chains.** USDC and USDT payments can be routed through NEAR Intents as well, so a business can be paid from chains it doesn't hold.
