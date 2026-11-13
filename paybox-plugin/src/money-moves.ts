@@ -79,6 +79,8 @@ export type PublicCheckout = {
     accept?: Record<string, string[]>;
     askPhone?: boolean;
     feePayer?: "BUSINESS" | "CUSTOMER" | null;
+    /** Other coins, swapped into USDC for the business by NEAR Intents. */
+    intents?: { key: string; symbol: string; name: string; chain: string; slow: boolean }[];
   };
   business: { name: string; verified: boolean };
   rate: number | null;
@@ -98,6 +100,8 @@ export type PublicPayment = {
   ngnPerUsd: number;
   deposit: { coin: string | null; network: string | null; address: string; amount: string | null; memo: string | null; own: boolean; received: string | null; left: string | null } | null;
   customerFeeNgn: number | null;
+  /** Paid in another coin through NEAR Intents: where to send it, how much, and how the swap is going. */
+  intent?: { coin: string; symbol: string; chain: string; address: string; memo: string | null; amount: string; amountUsd: string | null; deadline: string; status: string; originTx: string | null; test: boolean } | null;
   tx: string | null;
   expiresAt: string;
   receivedNgn: number | null;
@@ -108,6 +112,41 @@ export const receiptUrl = (token: string) => `${BASE}/pay/r/${token}`;
 
 /** Whether this checkout takes USDC on Solana right now. */
 export const takesSolanaUsdc = (c: PublicCheckout) => c.link.methods.includes("CRYPTO") && !!c.link.accept?.USDC?.includes("Solana");
+
+// ─── Other coins, through NEAR Intents ────────────────────────────────────
+
+/**
+ * The NEAR Intents coins a PayBox wallet can send: native coins on Solana and
+ * on EVM chains, one plain transfer each (no memo, no token contract). The
+ * business still receives the exact price in USDC.
+ */
+export const AGENT_COINS = {
+  SOL: { family: "solana", decimals: 9, label: "SOL on Solana" },
+  ETH: { family: "evm", chainId: 1, decimals: 18, label: "ETH on Ethereum" },
+  ETH_BASE: { family: "evm", chainId: 8453, decimals: 18, label: "ETH on Base" },
+  ETH_ARB: { family: "evm", chainId: 42161, decimals: 18, label: "ETH on Arbitrum" },
+  BNB: { family: "evm", chainId: 56, decimals: 18, label: "BNB on BNB Chain" },
+  POL: { family: "evm", chainId: 137, decimals: 18, label: "POL on Polygon" },
+  AVAX: { family: "evm", chainId: 43114, decimals: 18, label: "AVAX on Avalanche" },
+} as const;
+export type AgentCoin = keyof typeof AGENT_COINS;
+export const AGENT_COIN_KEYS = Object.keys(AGENT_COINS) as [AgentCoin, ...AgentCoin[]];
+export const isAgentCoin = (key: string): key is AgentCoin => Object.prototype.hasOwnProperty.call(AGENT_COINS, key);
+
+/** The coins this checkout takes through NEAR Intents that a PayBox wallet can pay with. */
+export const agentCoinsOf = (c: PublicCheckout) => (c.link.methods.includes("CRYPTO") ? (c.link.intents ?? []).filter((i) => isAgentCoin(i.key)) : []);
+
+export function evmAddress(raw: string, what: string): string {
+  const a = raw.trim();
+  if (!/^0x[0-9a-fA-F]{40}$/.test(a)) throw new MoneyMovesError(`${what} isn't an EVM address.`, 400, "bad_address");
+  return a;
+}
+
+/** SOL from the sender to the swap's address. The blockhash is a placeholder; PayBox puts a fresh one in. */
+export function solTransfer(sender: PublicKey, to: PublicKey, lamports: bigint): string {
+  const tx = new Transaction({ feePayer: sender, recentBlockhash: "11111111111111111111111111111111" }).add(SystemProgram.transfer({ fromPubkey: sender, toPubkey: to, lamports }));
+  return tx.serialize({ requireAllSignatures: false, verifySignatures: false }).toString("base64");
+}
 
 // ─── A USDC transfer on Solana, unsigned ──────────────────────────────────
 

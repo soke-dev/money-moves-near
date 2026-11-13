@@ -104,13 +104,14 @@ To see each piece, open these files.
 
 AI agents can already pay and get paid with Money Moves:
 
-- **Pay.** The Money Moves plugin for PayBox lets an assistant in ChatGPT, Claude or any MCP client pay a Money Moves payment link, invoice or store QR. The agent reads the checkout, tells the person who they're paying and how much, opens the payment and proposes the exact transfer to that payment's own address. The person approves it in PayBox. Agent payments are made in USDC on Solana today.
+- **Pay.** The Money Moves plugin for PayBox lets an assistant in ChatGPT, Claude or any MCP client pay a Money Moves payment link, invoice or store QR. The agent reads the checkout, tells the person who they're paying and how much, opens the payment and proposes the exact transfer to that payment's own address. The person approves it in PayBox.
 - **Get paid.** A business can run its own checkout from the same assistant: make payment links and invoices, and follow its payments. The developer API and webhooks give any agent the same.
-- **With NEAR.** The checkouts agents pay are the same ones that take almost any coin through NEAR Intents and settle in seconds, so a business reached by agents is also open to customers paying in USDC, USDT, BTC, ETH, SOL, NEAR and more.
+- **Pay in whatever the wallet holds, through NEAR.** An agent isn't limited to USDC. It can pay in SOL, or in ETH on Ethereum, Base or Arbitrum, BNB, POL or AVAX. Money Moves gets a NEAR Intents exact output quote, the agent proposes one plain transfer of that coin to the swap's address, and NEAR Intents turns it into the exact price in USDC for the business. Once PayBox has signed, the plugin hands the transaction to NEAR Intents so the swap starts at once, and the agent follows the swap until the business is paid.
+- **Same checkouts as people.** The checkouts agents pay are the ones customers use, settled in seconds in local fiat or stablecoins, so a business reached by agents is open to every coin its customers hold too.
 
 | To see | Open |
 |---|---|
-| The plugin agents use | `paybox-plugin/src/money-moves.ts` |
+| The plugin agents use | `paybox-plugin/src/plugin.ts` (tools: `pay_business_with_sol`, `pay_business_with_evm_coin`, `payment_sent`) and `paybox-plugin/src/money-moves.ts` |
 | How to connect an assistant and pay | `developers/src/pages/agents.tsx` ([docs.usemoneymoves.xyz/agents](https://docs.usemoneymoves.xyz/agents)) |
 
 ## How a payment in another coin works

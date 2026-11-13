@@ -7,6 +7,13 @@
  * the exact USDC transfer for PayBox to approve and sign. The business gets
  * naira in its bank account, settled the moment the USDC lands.
  *
+ * Paying in another coin: the agent can also pay with SOL, or ETH, BNB, POL or
+ * AVAX on their EVM chains. Money Moves gets a NEAR Intents quote for the
+ * exact price, the agent proposes one plain transfer of that coin to the
+ * swap's address, and NEAR Intents turns it into the exact USDC for the
+ * business. Once PayBox has signed, payment_sent hands the transaction to NEAR
+ * Intents so the swap starts at once.
+ *
  * Running a business: with the owner's Money Moves Business secret key added
  * in PayBox (a brokered Authorization header for the Money Moves host), the
  * agent makes checkouts, reads one, lists payments and checks the balance.
@@ -14,8 +21,24 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import * as z from "zod/v4";
-import { atomicAmount, proposeSolana, solanaOutputSchema } from "./paybox.js";
-import { BASE, MoneyMovesError, call, receiptUrl, solanaAddress, takesSolanaUsdc, targetOf, usdcTransfer, type PublicCheckout, type PublicPayment } from "./money-moves.js";
+import { atomicAmount, evmOutputSchema, proposeEvm, proposeSolana, solanaOutputSchema } from "./paybox.js";
+import {
+  AGENT_COINS,
+  AGENT_COIN_KEYS,
+  BASE,
+  MoneyMovesError,
+  agentCoinsOf,
+  call,
+  evmAddress,
+  receiptUrl,
+  solTransfer,
+  solanaAddress,
+  takesSolanaUsdc,
+  targetOf,
+  usdcTransfer,
+  type PublicCheckout,
+  type PublicPayment,
+} from "./money-moves.js";
 import { LOGO_DATA, LOGO_URL } from "./logo.js";
 
 const PROTOCOL_VERSION = "2026-07-28";
@@ -58,6 +81,7 @@ const quoteOutput = z
     rate_ngn_per_usd: z.number().nullable(),
     customer_pays_fee: z.boolean(),
     solana_usdc: z.boolean(),
+    other_coins: z.array(z.object({ coin: z.enum(AGENT_COIN_KEYS), symbol: z.string(), network: z.string() }).strict()),
     min_ngn: z.number(),
     max_ngn: z.number(),
   })
@@ -75,8 +99,23 @@ const paymentOutput = z
     receipt_url: z.string().nullable(),
     expires_at: z.string(),
     paid_at: z.string().nullable(),
+    swap: z
+      .object({ coin: z.string(), network: z.string(), amount: z.string(), to: z.string(), status: z.enum(["waiting", "sent", "swapping", "done", "short", "refunded", "failed"]), transaction: z.string().nullable() })
+      .strict()
+      .nullable(),
   })
   .strict();
+
+/** How NEAR Intents's swap is going, in plain words. */
+const SWAP_STATUS: Record<string, "waiting" | "sent" | "swapping" | "done" | "short" | "refunded" | "failed"> = {
+  PENDING_DEPOSIT: "waiting",
+  KNOWN_DEPOSIT_TX: "sent",
+  PROCESSING: "swapping",
+  SUCCESS: "done",
+  INCOMPLETE_DEPOSIT: "short",
+  REFUNDED: "refunded",
+  FAILED: "failed",
+};
 
 const STATUS = { OPEN: "open", PAID: "paid", UNDERPAID: "underpaid", EXPIRED: "expired" } as const;
 const paymentShape = (p: PublicPayment) => ({
@@ -90,7 +129,22 @@ const paymentShape = (p: PublicPayment) => ({
   receipt_url: p.status === "PAID" || p.status === "UNDERPAID" ? receiptUrl(p.token) : null,
   expires_at: new Date(p.expiresAt).toISOString(),
   paid_at: p.paidAt ? new Date(p.paidAt).toISOString() : null,
+  swap: p.intent
+    ? { coin: p.intent.symbol, network: p.intent.chain, amount: p.intent.amount, to: p.intent.address, status: SWAP_STATUS[p.intent.status] ?? "swapping", transaction: p.intent.originTx }
+    : null,
 });
+
+/**
+ * A quoted amount in the coin's smallest unit. Rounded up, never down, if the
+ * quote carries more decimals than the coin has: a hair over is fine, a hair
+ * under leaves the swap short.
+ */
+function atomicUp(amount: string, decimals: number): bigint {
+  const [whole = "", fraction = ""] = amount.trim().split(".");
+  if (!/^\d+$/.test(whole) || !/^\d*$/.test(fraction)) throw new MoneyMovesError("Money Moves gave an amount we can't read. Try again.", 502, "bad_amount");
+  const kept = BigInt(atomicAmount(`${whole}${fraction ? `.${fraction.slice(0, decimals)}` : ""}`, decimals));
+  return fraction.length > decimals && /[1-9]/.test(fraction.slice(decimals)) ? kept + 1n : kept;
+}
 
 function quoteOf(kind: "link" | "invoice" | "outlet", c: PublicCheckout) {
   const amount = c.link.amount;
@@ -111,6 +165,7 @@ function quoteOf(kind: "link" | "invoice" | "outlet", c: PublicCheckout) {
     rate_ngn_per_usd: rate,
     customer_pays_fee: c.link.feePayer === "CUSTOMER",
     solana_usdc: takesSolanaUsdc(c),
+    other_coins: agentCoinsOf(c).map((i) => ({ coin: i.key as keyof typeof AGENT_COINS, symbol: i.symbol, network: i.chain })),
     min_ngn: c.limits.minNgn,
     max_ngn: c.limits.maxNgn,
   };
@@ -153,7 +208,7 @@ function createServer() {
     {
       name: "money-moves",
       title: "Money Moves",
-      version: "1.0.2",
+      version: "1.1.0",
       websiteUrl: "https://usemoneymoves.xyz",
       icons: [
         { src: LOGO_URL, mimeType: "image/png", sizes: ["180x180"] },
@@ -198,7 +253,7 @@ function createServer() {
           min_ngn: c.platform.limits.businessMinNgn,
           max_ngn: c.platform.limits.businessMaxNgn,
         };
-        const text = `Money Moves takes ${[out.naira_transfer && "bank transfers", out.money_moves_app && "the Money Moves app", out.crypto && `crypto on ${out.crypto_networks.join(", ")}`].filter(Boolean).join(", ")}. Payments from ${ngn(out.min_ngn)} to ${ngn(out.max_ngn)}. Through PayBox, pay with USDC on Solana.`;
+        const text = `Money Moves takes ${[out.naira_transfer && "bank transfers", out.money_moves_app && "the Money Moves app", out.crypto && `crypto on ${out.crypto_networks.join(", ")}`].filter(Boolean).join(", ")}. Payments from ${ngn(out.min_ngn)} to ${ngn(out.max_ngn)}. Through PayBox, pay with USDC on Solana, or where a business takes other coins, with ${Object.values(AGENT_COINS).map((c) => c.label).join(", ")} through NEAR Intents.`;
         return { content: [{ type: "text" as const, text }], structuredContent: out };
       } catch (e) {
         return failed(e);
@@ -210,7 +265,8 @@ function createServer() {
     "quote_business_payment",
     {
       title: "Quote a Money Moves payment",
-      description: "Read-only. Looks up a Money Moves payment link, invoice or store address: which business, what for, how much in naira and dollars, and whether it can be paid with USDC on Solana. Nothing is opened or paid.",
+      description:
+        "Read-only. Looks up a Money Moves payment link, invoice or store address: which business, what for, how much in naira and dollars, whether it can be paid with USDC on Solana, and which other coins it takes through NEAR Intents (other_coins). Nothing is opened or paid.",
       inputSchema: z.object({ link: linkInput }).strict(),
       outputSchema: quoteOutput,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
@@ -220,7 +276,12 @@ function createServer() {
         const t = targetOf(link);
         const q = quoteOf(t.kind, await call<PublicCheckout>("GET", t.api));
         const price = q.amount == null ? "any amount you choose" : `${q.currency === "NGN" ? ngn(q.amount) : usd(q.amount)}${q.amount_usd != null && q.currency === "NGN" ? ` (about ${usd(q.amount_usd)})` : ""}`;
-        const state = !q.open ? " It isn't taking payments right now." : q.mode === "test" ? " It's a test checkout: only its page's test buttons can pay it." : q.solana_usdc ? " It takes USDC on Solana." : " It doesn't take USDC on Solana.";
+        const others = q.other_coins.length ? ` Through NEAR Intents it also takes ${q.other_coins.map((o) => `${o.symbol} on ${o.network}`).join(", ")}.` : "";
+        const state = !q.open
+          ? " It isn't taking payments right now."
+          : q.mode === "test"
+            ? " It's a test checkout: only its page's test buttons can pay it."
+            : `${q.solana_usdc ? " It takes USDC on Solana." : " It doesn't take USDC on Solana."}${others}`;
         return { content: [{ type: "text" as const, text: `${q.business}${q.verified ? " (verified)" : ""}: ${q.item}, ${price}.${state}` }], structuredContent: q };
       } catch (e) {
         return failed(e);
@@ -282,12 +343,139 @@ function createServer() {
     },
   );
 
+  // ─── Paying in another coin, through NEAR Intents ─────────────────────
+
+  const payerInput = {
+    link: linkInput,
+    email: z.string().email().max(254).describe("Where the receipt goes: the user's email."),
+    name: z.string().min(2).max(80).optional().describe("The payer's name, as the business sees it."),
+    phone: z.string().min(7).max(30).optional().describe("Only when the business asks for a phone number."),
+    ...amountInput,
+  };
+  const swapSend = z.object({ coin: z.string(), network: z.string(), amount: z.string(), to: z.string(), business_gets: z.literal("USDC") }).strict();
+
+  /**
+   * Opens a payment in another coin: Money Moves asks NEAR Intents for the
+   * exact price in that coin and returns the swap's own address. Straight to
+   * opening, one request, as for USDC: Money Moves refuses a coin the
+   * checkout doesn't take, a closed checkout or a missing amount in a sentence.
+   */
+  async function openSwap(a: { link: string; coin: keyof typeof AGENT_COINS; email: string; name?: string; phone?: string; amount?: number; currency?: "NGN" | "USD" }) {
+    const t = targetOf(a.link);
+    const { payment: p } = await call<{ payment: PublicPayment }>(
+      "POST",
+      `${t.api}/crypto`,
+      { intent: a.coin, email: a.email, ...(a.name ? { name: a.name } : {}), ...(a.phone ? { phone: a.phone } : {}), ...(a.amount != null ? { amount: a.amount, ...(a.currency ? { currency: a.currency } : {}) } : {}) },
+      8_500,
+    );
+    if (p.mode === "TEST" || p.intent?.test) throw new MoneyMovesError("That's a test checkout. It can't receive real money; only the test buttons on its page can pay it.", 400, "test_checkout");
+    const i = p.intent;
+    if (!i?.address || !i.amount || i.coin !== a.coin) throw new MoneyMovesError("Money Moves didn't give an address for this coin. Try again, or pay with USDC on Solana.", 502, "no_address");
+    // Every coin here is a plain transfer; one that needs a memo isn't something PayBox's proposal can carry.
+    if (i.memo) throw new MoneyMovesError("This coin needs a memo the transfer can't carry. Pay with USDC on Solana instead.", 400, "needs_memo");
+    const fee = p.customerFeeNgn ? `, including a ${ngn(p.customerFeeNgn)} processing fee` : "";
+    // Our proposal can't outlive the quote: the earlier of PayBox's five minutes and the payment's own deadline.
+    const ends = Math.min(Date.now() + 240_000, Date.parse(p.expiresAt) - 5_000);
+    if (!Number.isFinite(ends) || ends < Date.now() + 30_000) throw new MoneyMovesError("This payment closes too soon to approve. Open it again.", 409, "expiring");
+    const expiresAt = new Date(ends).toISOString().replace(/\.\d{3}Z$/, "Z");
+    const text = `Payment ${p.ref} is open: send ${i.amount} ${i.symbol} on ${i.chain} (${ngn(p.amountNgn)}${fee}). NEAR Intents turns it into the exact USDC for the business. Approve the transfer in PayBox before ${expiresAt}. Once it's signed, call payment_sent with payment "${p.token}" and the transaction, then payment_status. Nothing has been signed or paid yet.`;
+    return { p, i, expiresAt, text, send: { coin: i.symbol, network: i.chain, amount: i.amount, to: i.address, business_gets: "USDC" as const } };
+  }
+
+  const solCoins = AGENT_COIN_KEYS.filter((k) => AGENT_COINS[k].family === "solana") as [keyof typeof AGENT_COINS, ...(keyof typeof AGENT_COINS)[]];
+  const evmCoins = AGENT_COIN_KEYS.filter((k) => AGENT_COINS[k].family === "evm") as [keyof typeof AGENT_COINS, ...(keyof typeof AGENT_COINS)[]];
+
+  server.registerTool(
+    "pay_business_with_sol",
+    {
+      title: "Pay a Nigerian business with SOL, through NEAR Intents",
+      description:
+        "For a checkout whose other_coins (from quote_business_payment) include SOL. Opens a payment priced in SOL by NEAR Intents and proposes one SOL transfer from the user's Solana wallet to the swap's address. NEAR Intents swaps it into the exact USDC for the business, who gets naira in its bank account. PayBox shows it for approval and signs it; nothing moves until the user approves. After signing, call payment_sent, then payment_status.",
+      inputSchema: z
+        .object({
+          ...payerInput,
+          sender: z.string().min(32).max(44).describe("The public address of the user's Solana wallet that will pay."),
+        })
+        .strict(),
+      outputSchema: solanaOutputSchema.extend({ payment: paymentOutput, send: swapSend }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ sender, ...a }) => {
+      try {
+        const from = solanaAddress(sender, "sender");
+        const coin = solCoins[0];
+        const o = await openSwap({ ...a, coin });
+        const to = solanaAddress(o.i.address, "The swap's address");
+        const proposal = proposeSolana({ transactionBase64: solTransfer(from, to, atomicUp(o.i.amount, AGENT_COINS[coin].decimals)), expiresAt: o.expiresAt });
+        return { content: [{ type: "text" as const, text: o.text }], structuredContent: { ...proposal.structuredContent, payment: paymentShape(o.p), send: o.send } };
+      } catch (e) {
+        return failed(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "pay_business_with_evm_coin",
+    {
+      title: "Pay a Nigerian business with ETH, BNB, POL or AVAX, through NEAR Intents",
+      description:
+        "For a checkout whose other_coins (from quote_business_payment) include the coin. Pays with a native coin on an EVM chain: ETH (Ethereum), ETH_BASE (ETH on Base), ETH_ARB (ETH on Arbitrum), BNB (BNB Chain), POL (Polygon) or AVAX (Avalanche). Opens a payment priced in that coin by NEAR Intents and proposes one transfer from the user's EVM wallet to the swap's address. NEAR Intents swaps it into the exact USDC for the business, who gets naira in its bank account. PayBox shows it for approval and signs it; nothing moves until the user approves. After signing, call payment_sent, then payment_status.",
+      inputSchema: z
+        .object({
+          ...payerInput,
+          coin: z.enum(evmCoins).describe("Which coin and chain to pay with."),
+        })
+        .strict(),
+      outputSchema: evmOutputSchema.extend({ payment: paymentOutput, send: swapSend }),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+    },
+    async ({ coin, ...a }) => {
+      try {
+        const c = AGENT_COINS[coin];
+        if (c.family !== "evm") throw new MoneyMovesError("Pick an EVM coin.", 400, "bad_coin");
+        const o = await openSwap({ ...a, coin });
+        const to = evmAddress(o.i.address, "The swap's address");
+        const proposal = proposeEvm({ chain: `eip155:${c.chainId}`, to, value: atomicUp(o.i.amount, c.decimals).toString(), expiresAt: o.expiresAt });
+        return { content: [{ type: "text" as const, text: o.text }], structuredContent: { ...proposal.structuredContent, payment: paymentShape(o.p), send: o.send } };
+      } catch (e) {
+        return failed(e);
+      }
+    },
+  );
+
+  server.registerTool(
+    "payment_sent",
+    {
+      title: "Tell Money Moves a coin payment was sent",
+      description:
+        "After PayBox signs a payment from pay_business_with_sol or pay_business_with_evm_coin: hands the transaction to NEAR Intents so the swap starts at once instead of waiting to spot it. Harmless if it's wrong: the swap only ever pays out what really reached its address.",
+      inputSchema: z
+        .object({
+          payment: z.string().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/).describe("The payment value the pay tool returned."),
+          transaction: z.string().trim().min(16).max(160).regex(/^[0-9A-Za-z:_-]+$/).describe("The signed transaction's signature (Solana) or hash (EVM), from PayBox."),
+        })
+        .strict(),
+      outputSchema: z.object({ passed: z.boolean(), payment: paymentOutput }).strict(),
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    },
+    async ({ payment, transaction }) => {
+      try {
+        const r = await call<{ passed: boolean; payment: PublicPayment }>("POST", `/pay/p/${payment}/intent-tx`, { tx: transaction }, 8_000);
+        const text = r.passed ? "Handed to NEAR Intents: the swap starts now. Check payment_status in a few seconds." : "Noted. NEAR Intents will spot the transfer on its own. Check payment_status in a few seconds.";
+        return { content: [{ type: "text" as const, text }], structuredContent: { passed: r.passed, payment: paymentShape(r.payment) } };
+      } catch (e) {
+        return failed(e);
+      }
+    },
+  );
+
   server.registerTool(
     "payment_status",
     {
       title: "Check a Money Moves payment",
-      description: "Read-only. Whether a payment opened with pay_business_with_solana_usdc has arrived: open, paid, underpaid or expired, the transaction once it's on chain, and the receipt link once it's paid.",
-      inputSchema: z.object({ payment: z.string().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/).describe("The payment value pay_business_with_solana_usdc returned.") }).strict(),
+      description:
+        "Read-only. Whether a payment opened with one of the pay tools has arrived: open, paid, underpaid or expired, how a NEAR Intents swap is going, the transaction once it's on chain, and the receipt link once it's paid.",
+      inputSchema: z.object({ payment: z.string().min(8).max(64).regex(/^[A-Za-z0-9_-]+$/).describe("The payment value the pay tool returned.") }).strict(),
       outputSchema: paymentOutput,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: true },
     },
@@ -295,8 +483,21 @@ function createServer() {
       try {
         const { payment: p } = await call<{ payment: PublicPayment }>("GET", `/pay/p/${payment}`, undefined, 6_000);
         const out = paymentShape(p);
-        const text =
-          out.status === "paid"
+        const swap = out.swap;
+        const swapText =
+          swap && out.status === "open"
+            ? {
+                waiting: `Waiting for ${swap.amount} ${swap.coin} on ${swap.network} to reach NEAR Intents.`,
+                sent: `NEAR Intents has the ${swap.coin} transfer. Swapping into USDC for the business.`,
+                swapping: `NEAR Intents is swapping the ${swap.coin} into USDC for the business.`,
+                done: "The swap is done. The USDC is landing with the business now.",
+                short: `Less ${swap.coin} arrived than quoted, so NEAR Intents hasn't swapped it. If the payment closes like this, write to support@usemoneymoves.xyz with reference ${p.ref} to get it back.`,
+                refunded: `The swap didn't go through, so nothing reached the business. Write to support@usemoneymoves.xyz with reference ${p.ref} to get the ${swap.coin} back.`,
+                failed: `The swap didn't go through, so nothing reached the business. Write to support@usemoneymoves.xyz with reference ${p.ref} to get the ${swap.coin} back.`,
+              }[swap.status]
+            : null;
+        const text = swapText ??
+          (out.status === "paid"
             ? `Paid. ${ngn(p.receivedNgn ?? p.amountNgn)} reached the business. Receipt: ${out.receipt_url}`
             : out.status === "underpaid"
               ? `Less than the amount arrived (${p.deposit?.received ?? "part"} USDC). Send the rest: ${p.deposit?.left ?? "the difference"} USDC.`
@@ -304,7 +505,7 @@ function createServer() {
                 ? "This payment closed with nothing received."
                 : p.deposit?.received
                   ? `Part arrived: ${p.deposit.received} USDC. ${p.deposit.left} USDC still to send.`
-                  : "Waiting for the USDC to land. Solana usually takes a few seconds.";
+                  : "Waiting for the USDC to land. Solana usually takes a few seconds.");
         return { content: [{ type: "text" as const, text }], structuredContent: out };
       } catch (e) {
         return failed(e);
