@@ -1,12 +1,14 @@
 /**
- * NEAR Intents, end to end, with nothing set up: no database, no keys, no money.
+ * Money Moves on NEAR, end to end, with nothing set up: no database, no keys, no money. NEAR is the protocol;
+ * NEAR Intents is the NEAR product that does the swaps here.
  *
  *   cd business-api && npm install && npm run near-demo
  *
  * It asks NEAR Intents (the 1Click API) for the same quotes the live checkout asks for, through the same code
  * (lib/intents.ts), as dry runs: nothing is created and nothing moves. For a $25 checkout it shows what a customer
  * would send in each coin, and how long the swap takes, with the business receiving exactly 25.00 USDC. Then the
- * same for USDC and USDT arriving from other chains (what Services can route through Intents).
+ * same for USDC and USDT arriving from other chains (what Services can route through Intents), and for USDC and
+ * USDT on NEAR itself turning into USDC in a Money Moves wallet, the route NEAR deposits in the app take.
  */
 
 // The config module expects these for the API itself; a dry quote never touches either.
@@ -51,7 +53,17 @@ async function main() {
     if (c && (await quote(`${coin} on ${net}`, c, "Monad"))) ok++;
   }
 
-  console.log(`\n${ok} live quotes from NEAR Intents. Nothing was created or sent (dry runs).\n`);
+  // The app: USDC and USDT on NEAR, into USDC in a Money Moves wallet on Solana.
+  console.log(`\nThe app: USDC and USDT on NEAR, arriving as USDC in a Money Moves wallet:\n`);
+  row("Person deposits", "They send", "Value", "Swap time");
+  console.log("-".repeat(80));
+  const ON_NEAR = [
+    { key: "USDC_NEAR", symbol: "USDC", name: "USD Coin", chain: "NEAR", assetId: "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1", decimals: 6 },
+    { key: "USDT_NEAR", symbol: "USDT", name: "Tether USD", chain: "NEAR", assetId: "nep141:usdt.tether-token.near", decimals: 6 },
+  ];
+  for (const c of ON_NEAR) if (await quote(`${c.symbol} on NEAR`, c, "Solana")) ok++;
+
+  console.log(`\n${ok} live quotes on NEAR. Nothing was created or sent (dry runs).\n`);
   if (!ok) process.exitCode = 1;
 }
 
