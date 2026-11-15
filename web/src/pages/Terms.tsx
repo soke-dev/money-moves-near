@@ -49,6 +49,7 @@ const SECTIONS: [string, string][] = [
   ["wallet", "Wallet"],
   ["gasless-transactions", "Gasless Transactions"],
   ["crypto-savings-vault", "Crypto Savings Vault"],
+  ["usd-cards", "USD Cards"],
   ["foreign-exchange-fluctuation", "Foreign Exchange Fluctuation"],
   ["currency-and-digital-asset-risks", "Currency &amp; Digital Asset Risks"],
   ["no-refund-and-no-recovery-policy", "No Refund &amp; No Recovery Policy"],
@@ -142,7 +143,7 @@ export default function Terms() {
             Terms of Use &amp; Privacy Policy
           </h1>
           <p className="mt-4 text-[12.5px]" style={{ fontFamily: MONO, color: T.faint }}>
-            Last updated: 13 September 2026
+            Last updated: 15 November 2026
           </p>
         </div>
       </div>
@@ -215,6 +216,7 @@ export default function Terms() {
               <li><strong className="text-foreground">Crypto values change.</strong> Digital asset prices can rise or fall sharply due to market conditions outside of our control.</li>
               <li><strong className="text-foreground">Services may change.</strong> Features may be paused, throttled, geographically restricted, or updated as we improve the product. You can export your keys at any time and use them elsewhere, so your funds remain reachable regardless of Service availability.</li>
               <li><strong className="text-foreground">We rely on partners.</strong> Some features depend on third parties such as blockchain networks, payment processors, airtime and bill-payment providers, and identity verification providers. If they have outages or policy changes, Service may be temporarily affected.</li>
+              <li><strong className="text-foreground">Cards work differently from your wallet.</strong> Money on a Money Moves USD card is not in your self-custodial wallet. It is held by our licensed card issuing partner, and a card can be frozen, limited or closed by us or by that partner. The USD Cards section below explains how cards work and what they cost.</li>
             </ul>
             <p className="text-muted-foreground">
               By continuing to use the Services, you confirm that you&apos;ve read and agreed to these Terms in full.
@@ -236,7 +238,7 @@ export default function Terms() {
           <section id="about-us">
             <h2 className="text-2xl font-bold mb-4">About Us</h2>
             <p className="text-muted-foreground mb-4">
-              Money Moves is a self-custodial crypto finance app built for Africa and beyond. We provide a comprehensive suite of services that allow users to hold, spend, and manage their cryptocurrency without ever giving up custody of their private keys. Our services include multi-chain crypto deposits, instant bank cashouts, airtime and data top-ups, utility bill payments, peer-to-peer transfers by @username, onchain savings vaults, and referral rewards.
+              Money Moves is a self-custodial crypto finance app built for Africa and beyond. We provide a comprehensive suite of services that allow users to hold, spend, and manage their cryptocurrency without ever giving up custody of their private keys. Our services include multi-chain crypto deposits, instant bank cashouts, airtime and data top-ups, utility bill payments, peer-to-peer transfers by @username, onchain savings vaults, virtual USD cards provided with a licensed card issuing partner, and referral rewards.
             </p>
             <p className="text-muted-foreground mb-4">
               Unlike custodial platforms, Money Moves is built on the principle that your crypto is yours. Your private keys are generated on your device, never transmitted to or stored on our servers, and remain under your sole control at all times. We do not have access to your wallet, your funds, or the ability to move your assets on your behalf.
@@ -283,7 +285,7 @@ export default function Terms() {
               Additionally, you affirm and guarantee that you are authorized to enter into this Agreement on behalf of the entity or organization that you are sworn to represent in your jurisdiction, as well as on your behalf. If any of these requirements are not met, you are not allowed to use or access the Services.
             </p>
             <p className="text-muted-foreground">
-              Money Moves provides a self-custodial wallet and payment facilitation services that allow you to store, save, and spend crypto for the purchase of goods and services, pay utility bills, buy airtime and data, and transfer funds to Nigerian bank accounts. We are not a bank and do not offer banking services as defined by the Banks and Other Financial Institutions Act, 2020. We do not hold or custody your funds.
+              Money Moves provides a self-custodial wallet and payment facilitation services that allow you to store, save, and spend crypto for the purchase of goods and services, pay utility bills, buy airtime and data, and transfer funds to Nigerian bank accounts. We are not a bank and do not offer banking services as defined by the Banks and Other Financial Institutions Act, 2020. We do not hold or custody the funds in your wallet. Money you add to a USD card leaves your wallet and is held by our card issuing partner, as set out in the USD Cards section.
             </p>
           </section>
 
@@ -300,6 +302,7 @@ export default function Terms() {
               <li><strong className="text-foreground">Bill Payments:</strong> Pay electricity, DStv, GOtv, StarTimes, and other utility bills from your wallet.</li>
               <li><strong className="text-foreground">Send by @Username:</strong> Send crypto to other Money Moves users using just their @username.</li>
               <li><strong className="text-foreground">Crypto Savings Vault:</strong> Lock your crypto in a secure onchain savings vault with flexible or fixed terms. A 0.5% lock fee applies.</li>
+              <li><strong className="text-foreground">USD Cards:</strong> Virtual prepaid USD cards for online payments, funded with USDC or USDT from your wallet and provided with a licensed card issuing partner. Fees and limits apply, as shown in the app.</li>
               <li><strong className="text-foreground">Referrals &amp; Leaderboard:</strong> Earn crypto rewards by referring friends and climbing the leaderboard.</li>
               <li><strong className="text-foreground">Gasless Transactions:</strong> All onchain transactions are settled with zero gas fees — we sponsor all network costs.</li>
             </ul>
@@ -389,12 +392,13 @@ export default function Terms() {
           <section id="transaction-monitoring-and-settlement-rights">
             <h2 className="text-2xl font-bold mb-4">Transaction Monitoring &amp; Settlement Rights</h2>
             <p className="text-muted-foreground mb-4">
-              You expressly acknowledge and agree that, while your crypto wallet is self-custodial and outside of our control, Money Moves operates the fiat-settlement, bill-payment, and airtime-purchase layers of the Services through licensed third parties and regulated rails. With respect to those services, Money Moves may, in its sole discretion and without prior notice:
+              You expressly acknowledge and agree that, while your crypto wallet is self-custodial and outside of our control, Money Moves operates the fiat-settlement, bill-payment, airtime-purchase, and card layers of the Services through licensed third parties and regulated rails. With respect to those services, Money Moves may, in its sole discretion and without prior notice:
             </p>
             <ul className="list-disc list-inside space-y-2 text-muted-foreground mb-4">
               <li>Monitor, screen, sample, review, profile, or analyse any transaction, account behaviour, device, IP address, or counter-party for fraud, sanctions, AML, CTF, or risk-management purposes;</li>
               <li>Request additional information, documentation, source-of-funds or source-of-wealth evidence at any time, and impose enhanced due diligence (EDD) measures;</li>
               <li>Delay, hold, decline, reverse, or refund any fiat payout (including bank transfers, bill payments, airtime, data, or other off-platform payments) where Money Moves reasonably suspects fraud, error, sanctions exposure, AML/CTF risk, account compromise, or breach of these Terms;</li>
+              <li>Freeze, limit, suspend, or close any USD card, delay or decline a card top up or card withdrawal, and hold a card balance while any of the matters above are reviewed, whether the action is taken by Money Moves or by our card issuing partner;</li>
               <li>Cap, throttle, lower, or suspend transaction or withdrawal limits, whether globally or for individual accounts, with or without notice;</li>
               <li>Share information about you, your transactions, devices, and counter-parties with law enforcement, regulators, banks, payment processors, courts, fraud-prevention networks, KYC vendors, and affected third parties, where required by law or reasonably necessary to investigate or prevent suspected illegal or harmful activity; and</li>
               <li>Permanently retain transaction records, KYC data, and related metadata for the period required by applicable Nigerian and international AML, tax, accounting, and consumer-protection laws, regardless of account termination.</li>
@@ -416,11 +420,17 @@ export default function Terms() {
               <li><strong className="text-foreground">Account &amp; Profile:</strong> name, email, phone number, username, date of birth, and profile picture (optional).</li>
               <li><strong className="text-foreground">KYC &amp; Identity:</strong> BVN, NIN, government-issued ID, address, and other documents required to verify your identity, processed by our licensed KYC vendor.</li>
               <li><strong className="text-foreground">Transaction Data:</strong> wallet addresses, on-chain transaction hashes, fiat amounts, bank account details for payouts, bill recipient details, and timestamps.</li>
+              <li><strong className="text-foreground">Card Data:</strong> if you use USD cards, your cardholder name, phone number, card status, the last four digits of each card, card balances, top ups, withdrawals, and the details of each card payment, decline, and refund (merchant name, location, amount, currency, time, and any decline reason).</li>
               <li><strong className="text-foreground">Device &amp; Usage:</strong> device model, OS, IP address, app version, crash logs, analytics events, and approximate location.</li>
               <li><strong className="text-foreground">Communications:</strong> support tickets, in-app messages, and any feedback you submit.</li>
             </ul>
             <p className="text-muted-foreground mt-4">
               <strong className="text-foreground">We do not hold a complete signing key and we do not store your PIN.</strong> Your PIN is set and checked on your device, and key shares are held separately so that no single party can assemble a whole key.
+            </p>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Card Information</h3>
+            <p className="text-muted-foreground">
+              To issue and run your USD cards we share with our card issuing partner the details it needs to open a card for you: your name, your phone number, the outcome of your identity verification, and a contact address we manage on your behalf. The partner, the card network, and merchants then process your card payments, and the partner sends us the details of each payment, decline, and refund so we can show them to you and protect your account. We do not store your full card number, CVV, or expiry date. They are fetched from our partner only when you ask to see them in the app, behind your PIN or biometrics, and are not kept on our servers. Our card issuing partner and the card network also process your data under their own legal obligations, including anti-money laundering and fraud prevention rules.
             </p>
 
             <h3 className="text-lg font-semibold mt-6 mb-2">Biometric &amp; Face Data</h3>
@@ -435,7 +445,7 @@ export default function Terms() {
 
             <h3 className="text-lg font-semibold mt-6 mb-2">Sharing &amp; Disclosure</h3>
             <p className="text-muted-foreground">
-              We share personal data only with: (i) our payment, banking, KYC, blockchain infrastructure, push-notification, email, and analytics providers, who are contractually bound to protect it; (ii) law enforcement, regulators, courts, and other authorities where required by law, subpoena, court order, or to protect our or others&apos; rights, property, or safety; and (iii) successors in interest if Money Moves is acquired, merged, or restructured. We do not sell your personal data.
+              We share personal data only with: (i) our payment, banking, card issuing, KYC, blockchain infrastructure, push-notification, email, and analytics providers, who are contractually bound to protect it, and the card networks that process card payments; (ii) law enforcement, regulators, courts, and other authorities where required by law, subpoena, court order, or to protect our or others&apos; rights, property, or safety; and (iii) successors in interest if Money Moves is acquired, merged, or restructured. We do not sell your personal data.
             </p>
 
             <h3 className="text-lg font-semibold mt-6 mb-2">Data Retention &amp; Security</h3>
@@ -497,6 +507,80 @@ export default function Terms() {
             </p>
           </section>
 
+          {/* USD Cards */}
+          <section id="usd-cards">
+            <h2 className="text-2xl font-bold mb-4">USD Cards</h2>
+            <p className="text-muted-foreground mb-4">
+              Money Moves offers virtual prepaid USD cards (&quot;Cards&quot;) that you can use to pay online wherever the card network is accepted. This section applies to Cards in addition to the rest of these Terms. Where this section and another part of these Terms differ, this section governs Cards.
+            </p>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Who issues the Cards and holds the money</h3>
+            <ul className="list-disc list-inside space-y-2 text-muted-foreground mb-4">
+              <li>Cards are issued by a licensed card issuing partner under a licence from the card network. Money Moves provides the app and the technology through which you request, fund, and manage Cards. Money Moves is not the issuer of the Cards and is not a bank.</li>
+              <li>Money on a Card (your &quot;Card Balance&quot;) is held in US dollars by our card issuing partner in an account opened for your Card. It is not in your self-custodial wallet, and the self-custody statements elsewhere in these Terms do not apply to Card Balances. You can see each Card Balance in the app.</li>
+              <li>Cards are prepaid. They are not credit, debit, or deposit products. No credit is extended, no interest is paid on Card Balances, and Card Balances are not covered by any deposit insurance or deposit protection scheme in Nigeria, the United States, or elsewhere.</li>
+              <li>By using a Card you also agree to the rules of the card network and to any cardholder terms our card issuing partner requires, which may change from time to time.</li>
+            </ul>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Eligibility</h3>
+            <p className="text-muted-foreground mb-4">
+              Cards are available only to verified users whose wallet, identity, name, and phone number meet our requirements and those of our card issuing partner, and may be offered to some users before others. We or our partner may decline to issue a Card to anyone, in our sole discretion and without giving a reason.
+            </p>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Funding a Card</h3>
+            <ul className="list-disc list-inside space-y-2 text-muted-foreground mb-4">
+              <li>You fund a Card by sending USDC or USDT from your Money Moves wallet. The amount is credited to the Card in US dollars, less the fees shown to you before you confirm.</li>
+              <li>A Card is created by funding it. The card creation fee is taken from that first funding and is not refundable once the Card has been issued.</li>
+              <li>A funding sent from your wallet is an onchain transaction and is final once broadcast. It is credited to your Card once we have confirmed it on the network and completed our checks. Crediting may be delayed, or held for review, without liability to you.</li>
+              <li>Funds sent to Money Moves for a Card other than through the app, sent from a wallet other than your own, or sent in an unsupported asset or network may not be credited and may not be recoverable.</li>
+            </ul>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Fees and limits</h3>
+            <ul className="list-disc list-inside space-y-2 text-muted-foreground mb-4">
+              <li>Cards may carry a card creation fee, a top up fee, a monthly card fee, a fee for declined payments, and a fee for withdrawing a Card Balance to your wallet. The fees that apply to you are shown in the app before you confirm, and fees charged by the card network or our partner (including cross border and currency conversion fees) are charged to the Card when they apply.</li>
+              <li>Fees are deducted from the relevant Card Balance. We may introduce or change fees for future use by updating them in the app.</li>
+              <li>We set limits, including the smallest and largest top up, a daily top up limit, the most a Card may hold, and the number of Cards you may hold. We may change limits at any time, for everyone or for individual users.</li>
+            </ul>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Using a Card</h3>
+            <ul className="list-disc list-inside space-y-2 text-muted-foreground mb-4">
+              <li>A payment is approved only if the Card is active and its Card Balance covers the payment and any fees. Payments may also be declined by the merchant, the card network, our partner, or our fraud and risk controls, and some merchants or merchant categories may not accept the Cards. We are not liable for any declined payment or for a merchant refusing a Card.</li>
+              <li>A one-time Card is closed after its first payment. Any balance left on it can be withdrawn to your wallet.</li>
+              <li>A Card has a billing address set by our partner, which may not match your own. Some merchants may reject a Card because of it.</li>
+              <li>We are not a party to your purchases. Questions about goods, services, deliveries, subscriptions, or refunds are between you and the merchant. If you dispute a payment, we will pass your dispute to our partner, but the outcome is decided under the card network&apos;s rules and is not guaranteed. Refunds from a merchant are credited to the Card when our partner receives them.</li>
+              <li>If a merchant settles more than it first authorised, or fees or a reversed refund leave a Card with a negative balance, you must repay that amount. We may recover it from any of your Card Balances or future Card top ups.</li>
+            </ul>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Keeping your Card safe</h3>
+            <ul className="list-disc list-inside space-y-2 text-muted-foreground mb-4">
+              <li>Keep your card number, CVV, and expiry date private. Never share them with anyone, including anyone claiming to be from Money Moves. We will never ask for them.</li>
+              <li>You are responsible for all payments made with your Card details, except where applicable law or the card network&apos;s rules say otherwise. If you suspect your Card details have been seen or used by someone else, freeze the Card in the app straight away and tell us at support@usemoneymoves.xyz.</li>
+              <li>You can freeze and unfreeze a Card in the app at any time, unless we or our partner have frozen it.</li>
+            </ul>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Freezing, suspension, and closure</h3>
+            <ul className="list-disc list-inside space-y-2 text-muted-foreground mb-4">
+              <li>We or our card issuing partner may freeze, limit, suspend, or close a Card, and hold a Card Balance, at any time and without notice, including where a Card has several declined payments in a short period, where we suspect fraud, unauthorised use, money laundering, sanctions exposure, or a breach of these Terms, or where required by law, a regulator, the card network, or our partner.</li>
+              <li>A Card frozen automatically after repeated declines can be unfrozen by you in the app. A Card frozen by us or our partner can only be unfrozen by us.</li>
+              <li>Cards expire on the date shown in the app. We may close a Card that has not been used for an extended period.</li>
+              <li>If Cards are discontinued, or a Card is closed for a reason other than a breach of these Terms or a legal requirement, we will make the available Card Balance, less any fees and amounts owed, available for withdrawal to your wallet.</li>
+            </ul>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Withdrawing and deleting</h3>
+            <ul className="list-disc list-inside space-y-2 text-muted-foreground mb-4">
+              <li>You can withdraw a Card Balance to your own Money Moves wallet as a stablecoin. Withdrawals are made only to your own wallet, are converted at the rate shown or applied by our partner, and network or withdrawal fees may apply. A withdrawal is final once sent.</li>
+              <li>You must withdraw a Card&apos;s balance before deleting it. A deleted Card cannot be restored, and payments a merchant later tries to take from it will be declined.</li>
+            </ul>
+
+            <h3 className="text-lg font-semibold mt-6 mb-2">Our partner and liability</h3>
+            <p className="text-muted-foreground mb-4">
+              Cards depend on our card issuing partner, the card network, and blockchain networks. Their outages, errors, policy changes, or decisions may delay, limit, or stop Card payments, top ups, or withdrawals, and our partner may change or end the card programme. To the fullest extent permitted by law, Money Moves is not liable for any loss arising from the acts or omissions of our partner, the card network, any merchant, or any blockchain network, or from any action taken in good faith under this section.
+            </p>
+            <p className="text-muted-foreground">
+              <strong className="text-foreground">YOU ACKNOWLEDGE THAT CARD BALANCES ARE HELD BY A THIRD PARTY, ARE NOT INSURED DEPOSITS, AND MAY BE FROZEN, HELD, OR LIMITED AS DESCRIBED ABOVE, AND THAT THE LIMITATION OF LIABILITY IN THESE TERMS APPLIES TO CARDS.</strong>
+            </p>
+          </section>
+
           {/* Exchange Rate Fluctuation */}
           <section id="foreign-exchange-fluctuation">
             <h2 className="text-2xl font-bold mb-4">Foreign Exchange Fluctuation</h2>
@@ -536,6 +620,9 @@ export default function Terms() {
               <li>Compensate users for losses arising from market volatility, exchange rate fluctuations, or the depreciation of any digital asset.</li>
             </ul>
             <p className="text-muted-foreground mt-4">
+              Card payments, merchant refunds, disputes, and Card Balances are governed by the USD Cards section. Fees, including the card creation fee, are not refundable except where that section says otherwise.
+            </p>
+            <p className="text-muted-foreground mt-4">
               <strong className="text-foreground">YOU ACKNOWLEDGE AND AGREE THAT YOU USE MONEY MOVES AT YOUR OWN RISK AND THAT MONEY MOVES SHALL HAVE NO LIABILITY WHATSOEVER FOR ANY LOSS OF FUNDS, REGARDLESS OF THE CAUSE, INCLUDING BUT NOT LIMITED TO HACKING, UNAUTHORIZED ACCESS, LOSS OF PRIVATE KEYS, SMART CONTRACT VULNERABILITIES, NETWORK FAILURES, OR USER ERROR.</strong>
             </p>
           </section>
@@ -544,7 +631,7 @@ export default function Terms() {
           <section id="third-party-service-providers">
             <h2 className="text-2xl font-bold mb-4">Third-Party Service Providers</h2>
             <p className="text-muted-foreground">
-              We occasionally collaborate with third parties to provide you with more opportunities to use our services. Instances of these collaborations include partnerships with payment platforms, blockchain networks, KYC providers, bill payment aggregators, and financial institutions which help to power our services. Our partners reserve the right, in their sole discretion, to alter, amend, suspend, terminate, or change the terms and conditions of any program they provide, in whole or in part, at any time, with or without prior notice. You acknowledge and agree that as a result of such action by any partner, Money Moves shall have no obligation to you.
+              We occasionally collaborate with third parties to provide you with more opportunities to use our services. Instances of these collaborations include partnerships with payment platforms, blockchain networks, KYC providers, bill payment aggregators, card issuing partners, card networks, and financial institutions which help to power our services. Our partners reserve the right, in their sole discretion, to alter, amend, suspend, terminate, or change the terms and conditions of any program they provide, in whole or in part, at any time, with or without prior notice. You acknowledge and agree that as a result of such action by any partner, Money Moves shall have no obligation to you.
             </p>
           </section>
 
@@ -558,7 +645,10 @@ export default function Terms() {
               You may discontinue your use of the Service at any time. Since your wallet is self-custodial, you may export your keys before you go, and any keys you have exported continue to control your funds after account termination. Money Moves is in no way liable to you for the effects of any termination or cancellation on your use of the Service.
             </p>
             <p className="text-muted-foreground">
-              <strong className="text-foreground">Upon account termination, you retain full ownership and control of your wallet and all digital assets therein. Money Moves cannot and will not seize, freeze, or confiscate your funds at any time.</strong>
+              <strong className="text-foreground">Upon account termination, you retain full ownership and control of your wallet and all digital assets therein. Money Moves cannot and will not seize, freeze, or confiscate the funds in your wallet at any time.</strong>
+            </p>
+            <p className="text-muted-foreground mt-4">
+              Card Balances are not in your wallet. When your account is terminated your Cards are closed, and any available Card Balance, less fees and amounts owed, is made available for withdrawal to your wallet, unless we or our card issuing partner are required by law, a regulator, or the card network to hold it, or it is held under the USD Cards section.
             </p>
           </section>
 
@@ -740,7 +830,7 @@ export default function Terms() {
 
             <h3 className="text-lg font-semibold mt-6 mb-2">Survival</h3>
             <p className="text-muted-foreground mb-4">
-              All sections of these Terms which by their nature should survive the termination, expiration, or suspension of your Account or your use of the Services shall so survive, including without limitation: Self-Custodial Wallet &amp; Key Ownership; Prohibited Activities, AML &amp; Counter-Terrorism Financing; Transaction Monitoring &amp; Settlement Rights; No Refund &amp; No Recovery Policy; Indemnity; Disclaimers; Limitation of Liability; Dispute Resolution; Class Action Waiver; Governing Law; and this Survival clause.
+              All sections of these Terms which by their nature should survive the termination, expiration, or suspension of your Account or your use of the Services shall so survive, including without limitation: Self-Custodial Wallet &amp; Key Ownership; Prohibited Activities, AML &amp; Counter-Terrorism Financing; Transaction Monitoring &amp; Settlement Rights; USD Cards (as to fees, amounts owed, disputes, and liability); No Refund &amp; No Recovery Policy; Indemnity; Disclaimers; Limitation of Liability; Dispute Resolution; Class Action Waiver; Governing Law; and this Survival clause.
             </p>
 
             <h3 className="text-lg font-semibold mt-6 mb-2">Notices</h3>
