@@ -22,6 +22,9 @@ import { validate } from "../middleware/validate";
 import { walletUpgraded, UPGRADE_FIRST } from "../lib/upgraded";
 import * as nuvion from "../lib/nuvion";
 import { syncTopups, creditCentsFor } from "../lib/card-topups";
+import { cardSettings, limitsFor } from "../lib/card-settings";
+import { chargeCardFee, refundCardFee } from "../lib/card-fees";
+import { randomUUID } from "crypto";
 
 const router = Router();
 
@@ -43,6 +46,9 @@ function sendError(res: Response, err: any, fallback: string) {
 /** Why this person can't use cards yet, or null when they can. */
 async function blocker(userId: string): Promise<{ code: string; error: string } | null> {
   if (!nuvion.cardsConfigured()) return { code: "SOON", error: SOON };
+  if ((await cardSettings()).paused) return { code: "PAUSED", error: "Cards are paused for a moment. Your balance is safe, so try again soon." };
+  const acct = await prisma.cardAccount.findUnique({ where: { userId }, select: { blockedAt: true } });
+  if (acct?.blockedAt) return { code: "BLOCKED", error: "Cards aren't available on your account. Contact support." };
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { kycStatus: true, firstName: true, lastName: true, walletType: true, phone: true },
@@ -100,6 +106,7 @@ router.get("/", requireAuth, requireActiveSession, async (req: Request, res: Res
     await syncTopups(userId).catch((err) => console.warn(`[CARDS] sync on open failed: ${err?.message}`));
 
     const account = await prisma.cardAccount.findUnique({ where: { userId } });
+    const limits = await limitsFor(userId);
     const [cards, topups, balanceCents, feeCents] = await Promise.all([
       prisma.card.findMany({ where: { userId, deletedAt: null }, orderBy: { createdAt: "desc" } }),
       prisma.cardTopup.findMany({ where: { userId }, orderBy: { createdAt: "desc" }, take: 10 }),
@@ -111,9 +118,13 @@ router.get("/", requireAuth, requireActiveSession, async (req: Request, res: Res
       enabled: true,
       blocked: block,
       balance: balanceCents === null ? null : balanceCents / 100,
-      cardFee: feeCents === null ? null : feeCents / 100,
-      minTopup: env.CARD_MIN_TOPUP,
-      topupFeeBps: env.CARD_TOPUP_FEE_BPS,
+      // Theirs and ours together: what a new card costs the person.
+      cardFee: feeCents === null ? (account ? null : limits.cardFee) : feeCents / 100 + limits.cardFee,
+      minTopup: limits.minTopup,
+      maxTopup: limits.maxTopup,
+      dailyTopup: limits.dailyTopup,
+      maxCards: limits.maxCards,
+      topupFeeBps: limits.topupFeeBps,
       cards: cards.map((c) => ({
         id: c.id,
         kind: c.kind === "DISPOSABLE" ? "one-time" : "everyday",
@@ -152,8 +163,29 @@ router.post("/topup", requireAuth, requireActiveSession, validate(topupSchema), 
       return;
     }
     const { amount, asset } = req.body as z.infer<typeof topupSchema>;
-    if (amount < env.CARD_MIN_TOPUP) {
-      res.status(400).json({ error: `The smallest top up is $${env.CARD_MIN_TOPUP}.` });
+    const limits = await limitsFor(userId);
+    if (amount < limits.minTopup) {
+      res.status(400).json({ error: `The smallest top up is $${limits.minTopup}.` });
+      return;
+    }
+    if (amount > limits.maxTopup) {
+      res.status(400).json({ error: `The most you can top up at once is $${limits.maxTopup.toLocaleString("en-US")}.` });
+      return;
+    }
+    // Everything opened in the last 24 hours that hasn't failed counts.
+    const day = await prisma.cardTopup.aggregate({
+      where: { userId, status: { not: "FAILED" }, createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } },
+      _sum: { amount: true },
+    });
+    const used = Number(day._sum.amount ?? 0);
+    if (used + amount > limits.dailyTopup) {
+      const left = Math.max(0, limits.dailyTopup - used);
+      res.status(400).json({
+        error:
+          left > 0
+            ? `You can top up $${left.toFixed(2)} more today.`
+            : `You've reached today's top up limit of $${limits.dailyTopup.toLocaleString("en-US")}.`,
+      });
       return;
     }
     await ensureAccount(userId);
@@ -162,7 +194,7 @@ router.post("/topup", requireAuth, requireActiveSession, validate(topupSchema), 
       chain: "SOL",
       asset,
       amount,
-      credit: creditCentsFor(amount) / 100,
+      credit: creditCentsFor(amount, limits.topupFeeBps) / 100,
     });
   } catch (err) {
     sendError(res, err, "Couldn't start the top up");
@@ -198,9 +230,10 @@ router.post("/", requireAuth, requireActiveSession, validate(createSchema), asyn
       return;
     }
     const { kind, name } = req.body as z.infer<typeof createSchema>;
+    const limits = await limitsFor(userId);
     const live = await prisma.card.count({ where: { userId, deletedAt: null, status: { in: ["active", "blocked"] } } });
-    if (live >= 5) {
-      res.status(400).json({ error: "You can hold up to 5 cards. Delete one to add another." });
+    if (live >= limits.maxCards) {
+      res.status(400).json({ error: `You can hold up to ${limits.maxCards} card${limits.maxCards === 1 ? "" : "s"}. Delete one to add another.` });
       return;
     }
 
@@ -209,11 +242,13 @@ router.post("/", requireAuth, requireActiveSession, validate(createSchema), asyn
       res.status(402).json({ error: "Top up your card balance to cover the card fee first.", code: "FEE_REQUIRED" });
       return;
     }
-    // Nuvion takes the fee from the account; check it first so the person hears why.
-    const [fee, balance] = await Promise.all([
+    // Nuvion takes its fee from the account and we take ours; check both first so the person hears why.
+    const ourFee = Math.round(limits.cardFee * 100);
+    const [issuerFee, balance] = await Promise.all([
       nuvion.cardCreationFeeCents(account.nuvionAccountId),
       nuvion.accountAvailableCents(account.nuvionAccountId),
     ]);
+    const fee = issuerFee + ourFee;
     if (balance < fee) {
       res.status(402).json({
         error: `Top up at least $${((fee - balance) / 100).toFixed(2)} to cover the card fee first.`,
@@ -227,18 +262,31 @@ router.post("/", requireAuth, requireActiveSession, validate(createSchema), asyn
       where: { id: userId },
       select: { firstName: true, lastName: true, email: true, phone: true },
     });
+    // Our fee first; given back if the card then doesn't appear.
+    const feeRef = randomUUID();
+    let feeTransferId: string | null = null;
+    if (ourFee > 0) feeTransferId = await chargeCardFee(account.nuvionAccountId, ourFee, feeRef);
     // Create is not idempotent at Nuvion: one attempt per tap, never retried here.
-    const made = await nuvion.createCard({
-      kind: kind === "one-time" ? "disposable" : "virtual",
-      accountId: account.nuvionAccountId,
-      name,
-      holder: {
-        first_name: user.firstName!,
-        last_name: user.lastName!,
-        email: user.email,
-        phone_number: e164(user.phone)!,
-      },
-    });
+    const made = await nuvion
+      .createCard({
+        kind: kind === "one-time" ? "disposable" : "virtual",
+        accountId: account.nuvionAccountId,
+        name,
+        holder: {
+          first_name: user.firstName!,
+          last_name: user.lastName!,
+          email: user.email,
+          phone_number: e164(user.phone)!,
+        },
+      })
+      .catch(async (err) => {
+        if (feeTransferId) {
+          await refundCardFee(account.paymentDetailId, ourFee, feeRef).catch((e) =>
+            console.error(`[CARDS] card fee ${feeRef} for ${userId} not returned after a failed create: ${e?.message}`),
+          );
+        }
+        throw err;
+      });
     let last4: string | null = null;
     try {
       last4 = (await nuvion.cardDetails(made.id)).number.slice(-4);
@@ -253,6 +301,8 @@ router.post("/", requireAuth, requireActiveSession, validate(createSchema), asyn
         name,
         last4,
         status: made.status || "active",
+        feeCents: ourFee,
+        feeTransferId,
       },
     });
     console.log(`[CARDS] ${userId} got a ${kind} card ${card.id}`);
@@ -300,6 +350,11 @@ for (const action of ["freeze", "unfreeze"] as const) {
       }
       if (card.status === "deactivated") {
         res.status(400).json({ error: "This one-time card has been used and is closed." });
+        return;
+      }
+      // Frozen by us from the console: only the console unfreezes it.
+      if (action === "unfreeze" && card.adminAction === "frozen") {
+        res.status(403).json({ error: "We've paused this card. Contact support to turn it back on." });
         return;
       }
       if (action === "freeze") await nuvion.freezeCard(card.nuvionCardId);

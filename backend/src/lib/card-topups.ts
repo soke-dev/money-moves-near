@@ -23,6 +23,7 @@ import { getSolanaConnection } from "./gas-sponsor";
 import { walletUpgraded } from "./upgraded";
 import { sendNotification } from "./push";
 import * as nuvion from "./nuvion";
+import { cardSettings } from "./card-settings";
 
 const MINTS: Record<string, string> = {
   USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -32,9 +33,9 @@ const MINTS: Record<string, string> = {
 /** A send we can't read on chain after this long is failed and handled by hand. */
 const GIVE_UP_MS = 2 * 60 * 60 * 1000;
 
-export function creditCentsFor(amount: number): number {
+export function creditCentsFor(amount: number, feeBps: number): number {
   const cents = Math.floor(amount * 100 + 1e-6);
-  return Math.floor((cents * (10_000 - env.CARD_TOPUP_FEE_BPS)) / 10_000);
+  return Math.floor((cents * (10_000 - feeBps)) / 10_000);
 }
 
 /**
@@ -98,6 +99,8 @@ async function claimNewSends(userId: string): Promise<void> {
     select: { transactionId: true },
   });
   const taken = new Set(claimed.map((c) => c.transactionId));
+  // The fee in force when the send is first seen is the one it pays.
+  const { topupFeeBps } = await cardSettings();
   for (const s of sends) {
     if (taken.has(s.id)) continue;
     const amount = Number(s.amount);
@@ -108,7 +111,7 @@ async function claimNewSends(userId: string): Promise<void> {
           transactionId: s.id,
           asset: s.asset,
           amount,
-          creditCents: creditCentsFor(amount),
+          creditCents: creditCentsFor(amount, topupFeeBps),
         },
       })
       .catch(() => undefined); // claimed by a sync running alongside
@@ -148,6 +151,8 @@ async function settle(topupId: string): Promise<void> {
     if (!(await walletUpgraded(t.userId))) return void (await wait("wallet not upgraded"));
     const account = await prisma.cardAccount.findUnique({ where: { userId: t.userId } });
     if (!account) return void (await wait("no card account yet"));
+    // Blocked from the console: the send is real, so it waits for a person rather than failing.
+    if (account.blockedAt) return void (await wait("person blocked from cards"));
 
     const tx = await prisma.transaction.findUnique({ where: { id: t.transactionId } });
     const meta = (tx?.metadata || {}) as any;

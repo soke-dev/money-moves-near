@@ -1041,6 +1041,11 @@ model CardAccount {
   nuvionBan       String   @map("nuvion_ban")
   /// The book-transfer destination our float pays top ups into.
   paymentDetailId String   @map("payment_detail_id")
+  /// The console's own limits for this person: { maxTopup, dailyTopup, maxCards }.
+  limits          Json?
+  /// Set from the console: no new cards or top ups while set.
+  blockedAt       DateTime? @map("blocked_at")
+  blockedBy       String?   @map("blocked_by")
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("card_accounts")
@@ -1061,6 +1066,11 @@ model Card {
   last4        String?
   /// active, blocked (frozen), deactivated (a used one-time card), fraud.
   status       String    @default("active")
+  /// Our own fee for this card, in cents, and the transfer that took it.
+  feeCents     Int       @default(0) @map("fee_cents")
+  feeTransferId String?  @map("fee_transfer_id")
+  /// Who froze or deleted it from the console, when it was the console.
+  adminAction  String?   @map("admin_action")
   deletedAt    DateTime? @map("deleted_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 

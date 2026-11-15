@@ -41,6 +41,8 @@ export default function CardTopupScreen() {
   const [min, setMin] = useState(5);
   const [feeBps, setFeeBps] = useState(0);
   const [cardBalance, setCardBalance] = useState<number | null>(null);
+  /** The card fee, when they have no card yet: the first top up has to cover it. */
+  const [firstFee, setFirstFee] = useState(0);
 
   useEffect(() => {
     getCards()
@@ -48,6 +50,7 @@ export default function CardTopupScreen() {
         if (d.minTopup) setMin(d.minTopup);
         setFeeBps(d.topupFeeBps || 0);
         setCardBalance(d.balance ?? null);
+        if (!(d.cards || []).length && d.cardFee) setFirstFee(d.cardFee);
       })
       .catch(() => {});
   }, []);
@@ -201,6 +204,11 @@ export default function CardTopupScreen() {
             <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Lands on your card</Text>
             <Text style={[s.lineValue, { color: LIME }]}>${credit.toFixed(2)}</Text>
           </View>
+          {firstFee > 0 && (
+            <Text style={[s.lineLabel, { color: colors.mutedForeground, marginTop: 2 }]}>
+              Your card costs ${firstFee.toFixed(2)}, taken from this balance when you make it. Not refundable.
+            </Text>
+          )}
         </View>
 
         <View style={{ flex: 1 }} />

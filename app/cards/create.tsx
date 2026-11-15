@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   View, Text, StyleSheet, Pressable, Platform, TextInput, ActivityIndicator,
   KeyboardAvoidingView, ScrollView, useWindowDimensions,
@@ -10,7 +10,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { CardFace } from "@/components/CardFace";
-import { createCard, type CardKind } from "@/services/cards";
+import { createCard, getCards, type CardKind } from "@/services/cards";
 
 const LIME = "#81FB02";
 
@@ -35,6 +35,13 @@ export default function CreateCardScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [needsTopup, setNeedsTopup] = useState(false);
+  const [fee, setFee] = useState<number | null>(null);
+
+  useEffect(() => {
+    getCards()
+      .then((d) => setFee(d.cardFee ?? null))
+      .catch(() => {});
+  }, []);
 
   const holder = `${user?.firstName || ""} ${user?.lastName || ""}`.trim().toUpperCase();
 
@@ -135,7 +142,9 @@ export default function CreateCardScreen() {
             </Press>
           )}
           <Text style={[s.small, { color: colors.mutedForeground }]}>
-            The card fee comes out of your card balance. USD only, valid for 2 years.
+            {fee != null && fee > 0
+              ? `A $${fee.toFixed(2)} card fee comes out of your card balance. It isn't refundable.`
+              : "USD card, valid for 2 years."}
           </Text>
         </View>
       </View>

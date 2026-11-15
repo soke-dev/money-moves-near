@@ -124,9 +124,11 @@ export async function bookTransfer(args: {
   cents: number;
   reference: string;
   narration: string;
+  /** The account paying. Our float unless said otherwise. */
+  fromAccountId?: string;
 }): Promise<NuvionTransfer> {
   return call<NuvionTransfer>("POST", "/transfers", {
-    account_id: env.NUVION_FLOAT_ACCOUNT_ID,
+    account_id: args.fromAccountId || env.NUVION_FLOAT_ACCOUNT_ID,
     counterparty_id: env.NUVION_COUNTERPARTY_ID,
     payment_detail_id: args.paymentDetailId,
     amount: args.cents,
@@ -142,10 +144,10 @@ export async function getTransfer(id: string): Promise<NuvionTransfer> {
 }
 
 /** The transfer already made under a reference, if any. A repeat reference returns 409 without it. */
-export async function findTransferByReference(reference: string): Promise<NuvionTransfer | null> {
+export async function findTransferByReference(reference: string, accountId?: string): Promise<NuvionTransfer | null> {
   const data = await call<any>(
     "GET",
-    `/transfers?account_id=${env.NUVION_FLOAT_ACCOUNT_ID}&unique_reference=${encodeURIComponent(reference)}&limit=5`,
+    `/transfers?account_id=${accountId || env.NUVION_FLOAT_ACCOUNT_ID}&unique_reference=${encodeURIComponent(reference)}&limit=5`,
   );
   const list: any[] = Array.isArray(data) ? data : data?.data || data?.transfers || [];
   return list.find((t) => t.unique_reference === reference) || null;

@@ -49,6 +49,7 @@ import ocrRoutes from "./routes/ocr";
 import intentsRoutes from "./routes/intents";
 import statusRoutes from "./routes/status";
 import cardRoutes from "./routes/cards";
+import adminCardRoutes from "./routes/admin-cards";
 import { syncAllTopups } from "./lib/card-topups";
 import { appVersionGate } from "./middleware/app-version";
 import { startDepositWatcher } from "./lib/deposit-watcher";
@@ -313,6 +314,7 @@ app.use("/api/rates", ratesRoutes);
 app.use("/api/kyc", kycRoutes);
 // The page a manual identity check is taken on; the link's code is its only key.
 app.use("/api/identity-handoff", identityHandoffRoutes);
+app.use("/api/admin/cards", adminCardRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/funding", fundingRoutes);
 app.use("/api/routed-deposits", routedDepositRoutes);

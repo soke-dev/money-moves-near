@@ -263,7 +263,7 @@ export default function CardsScreen() {
               <View style={s.feeRow}>
                 <Ionicons name="lock-closed-outline" size={13} color={colors.mutedForeground} />
                 <Text style={[s.feeText, { color: colors.mutedForeground }]}>
-                  {data?.cardFee != null ? `Card fee ${money(data.cardFee)}` : "A small one-off card fee"} · Verified accounts only
+                  {data?.cardFee ? `Card fee ${money(data.cardFee)}, not refundable` : "Verified accounts only"}
                 </Text>
               </View>
             </>

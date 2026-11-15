@@ -15,9 +15,10 @@ import QRCode from 'qrcode'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   LayoutDashboard, ArrowLeftRight, BadgeCheck, Banknote, Users, MessageSquare,
-  Megaphone, PiggyBank, ToggleLeft, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins, ScanFace,
+  Megaphone, PiggyBank, ToggleLeft, Gift, Radar as RadarIcon, ArrowLeft, ChevronRight, Coins, ScanFace, CreditCard,
 } from 'lucide-react'
 import { PersonalCrypto } from './PersonalCrypto'
+import { CardsAdmin } from './Cards'
 import { SwapSettings } from './SwapSettings'
 import { LimitsSettings } from './LimitsSettings'
 import { IdentitySettings } from './IdentitySettings'
@@ -77,6 +78,7 @@ const SECTIONS = [
   { id: 'identity', label: 'ID checks', Icon: ScanFace },
   { id: 'deposits', label: 'Deposits', Icon: Banknote },
   { id: 'crypto', label: 'Crypto', Icon: Coins },
+  { id: 'cards', label: 'Cards', Icon: CreditCard },
   { id: 'users', label: 'People', Icon: Users },
   { id: 'support', label: 'Support', Icon: MessageSquare },
   { id: 'broadcast', label: 'Broadcast', Icon: Megaphone },
@@ -449,6 +451,7 @@ export default function Dashboard() {
             {section === 'identity' && <IdentityChecks key={nonce} side="app" />}
             {section === 'deposits' && <Deposits key={nonce} />}
             {section === 'crypto' && <PersonalCrypto key={nonce} />}
+            {section === 'cards' && <CardsAdmin key={nonce} />}
             {section === 'users' && <People key={nonce} initial={filter} />}
             {section === 'support' && <Support key={nonce} initial={filter} />}
             {section === 'broadcast' && <BroadcastSection key={nonce} />}

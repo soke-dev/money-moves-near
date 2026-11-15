@@ -74,7 +74,7 @@ function generateCode(): string {
 }
 
 // ─── Admin auth middleware ────────────────────────────────────
-function requireAdmin(req: Request, res: Response, next: NextFunction) {
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
   const token = req.headers.authorization?.replace("Bearer ", "");
   if (!token) return res.status(401).json({ error: "No admin token provided" });
 
