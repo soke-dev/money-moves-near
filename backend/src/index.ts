@@ -48,6 +48,8 @@ import leaderboardRoutes from "./routes/leaderboard";
 import ocrRoutes from "./routes/ocr";
 import intentsRoutes from "./routes/intents";
 import statusRoutes from "./routes/status";
+import cardRoutes from "./routes/cards";
+import { syncAllTopups } from "./lib/card-topups";
 import { appVersionGate } from "./middleware/app-version";
 import { startDepositWatcher } from "./lib/deposit-watcher";
 
@@ -325,6 +327,7 @@ app.use("/api/business-links", businessLinksRoutes);
 app.use("/api/internal/business-payments", businessPaymentsInternal);
 app.use("/api/business-payments", businessPaymentsRoutes);
 app.use("/api/bills", billsRoutes);
+app.use("/api/cards", cardRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/ocr", ocrRoutes);
@@ -412,6 +415,10 @@ async function main() {
         refreshInFlightSwaps().catch(() => {});
       }, 60_000);
     }
+    // Card top ups: sends to the Nuvion deposit address, credited once read back off the chain.
+    setInterval(() => {
+      syncAllTopups().catch((err) => console.warn(`[CARD-TOPUP] sweep failed: ${err?.message}`));
+    }, 2 * 60_000);
     if (isAuroraConfigured()) {
       setInterval(() => {
         syncInFlightAuroraDeposits().catch(() => {});

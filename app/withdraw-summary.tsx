@@ -1,3 +1,4 @@
+import { syncCardTopups } from "@/services/cards";
 import React, { useState, useRef, useEffect } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, TextInput, Platform, Modal,
@@ -33,7 +34,9 @@ export default function WithdrawSummaryScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   const bottomPad = Platform.OS === "web" ? 34 : insets.bottom;
 
-  const params = useLocalSearchParams<{ token: string; label?: string; network: string; networkName: string; address: string; amount: string; memo?: string; payRequestId?: string; payee?: string; payRef?: string; direct?: string }>();
+  const params = useLocalSearchParams<{ token: string; label?: string; network: string; networkName: string; address: string; amount: string; memo?: string; payRequestId?: string; payee?: string; payRef?: string; direct?: string; cardTopup?: string }>();
+  // Topping up a USD card: the send goes to our card deposit address, then back to Cards.
+  const toCard = params.cardTopup === "1";
   // Paying a business's checkout: named by the business, and held by the server to what it asked for.
   const payRequestId = params.payRequestId || "";
   const payee = payRequestId ? params.payee || "the business" : "";
@@ -70,7 +73,7 @@ export default function WithdrawSummaryScreen() {
   const networkName = params.networkName || "";
   const wAddress = params.address || "";
   const wAmount = Number(params.amount);
-  const shortTo = payee || (wAddress.length > 18 ? `${wAddress.slice(0, 8)}…${wAddress.slice(-6)}` : wAddress);
+  const shortTo = payee || (toCard ? "your card" : null) || (wAddress.length > 18 ? `${wAddress.slice(0, 8)}…${wAddress.slice(-6)}` : wAddress);
   const usdValue = ((rates?.[wToken as keyof typeof rates] as any)?.usd || 0) * wAmount;
 
   const [loading, setLoading] = useState(false);
@@ -242,6 +245,8 @@ export default function WithdrawSummaryScreen() {
       });
 
       setTxId(transaction.id);
+      // The card is credited once the send is read back off the chain; ask now rather than wait for the sweep.
+      if (toCard) syncCardTopups().catch(() => {});
       setPaidTx((transaction as any)?.metadata?.txHash ?? (transaction as any)?.txHash ?? null);
       setProcessingStep(4);
 
@@ -396,7 +401,7 @@ export default function WithdrawSummaryScreen() {
       <View style={[ts.container, { backgroundColor: colors.background, paddingTop: topPad }]}>
         <View style={ts.header}>
           <View style={{ width: 24 }} />
-          <Text style={[ts.headerTitle, { color: colors.foreground }]}>{payee ? "Paid" : "Transfer sent"}</Text>
+          <Text style={[ts.headerTitle, { color: colors.foreground }]}>{payee ? "Paid" : toCard ? "Top up sent" : "Transfer sent"}</Text>
           <View style={{ width: 24 }} />
         </View>
 
@@ -438,10 +443,10 @@ export default function WithdrawSummaryScreen() {
         <View style={[ts.bottomBar, { paddingBottom: bottomPad + 8, backgroundColor: colors.background }]}>
           <TouchableOpacity
             style={[ts.primaryBtn, { backgroundColor: colors.primary }]}
-            onPress={() => router.replace("/(tabs)")}
+            onPress={() => router.replace(toCard ? ("/cards" as any) : "/(tabs)")}
             activeOpacity={0.85}
           >
-            <Text style={[ts.primaryBtnText, { color: colors.primaryForeground }]}>Done</Text>
+            <Text style={[ts.primaryBtnText, { color: colors.primaryForeground }]}>{toCard ? "Back to cards" : "Done"}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={ws.detailsLink}

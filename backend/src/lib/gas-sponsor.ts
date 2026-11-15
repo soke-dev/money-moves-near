@@ -223,7 +223,7 @@ export async function submitMovementWithdrawal(
 const SOL_USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
 const SOL_USDT_MINT = new PublicKey("Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB");
 
-function getSolanaConnection(fallback = false): Connection {
+export function getSolanaConnection(fallback = false): Connection {
   const url = fallback ? env.SOLANA_RPC_FALLBACK : env.SOLANA_RPC_URL;
   return new Connection(url, {
     commitment: "confirmed",

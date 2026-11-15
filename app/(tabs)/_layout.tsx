@@ -76,6 +76,7 @@ export default function TabLayout() {
       <Tabs.Screen name="account" options={{ title: "Account" }} />
       <Tabs.Screen name="index" options={{ title: "Home" }} />
       <Tabs.Screen name="finance" options={{ title: "Finance" }} />
+      <Tabs.Screen name="cards" options={{ title: "Cards" }} />
 
       {/* Off the bar, still routable. */}
       <Tabs.Screen name="rates" options={{ href: null }} />

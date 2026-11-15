@@ -466,6 +466,34 @@ const envSchema = z.object({
     .string()
     .default("false")
     .transform((s) => s.trim().toLowerCase() === "true"),
+
+  /**
+   * USD cards, issued through Nuvion.
+   *
+   * Every card account sits under our own Nuvion entity, one USD account per
+   * person. A top up is the person's own USDC sent on Solana to our Nuvion
+   * deposit address; once that send is read back off the chain, the same
+   * dollars move from our USD float account into theirs by book transfer.
+   *
+   * Off until CARDS_ENABLED is true and the key and ids below are set. The
+   * key decides the environment: production by default, NUVION_BASE_URL=https://api.nuvion.dev for a sandbox key.
+   */
+  CARDS_ENABLED: z
+    .string()
+    .default("false")
+    .transform((s) => s.trim().toLowerCase() === "true"),
+  NUVION_API_KEY: z.string().optional(),
+  NUVION_BASE_URL: z.string().url().default("https://api.nuvion.co"),
+  /** Our USD account that pays every top up. Its live balance is checked before each one. */
+  NUVION_FLOAT_ACCOUNT_ID: z.string().optional(),
+  /** Ourselves, as a counterparty: each person's card account is a payment detail under it. */
+  NUVION_COUNTERPARTY_ID: z.string().optional(),
+  /** The Solana wallet of our Nuvion USDC account. Top ups are sent here. */
+  NUVION_DEPOSIT_SOL: z.string().optional(),
+  /** Smallest top up, in dollars. */
+  CARD_MIN_TOPUP: z.coerce.number().positive().default(5),
+  /** Our cut of a top up, in basis points. 0 means a dollar in is a dollar on the card. */
+  CARD_TOPUP_FEE_BPS: z.coerce.number().int().min(0).max(1000).default(0),
 });
 
 function loadEnv() {

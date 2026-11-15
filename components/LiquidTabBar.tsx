@@ -70,6 +70,7 @@ const TABS: {
   { name: "account", on: "account-circle", off: "account-circle-outline" },
   { name: "index", on: "home", off: "home-outline", image: require("@/assets/images/home.png") },
   { name: "finance", on: "leaf", off: "leaf" },
+  { name: "cards", on: "credit-card", off: "credit-card-outline" },
 ];
 
 /**
@@ -89,7 +90,11 @@ const TABS: {
  * The bar lands at 308x66 holding a 94x58 bubble, which still fits a 320pt
  * screen.
  */
-const ITEM_W = 98;
+/**
+ * Four tabs since Cards joined: 4 x 82 + 8 = 336, which still fits a 360pt
+ * phone. At the old 98 the bar ran to 400 and off the edge.
+ */
+const ITEM_W = 82;
 const PAD = 4;
 /**
  * The same as PAD, so the bubble is inset equally on all four sides.

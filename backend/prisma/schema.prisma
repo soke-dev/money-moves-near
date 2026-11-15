@@ -1030,3 +1030,67 @@ enum VoucherClaimStatus {
   SENT
   FAILED
 }
+
+// ─── USD cards (Nuvion) ─────────────────────────────────────
+
+/// A person's USD account at Nuvion. Every card they hold spends from it.
+model CardAccount {
+  id              String   @id @default(cuid())
+  userId          String   @unique @map("user_id")
+  nuvionAccountId String   @unique @map("nuvion_account_id")
+  nuvionBan       String   @map("nuvion_ban")
+  /// The book-transfer destination our float pays top ups into.
+  paymentDetailId String   @map("payment_detail_id")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("card_accounts")
+}
+
+enum CardKind {
+  VIRTUAL
+  DISPOSABLE
+}
+
+/// A card. The number and CVV are never stored, only read from Nuvion when shown.
+model Card {
+  id           String    @id @default(cuid())
+  userId       String    @map("user_id")
+  nuvionCardId String    @unique @map("nuvion_card_id")
+  kind         CardKind
+  name         String
+  last4        String?
+  /// active, blocked (frozen), deactivated (a used one-time card), fraud.
+  status       String    @default("active")
+  deletedAt    DateTime? @map("deleted_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@map("cards")
+}
+
+enum CardTopupStatus {
+  PENDING
+  PROCESSING
+  CREDITED
+  FAILED
+}
+
+/// One on-chain send to our Nuvion deposit address, and the dollars it put on the card.
+model CardTopup {
+  id               String          @id @default(cuid())
+  userId           String          @map("user_id")
+  /// The send that paid for it. Unique, so one send credits once.
+  transactionId    String          @unique @map("transaction_id")
+  asset            String
+  amount           Decimal         @db.Decimal(20, 8)
+  creditCents      Int             @map("credit_cents")
+  status           CardTopupStatus @default(PENDING)
+  nuvionTransferId String?         @map("nuvion_transfer_id")
+  reason           String?
+  createdAt        DateTime        @default(now()) @map("created_at")
+  updatedAt        DateTime        @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("card_topups")
+}
