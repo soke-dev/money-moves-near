@@ -11,6 +11,7 @@ import {
   Image,
   Linking,
   Pressable,
+  ActivityIndicator,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -58,6 +59,8 @@ interface MenuItemProps {
   subtitle?: string;
   /** For a subtitle that is a status rather than a description. */
   subtitleColor?: string;
+  /** A small spinner before the subtitle, for something still in progress. */
+  subtitleBusy?: boolean;
   onPress: () => void;
   /** Hides the seam under the last row of a group. */
   last?: boolean;
@@ -67,7 +70,7 @@ interface MenuItemProps {
   value?: string;
 }
 
-function MenuItem({ img, icon, title, subtitle, subtitleColor, onPress, last, danger, value }: MenuItemProps) {
+function MenuItem({ img, icon, title, subtitle, subtitleColor, subtitleBusy, onPress, last, danger, value }: MenuItemProps) {
   const colors = useColors();
   const tint = danger ? colors.destructive : colors.foreground;
   return (
@@ -97,12 +100,17 @@ function MenuItem({ img, icon, title, subtitle, subtitleColor, onPress, last, da
       <View style={styles.menuText}>
         <Text style={[styles.menuTitle, { color: tint }]}>{title}</Text>
         {!!subtitle && (
-          <Text
-            style={[styles.menuSubtitle, { color: subtitleColor ?? colors.mutedForeground }]}
-            numberOfLines={1}
-          >
-            {subtitle}
-          </Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+            {subtitleBusy && (
+              <ActivityIndicator size="small" color={subtitleColor ?? colors.mutedForeground} style={{ transform: [{ scale: 0.7 }], marginLeft: -3, marginRight: -3 }} />
+            )}
+            <Text
+              style={[styles.menuSubtitle, { color: subtitleColor ?? colors.mutedForeground }]}
+              numberOfLines={1}
+            >
+              {subtitle}
+            </Text>
+          </View>
         )}
       </View>
       {!!value && (
@@ -395,10 +403,12 @@ export default function AccountScreen() {
           <MenuItem
             img={require("@/assets/images/id-card.png")}
             title="Identity verification"
-            subtitle={user?.verified ? "Verified" : "Not verified"}
+            subtitle={user?.verified ? "Verified" : user?.kycStatus === "PENDING" ? "Under review" : "Not verified"}
             // Amber, not the same grey as every other caption: this one is a
-            // thing to do rather than a fact about the account.
-            subtitleColor={user?.verified ? undefined : "#f59e0b"}
+            // thing to do rather than a fact about the account. Under review is
+            // neither: it's on its way, so it gets the brand colour and a spinner.
+            subtitleColor={user?.verified ? undefined : user?.kycStatus === "PENDING" ? colors.primary : "#f59e0b"}
+            subtitleBusy={!user?.verified && user?.kycStatus === "PENDING"}
             onPress={() => (user?.verified ? setShowKycModal(true) : router.push("/account/kyc"))}
           />
           {/* With the profile rather than under money: a referral code is part

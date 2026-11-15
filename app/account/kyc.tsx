@@ -145,7 +145,10 @@ export default function KYCScreen() {
   const seeded = (user?.kycStatus as "NONE" | "PENDING" | "VERIFIED" | "REJECTED") || null;
   const seededRef = useRef(!!seeded);
 
-  const [loading, setLoading] = useState(!seeded);
+  // Held until the first status read lands (unless already verified): the saved status
+  // can be a step behind, and a pending check taken on our own page only arrives with
+  // that read, so drawing early showed the steps and then swapped to the review.
+  const [loading, setLoading] = useState(seeded !== "VERIFIED");
   const [busy, setBusy] = useState(false);
   const [kycStatus, setKycStatus] = useState<"NONE" | "PENDING" | "VERIFIED" | "REJECTED">(
     seeded ?? "NONE"
@@ -255,7 +258,7 @@ export default function KYCScreen() {
     // Held until the sheet has landed: the request itself is cheap, but parsing
     // it and re-rendering on arrival is exactly the work that shows up as a
     // stutter mid-animation.
-    const task = InteractionManager.runAfterInteractions(() => refresh(!seededRef.current));
+    const task = InteractionManager.runAfterInteractions(() => refresh(true));
     return () => task.cancel();
   }, [refresh]);
 
@@ -380,21 +383,25 @@ export default function KYCScreen() {
   const idWords = orList((manual?.idTypes?.length ? manual.idTypes : ["nin", "passport"]).map((t) => ID_NAMES[t] ?? t));
   const idLine = idWords.charAt(0).toUpperCase() + idWords.slice(1);
 
-  const title = verified
+  const title = loading && !verified
+    ? "Identity verification"
+    : verified
     ? "You’re all set"
     : redo
     ? "One more try"
     : taking
     ? "Pick up where you left off"
     : inProgress
-    ? "We’re checking your details"
+    ? "Your ID is under review"
     : duplicate
     ? "This ID is already in use"
     : declined
     ? "That didn’t go through"
     : "Complete KYC";
 
-  const subtitle = verified
+  const subtitle = loading && !verified
+    ? "Getting your status."
+    : verified
     ? "Your identity is confirmed and your full limits are live."
     : redo
     ? mCheck?.note || "Something didn’t come out clearly. Take it again and everything else stays as it is."
@@ -528,7 +535,7 @@ export default function KYCScreen() {
                       <View style={[styles.divider, { backgroundColor: colors.border }]} />
                       <Stage colors={colors} title="Selfie and video received" body="Both are in." />
                       <View style={[styles.divider, { backgroundColor: colors.border }]} />
-                      <Stage colors={colors} running title="Being checked" body="Your ID against your selfie and video." />
+                      <Stage colors={colors} running title="Under review" body="Your ID against your selfie and video." />
                     </>
                   ) : (
                     <>
@@ -547,7 +554,7 @@ export default function KYCScreen() {
                       <Stage
                         colors={colors}
                         running
-                        title="Being checked"
+                        title="Under review"
                         body="With the partner who verifies IDs for us."
                       />
                     </>
