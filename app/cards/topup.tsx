@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Platform, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -10,7 +10,7 @@ import { Keypad } from "@/components/Keypad";
 import { TokenLogo } from "@/components/TokenLogo";
 import { CardIllo } from "@/components/CardIllos";
 import { solanaSendFee } from "@/services/status";
-import { getCards, startCardTopup } from "@/services/cards";
+import { getCards, startCardTopup, type CardKind } from "@/services/cards";
 
 const LIME = "#81FB02";
 type Coin = "USDC" | "USDT";
@@ -34,6 +34,12 @@ export default function CardTopupScreen() {
   const insets = useSafeAreaInsets();
   const { walletBalances } = useApp();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
+  // Funding a new card: the card is made by itself once this lands, fee taken out of it.
+  const params = useLocalSearchParams<{ kind?: string; name?: string }>();
+  const newCard =
+    params.name && (params.kind === "everyday" || params.kind === "one-time")
+      ? { kind: params.kind as CardKind, name: String(params.name) }
+      : null;
 
   const [coin, setCoin] = useState<Coin>("USDC");
   const [amount, setAmount] = useState("");
@@ -42,8 +48,7 @@ export default function CardTopupScreen() {
   const [min, setMin] = useState(5);
   const [feeBps, setFeeBps] = useState(0);
   const [cardBalance, setCardBalance] = useState<number | null>(null);
-  /** The card fee, when they have no card yet: the first top up has to cover it. */
-  const [firstFee, setFirstFee] = useState(0);
+  const [cardFee, setCardFee] = useState(0);
 
   useEffect(() => {
     getCards()
@@ -51,7 +56,7 @@ export default function CardTopupScreen() {
         if (d.minTopup) setMin(d.minTopup);
         setFeeBps(d.topupFeeBps || 0);
         setCardBalance(d.balance ?? null);
-        if (!(d.cards || []).length && d.cardFee) setFirstFee(d.cardFee);
+        setCardFee(d.cardFee || 0);
       })
       .catch(() => {});
   }, []);
@@ -62,7 +67,11 @@ export default function CardTopupScreen() {
   const value = Number(amount) || 0;
   const credit = Math.floor(value * 100 * (1 - feeBps / 10_000)) / 100;
   const tooMuch = value > spendable;
-  const tooLittle = value > 0 && value < min;
+  // A new card needs the fee covered, by what's already there plus this top up.
+  const short = newCard ? Math.max(0, Math.round((cardFee - (cardBalance ?? 0)) * 100) / 100) : 0;
+  const notEnoughForCard = !!newCard && value > 0 && credit < short;
+  const tooLittle = value > 0 && (value < min || notEnoughForCard);
+  const startsWith = Math.max(0, Math.round(((cardBalance ?? 0) + credit - cardFee) * 100) / 100);
   const ok = value > 0 && !tooMuch && !tooLittle && !loading;
 
   const onKey = (k: string) => {
@@ -82,7 +91,7 @@ export default function CardTopupScreen() {
     setLoading(true);
     setError("");
     try {
-      const t = await startCardTopup(value, coin);
+      const t = await startCardTopup(value, coin, newCard ?? undefined);
       router.push({
         pathname: "/withdraw-summary",
         params: {
@@ -110,7 +119,7 @@ export default function CardTopupScreen() {
         <Press onPress={() => router.back()} style={[s.round, { backgroundColor: colors.card }]} hitSlop={8}>
           <Ionicons name="chevron-back" size={20} color={colors.foreground} />
         </Press>
-        <Text style={[s.title, { color: colors.foreground }]}>Top up card</Text>
+        <Text style={[s.title, { color: colors.foreground }]}>{newCard ? "Fund your new card" : "Top up card"}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -142,17 +151,21 @@ export default function CardTopupScreen() {
             <Ionicons name="arrow-down" size={14} color={LIME} />
           </View>
           <View style={s.leg}>
-            <CardIllo name="everyday" size={38} />
+            <CardIllo name={newCard?.kind === "one-time" ? "oneTime" : "everyday"} size={38} />
             <View style={{ flex: 1 }}>
-              <Text style={[s.legLabel, { color: colors.mutedForeground }]}>TO</Text>
-              <Text style={[s.legTitle, { color: colors.foreground }]}>Your card balance</Text>
-            </View>
-            <View style={{ alignItems: "flex-end" }}>
-              <Text style={[s.legLabel, { color: colors.mutedForeground }]}>Balance</Text>
-              <Text style={[s.legValue, { color: colors.foreground }]}>
-                {cardBalance == null ? "…" : `$${cardBalance.toFixed(2)}`}
+              <Text style={[s.legLabel, { color: colors.mutedForeground }]}>{newCard ? "NEW CARD" : "TO"}</Text>
+              <Text style={[s.legTitle, { color: colors.foreground }]} numberOfLines={1}>
+                {newCard ? newCard.name : "Your card balance"}
               </Text>
             </View>
+            {!newCard || (cardBalance ?? 0) > 0 ? (
+              <View style={{ alignItems: "flex-end" }}>
+                <Text style={[s.legLabel, { color: colors.mutedForeground }]}>Balance</Text>
+                <Text style={[s.legValue, { color: colors.foreground }]}>
+                  {cardBalance == null ? "…" : `$${cardBalance.toFixed(2)}`}
+                </Text>
+              </View>
+            ) : null}
           </View>
         </View>
 
@@ -170,9 +183,11 @@ export default function CardTopupScreen() {
               ? error
               : tooMuch
                 ? `You have ${spendable.toFixed(2)} ${coin} on Solana`
-                : tooLittle
-                  ? `The smallest top up is $${min}`
-                  : `${spendable.toFixed(2)} ${coin} available`}
+                : notEnoughForCard
+                  ? `Add at least $${short.toFixed(2)} to cover the card creation fee`
+                  : tooLittle
+                    ? `The smallest top up is $${min}`
+                    : `${spendable.toFixed(2)} ${coin} available`}
           </Text>
         </View>
 
@@ -190,21 +205,40 @@ export default function CardTopupScreen() {
           </Press>
         </View>
 
-        <View style={s.lines}>
-          <View style={s.line}>
-            <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Rate</Text>
-            <Text style={[s.lineValue, { color: colors.foreground }]}>1 {coin} = $1.00</Text>
+        {newCard ? (
+          // Everything in one place: what goes in, what the card costs, what's left on it.
+          <View style={s.lines}>
+            <View style={s.line}>
+              <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>You send</Text>
+              <Text style={[s.lineValue, { color: colors.foreground }]}>{value.toFixed(2)} {coin}</Text>
+            </View>
+            {(cardBalance ?? 0) > 0 && (
+              <View style={s.line}>
+                <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Already on your card</Text>
+                <Text style={[s.lineValue, { color: colors.foreground }]}>${(cardBalance ?? 0).toFixed(2)}</Text>
+              </View>
+            )}
+            <View style={s.line}>
+              <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Card creation fee</Text>
+              <Text style={[s.lineValue, { color: colors.foreground }]}>−${cardFee.toFixed(2)}</Text>
+            </View>
+            <View style={[s.line, s.totalLine, { borderTopColor: colors.border }]}>
+              <Text style={[s.lineLabel, { color: colors.foreground, fontFamily: "Inter_600SemiBold" }]}>Your card starts with</Text>
+              <Text style={[s.lineValue, { color: LIME, fontFamily: "Inter_800ExtraBold" }]}>${startsWith.toFixed(2)}</Text>
+            </View>
           </View>
-          <View style={s.line}>
-            <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Lands on your card</Text>
-            <Text style={[s.lineValue, { color: LIME }]}>${credit.toFixed(2)}</Text>
+        ) : (
+          <View style={s.lines}>
+            <View style={s.line}>
+              <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Rate</Text>
+              <Text style={[s.lineValue, { color: colors.foreground }]}>1 {coin} = $1.00</Text>
+            </View>
+            <View style={s.line}>
+              <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Lands on your card</Text>
+              <Text style={[s.lineValue, { color: LIME }]}>${credit.toFixed(2)}</Text>
+            </View>
           </View>
-          {firstFee > 0 && (
-            <Text style={[s.lineLabel, { color: colors.mutedForeground, marginTop: 2 }]}>
-              Card creation fee ${firstFee.toFixed(2)}, taken from this balance when you make your card.
-            </Text>
-          )}
-        </View>
+        )}
 
         <View style={{ flex: 1 }} />
 
@@ -215,7 +249,15 @@ export default function CardTopupScreen() {
             <ActivityIndicator color="#0a0a0a" />
           ) : (
             <>
-              <Text style={s.ctaText}>{value > 0 ? `Top up $${value.toFixed(2)}` : "Top up"}</Text>
+              <Text style={s.ctaText}>
+                {newCard
+                  ? value > 0
+                    ? `Create card with $${value.toFixed(2)}`
+                    : "Create card"
+                  : value > 0
+                    ? `Top up $${value.toFixed(2)}`
+                    : "Top up"}
+              </Text>
               <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={18} color={LIME} /></View>
             </>
           )}
@@ -253,6 +295,7 @@ const s = StyleSheet.create({
   chipText: { fontSize: 13.5, fontFamily: "Inter_600SemiBold" },
   lines: { gap: 9, marginTop: 16, paddingHorizontal: 4 },
   line: { flexDirection: "row", justifyContent: "space-between" },
+  totalLine: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10, marginTop: 2 },
   lineLabel: { fontSize: 13.5, fontFamily: "Inter_400Regular" },
   lineValue: { fontSize: 13.5, fontFamily: "Inter_600SemiBold" },
   cta: { height: 58, borderRadius: 29, backgroundColor: LIME, alignItems: "center", justifyContent: "center", marginTop: 10 },

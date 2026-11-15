@@ -1046,6 +1046,11 @@ model CardAccount {
   /// Set from the console: no new cards or top ups while set.
   blockedAt       DateTime? @map("blocked_at")
   blockedBy       String?   @map("blocked_by")
+  /// A card asked for with a top up: { kind, name }. Made by itself once the money lands.
+  pendingCard      Json?     @map("pending_card")
+  /// When it was asked for. Cleared while it is being made, so only one caller makes it.
+  pendingCardAt    DateTime? @map("pending_card_at")
+  pendingCardError String?   @map("pending_card_error")
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("card_accounts")

@@ -24,6 +24,7 @@ import { walletUpgraded } from "./upgraded";
 import { sendNotification } from "./push";
 import * as nuvion from "./nuvion";
 import { cardSettings } from "./card-settings";
+import { fulfilPendingCard } from "./card-issue";
 
 const MINTS: Record<string, string> = {
   USDC: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -232,6 +233,8 @@ export async function syncTopups(userId: string): Promise<void> {
       await prisma.cardTopup.updateMany({ where: { id: t.id, status: "PROCESSING", nuvionTransferId: null }, data: { status: "PENDING" } });
     }
   }
+  // A card asked for with a top up is made as soon as the money is there.
+  await fulfilPendingCard(userId).catch((err) => console.warn(`[CARDS] pending card for ${userId}: ${err?.message}`));
 }
 
 /** Every person with a top up waiting, for the background sweep. */
@@ -257,7 +260,13 @@ export async function syncAllTopups(): Promise<void> {
     distinct: ["userId"],
     take: 200,
   });
-  const users = new Set([...recent, ...open].map((r) => r.userId));
+  // And anyone with a card asked for and not yet made.
+  const waitingCards = await prisma.cardAccount.findMany({
+    where: { pendingCardAt: { not: null } },
+    select: { userId: true },
+    take: 200,
+  });
+  const users = new Set([...recent, ...open, ...waitingCards].map((r) => r.userId));
   for (const u of users) {
     await syncTopups(u).catch((err) => console.warn(`[CARD-TOPUP] sync for ${u} failed: ${err?.message}`));
   }

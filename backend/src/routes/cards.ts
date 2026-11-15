@@ -23,14 +23,17 @@ import { walletUpgraded, UPGRADE_FIRST } from "../lib/upgraded";
 import * as nuvion from "../lib/nuvion";
 import { syncTopups, creditCentsFor } from "../lib/card-topups";
 import { cardSettings, limitsFor } from "../lib/card-settings";
-import { chargeCardFee, refundCardFee } from "../lib/card-fees";
-import { randomUUID } from "crypto";
+import { issueCard, IssueError, e164, cardCostCents, liveCardCount } from "../lib/card-issue";
 
 const router = Router();
 
 const SOON = "Cards are opening soon.";
 
 function sendError(res: Response, err: any, fallback: string) {
+  if (err instanceof IssueError) {
+    res.status(err.status).json({ error: err.message, code: err.code, ...err.extra });
+    return;
+  }
   if (err instanceof nuvion.NuvionError) {
     if (err.status === 400 && err.type === "error_card_creation_fee_required") {
       res.status(402).json({ error: "Top up your card balance to cover the card creation fee first.", code: "FEE_REQUIRED" });
@@ -58,15 +61,6 @@ async function blocker(userId: string): Promise<{ code: string; error: string } 
   if (user.walletType !== "EMBEDDED") return { code: "UPGRADE", error: UPGRADE_FIRST };
   if (!user.firstName || !user.lastName) return { code: "NAME", error: "Your name is missing from your account. Contact support." };
   if (!e164(user.phone)) return { code: "PHONE", error: "Add your phone number in Profile to get a card." };
-  return null;
-}
-
-/** A Nigerian number in international form, or null. The card issuer needs one for every holder. */
-function e164(phone: string | null | undefined): string | null {
-  const d = String(phone || "").replace(/[^\d+]/g, "");
-  if (/^\+\d{10,15}$/.test(d)) return d;
-  if (/^234\d{10}$/.test(d)) return `+${d}`;
-  if (/^0\d{10}$/.test(d)) return `+234${d.slice(1)}`;
   return null;
 }
 
@@ -125,6 +119,10 @@ router.get("/", requireAuth, requireActiveSession, async (req: Request, res: Res
       dailyTopup: limits.dailyTopup,
       maxCards: limits.maxCards,
       topupFeeBps: limits.topupFeeBps,
+      // A card asked for with a top up, made once the money lands.
+      pendingCard: account?.pendingCard
+        ? { ...(account.pendingCard as { kind: string; name: string }), stuck: !!account.pendingCardError && !account.pendingCardAt }
+        : null,
       cards: cards.map((c) => ({
         id: c.id,
         kind: c.kind === "DISPOSABLE" ? "one-time" : "everyday",
@@ -152,6 +150,13 @@ router.get("/", requireAuth, requireActiveSession, async (req: Request, res: Res
 const topupSchema = z.object({
   amount: z.number().positive().max(10_000),
   asset: z.enum(["USDC", "USDT"]).default("USDC"),
+  /** A new card, made by itself once this top up lands. The fee comes out of it. */
+  card: z
+    .object({
+      kind: z.enum(["everyday", "one-time"]),
+      name: z.string().trim().min(1).max(40),
+    })
+    .optional(),
 });
 
 router.post("/topup", requireAuth, requireActiveSession, validate(topupSchema), async (req: Request, res: Response) => {
@@ -162,7 +167,7 @@ router.post("/topup", requireAuth, requireActiveSession, validate(topupSchema), 
       res.status(403).json(block);
       return;
     }
-    const { amount, asset } = req.body as z.infer<typeof topupSchema>;
+    const { amount, asset, card } = req.body as z.infer<typeof topupSchema>;
     const limits = await limitsFor(userId);
     if (amount < limits.minTopup) {
       res.status(400).json({ error: `The smallest top up is $${limits.minTopup}.` });
@@ -188,13 +193,36 @@ router.post("/topup", requireAuth, requireActiveSession, validate(topupSchema), 
       });
       return;
     }
-    await ensureAccount(userId);
+    const account = await ensureAccount(userId);
+    const credit = creditCentsFor(amount, limits.topupFeeBps);
+    let cardFee = 0;
+    if (card) {
+      if ((await liveCardCount(userId)) >= limits.maxCards) {
+        res.status(400).json({ error: `You can hold up to ${limits.maxCards} card${limits.maxCards === 1 ? "" : "s"}. Delete one to add another.` });
+        return;
+      }
+      // The top up plus what's already there has to cover the card creation fee.
+      const [cost, balance] = await Promise.all([
+        cardCostCents(userId, account.nuvionAccountId),
+        nuvion.accountAvailableCents(account.nuvionAccountId),
+      ]);
+      cardFee = cost.total;
+      if (balance + credit < cost.total) {
+        res.status(400).json({ error: `Top up at least $${((cost.total - balance) / 100).toFixed(2)} to cover the card creation fee.` });
+        return;
+      }
+      await prisma.cardAccount.update({
+        where: { userId },
+        data: { pendingCard: card, pendingCardAt: new Date(), pendingCardError: null },
+      });
+    }
     res.json({
       address: env.NUVION_DEPOSIT_SOL,
       chain: "SOL",
       asset,
       amount,
-      credit: creditCentsFor(amount, limits.topupFeeBps) / 100,
+      credit: credit / 100,
+      cardFee: cardFee / 100,
     });
   } catch (err) {
     sendError(res, err, "Couldn't start the top up");
@@ -230,82 +258,7 @@ router.post("/", requireAuth, requireActiveSession, validate(createSchema), asyn
       return;
     }
     const { kind, name } = req.body as z.infer<typeof createSchema>;
-    const limits = await limitsFor(userId);
-    const live = await prisma.card.count({ where: { userId, deletedAt: null, status: { in: ["active", "blocked"] } } });
-    if (live >= limits.maxCards) {
-      res.status(400).json({ error: `You can hold up to ${limits.maxCards} card${limits.maxCards === 1 ? "" : "s"}. Delete one to add another.` });
-      return;
-    }
-
-    const account = await prisma.cardAccount.findUnique({ where: { userId } });
-    if (!account) {
-      res.status(402).json({ error: "Top up your card balance to cover the card creation fee first.", code: "FEE_REQUIRED" });
-      return;
-    }
-    // Nuvion takes its fee from the account and we take ours; check both first so the person hears why.
-    const ourFee = Math.round(limits.cardFee * 100);
-    const [issuerFee, balance] = await Promise.all([
-      nuvion.cardCreationFeeCents(account.nuvionAccountId),
-      nuvion.accountAvailableCents(account.nuvionAccountId),
-    ]);
-    const fee = issuerFee + ourFee;
-    if (balance < fee) {
-      res.status(402).json({
-        error: `Top up at least $${((fee - balance) / 100).toFixed(2)} to cover the card creation fee first.`,
-        code: "FEE_REQUIRED",
-        fee: fee / 100,
-      });
-      return;
-    }
-
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { firstName: true, lastName: true, email: true, phone: true },
-    });
-    // Our fee first; given back if the card then doesn't appear.
-    const feeRef = randomUUID();
-    let feeTransferId: string | null = null;
-    if (ourFee > 0) feeTransferId = await chargeCardFee(account.nuvionAccountId, ourFee, feeRef);
-    // Create is not idempotent at Nuvion: one attempt per tap, never retried here.
-    const made = await nuvion
-      .createCard({
-        kind: kind === "one-time" ? "disposable" : "virtual",
-        accountId: account.nuvionAccountId,
-        name,
-        holder: {
-          first_name: user.firstName!,
-          last_name: user.lastName!,
-          email: user.email,
-          phone_number: e164(user.phone)!,
-        },
-      })
-      .catch(async (err) => {
-        if (feeTransferId) {
-          await refundCardFee(account.paymentDetailId, ourFee, feeRef).catch((e) =>
-            console.error(`[CARDS] card fee ${feeRef} for ${userId} not returned after a failed create: ${e?.message}`),
-          );
-        }
-        throw err;
-      });
-    let last4: string | null = null;
-    try {
-      last4 = (await nuvion.cardDetails(made.id)).number.slice(-4);
-    } catch {
-      /* shown as •••• until the next read */
-    }
-    const card = await prisma.card.create({
-      data: {
-        userId,
-        nuvionCardId: made.id,
-        kind: kind === "one-time" ? "DISPOSABLE" : "VIRTUAL",
-        name,
-        last4,
-        status: made.status || "active",
-        feeCents: ourFee,
-        feeTransferId,
-      },
-    });
-    console.log(`[CARDS] ${userId} got a ${kind} card ${card.id}`);
+    const card = await issueCard(userId, kind, name);
     res.status(201).json({ id: card.id });
   } catch (err) {
     sendError(res, err, "Couldn't create the card");

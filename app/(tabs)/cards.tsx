@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator,
   RefreshControl, Alert, useWindowDimensions, NativeSyntheticEvent, NativeScrollEvent,
@@ -86,9 +86,18 @@ export default function CardsScreen() {
     }
   }, [index, loadActivity]);
 
+  // While a top up or a new card is on its way, look again every 15 seconds.
+  const waiting = !!data?.pendingCard || (data?.topups || []).some((t) => t.status === "pending");
+  const waitingRef = useRef(waiting);
+  waitingRef.current = waiting;
+
   useFocusEffect(
     useCallback(() => {
       load();
+      const every = setInterval(() => {
+        if (waitingRef.current) load();
+      }, 15_000);
+      return () => clearInterval(every);
     }, [load]),
   );
 
@@ -206,6 +215,37 @@ export default function CardsScreen() {
 
   const blocked = data?.blocked;
   const balance = data?.balance;
+  const pendingCard = data?.pendingCard;
+
+  /* ─── Asked for with a top up, not made yet ─── */
+  if (!cards.length && pendingCard) {
+    return (
+      <View style={[s.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
+        {header}
+        <ScrollView
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 110 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={LIME} />}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={{ alignItems: "center", marginTop: 18, opacity: 0.85 }}>
+            <CardFace width={cardWidth} name={pendingCard.name} last4={null} holder={holder} oneTime={pendingCard.kind === "one-time"} />
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 24 }}>
+            {!pendingCard.stuck && <ActivityIndicator color={LIME} />}
+            <Text style={[s.h1, { color: colors.foreground, fontSize: 24, lineHeight: 30, marginTop: 0, flex: 1 }]}>
+              {pendingCard.stuck ? "Your card needs a quick check" : "Your card is being made"}
+            </Text>
+          </View>
+          <Text style={[s.centerText, { color: colors.mutedForeground, textAlign: "left", marginTop: 8 }]}>
+            {pendingCard.stuck
+              ? "We're finishing it on our side and will let you know when it's ready."
+              : `${pendingCard.name} will be ready as soon as your top up lands, usually within a couple of minutes. We'll let you know.`}
+          </Text>
+          {pending.length > 0 && <PendingTopups rows={pending} colors={colors} />}
+        </ScrollView>
+      </View>
+    );
+  }
 
   /* ─── No card yet ─── */
   if (!cards.length) {

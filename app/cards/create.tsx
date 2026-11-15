@@ -38,17 +38,33 @@ export default function CreateCardScreen() {
   const [error, setError] = useState("");
   const [needsTopup, setNeedsTopup] = useState(false);
   const [fee, setFee] = useState<number | null>(null);
+  const [balance, setBalance] = useState<number | null>(null);
 
   useEffect(() => {
     getCards()
-      .then((d) => setFee(d.cardFee ?? null))
+      .then((d) => {
+        setFee(d.cardFee ?? null);
+        setBalance(d.balance ?? 0);
+      })
       .catch(() => {});
   }, []);
 
   const holder = `${user?.firstName || ""} ${user?.lastName || ""}`.trim().toUpperCase();
+  /**
+   * Enough already on the card balance for the fee: the card is made here and
+   * now. Otherwise the next step is funding it, and the card is made by itself
+   * once that money lands, with the fee taken out of it.
+   */
+  const covered = fee != null && balance != null && balance >= fee;
+
+  const goFund = () => {
+    if (!name.trim()) return;
+    router.push({ pathname: "/cards/topup", params: { kind, name: name.trim() } } as any);
+  };
 
   const submit = async () => {
     if (loading || !name.trim()) return;
+    if (!covered) return goFund();
     setLoading(true);
     setError("");
     setNeedsTopup(false);
@@ -137,25 +153,24 @@ export default function CreateCardScreen() {
         </ScrollView>
 
         <View style={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 14, gap: 10 }}>
-          {needsTopup ? (
-            <Press onPress={() => router.push("/cards/topup" as any)} style={s.cta}>
-              <Text style={s.ctaText}>Top up first</Text>
-              <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={18} color={LIME} /></View>
-            </Press>
+          {!name.trim() ? (
+            // Grey and saying what's missing, rather than a button that does nothing.
+            <View style={[s.cta, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}>
+              <Text style={[s.ctaText, { color: colors.mutedForeground }]}>Enter a card name</Text>
+            </View>
           ) : (
-            !name.trim() ? (
-              // Grey and saying what's missing, rather than a button that does nothing.
-              <View style={[s.cta, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}>
-                <Text style={[s.ctaText, { color: colors.mutedForeground }]}>Enter a card name</Text>
-              </View>
-            ) : (
-              <Press onPress={submit} disabled={loading} style={s.cta}>
-                {loading ? <ActivityIndicator color="#0a0a0a" /> : <Text style={s.ctaText}>Create card</Text>}
-                {!loading && <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={18} color={LIME} /></View>}
-              </Press>
-            )
+            <Press onPress={needsTopup || !covered ? goFund : submit} disabled={loading} style={s.cta}>
+              {loading ? (
+                <ActivityIndicator color="#0a0a0a" />
+              ) : (
+                <Text style={s.ctaText}>{needsTopup || !covered ? "Continue to fund card" : "Create card"}</Text>
+              )}
+              {!loading && <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={18} color={LIME} /></View>}
+            </Press>
           )}
-          <Text style={[s.small, { color: colors.mutedForeground }]}>USD card, valid for 2 years.</Text>
+          <Text style={[s.small, { color: colors.mutedForeground }]}>
+            {covered ? "Paid from your card balance. USD card, valid for 2 years." : "Next, add money to your card. The fee comes out of it."}
+          </Text>
         </View>
       </View>
     </KeyboardAvoidingView>

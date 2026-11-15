@@ -31,6 +31,8 @@ export interface CardsOverview {
   cardFee?: number | null;
   minTopup?: number;
   topupFeeBps?: number;
+  /** A card asked for with a top up, made once the money lands. */
+  pendingCard?: { kind: CardKind; name: string; stuck: boolean } | null;
   cards?: CardSummary[];
   topups?: CardTopupRow[];
 }
@@ -73,13 +75,15 @@ export async function getCards(): Promise<CardsOverview> {
   }
 }
 
-export async function startCardTopup(amount: number, asset: "USDC" | "USDT") {
-  return (await api.post("/cards/topup", { amount, asset })).data as {
+/** With `card`, the card is made by itself once this top up lands, and the fee comes out of it. */
+export async function startCardTopup(amount: number, asset: "USDC" | "USDT", card?: { kind: CardKind; name: string }) {
+  return (await api.post("/cards/topup", { amount, asset, ...(card ? { card } : {}) })).data as {
     address: string;
     chain: "SOL";
     asset: string;
     amount: number;
     credit: number;
+    cardFee: number;
   };
 }
 
