@@ -1300,3 +1300,239 @@ export async function sendLargeDepositAlert(
     await sendEmail({ to: address, subject: `${usd} deposit coming in for ${who}`, html });
   }
 }
+
+// ─── Cards ────────────────────────────────────────────────────
+// Ours, not the issuer's: the issuer only ever has our own address for a cardholder.
+
+const usdText = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const supportLine = `Something look wrong? Write to <a href="mailto:${SUPPORT}" style="color:${LINK};text-decoration:none;">${SUPPORT}</a>.`;
+
+/** Which card an email is about. */
+export interface CardRef {
+  name: string;
+  last4: string | null;
+  oneTime?: boolean;
+}
+
+const LOCKUP = "https://app.usemoneymoves.xyz/images/logo-lockup.png";
+const LOCKUP_DARK = "https://app.usemoneymoves.xyz/images/logo-lockup-dark.png";
+
+/** The Mastercard mark as two round spans: no SVG, which Gmail drops. */
+function mastercard(size: number, overlap: number): string {
+  const dot = (color: string, extra = "") =>
+    `<span style="display:inline-block;width:${size}px;height:${size}px;border-radius:${size / 2}px;background:${color};${extra}"></span>`;
+  return dot("#EB001B") + dot("#F79E1B", `margin-left:-${overlap}px;opacity:0.92;`);
+}
+
+/**
+ * The card itself, the way the app draws it: graphite for everyday, lime for
+ * one-time, slate when frozen. Tables and solid colours carry it; the
+ * gradients and rings only add to it where a client paints them, so Outlook
+ * still shows a plain dark card with the number on it.
+ */
+function cardFace(o: { card: CardRef; holder: string; frozen?: boolean }): string {
+  const look = o.frozen ? "frozen" : o.card.oneTime ? "lime" : "dark";
+  const bg = look === "lime" ? "#81FB02" : look === "frozen" ? "#1F2B36" : "#151515";
+  const paint =
+    look === "lime"
+      ? "background-image:radial-gradient(circle at 100% 0%,rgba(0,0,0,0) 0,rgba(0,0,0,0) 118px,rgba(0,0,0,0.10) 118px,rgba(0,0,0,0.10) 119px,rgba(0,0,0,0) 120px),linear-gradient(135deg,#a6ff3f 0%,#81FB02 50%,#5fc400 100%);"
+      : look === "frozen"
+        ? "background-image:linear-gradient(135deg,#34424f 0%,#1F2B36 55%,#141c24 100%);"
+        : "background-image:radial-gradient(circle at 100% 0%,rgba(129,251,2,0) 0,rgba(129,251,2,0) 118px,rgba(129,251,2,0.22) 118px,rgba(129,251,2,0.22) 119.5px,rgba(129,251,2,0) 120.5px,rgba(129,251,2,0) 150px,rgba(129,251,2,0.14) 150px,rgba(129,251,2,0.14) 151.5px,rgba(129,251,2,0) 152.5px),linear-gradient(135deg,#2b2b2b 0%,#151515 55%,#0b0b0b 100%);";
+  const ink = look === "lime" ? "#0a0a0a" : look === "frozen" ? "#cfe8ff" : "#ffffff";
+  const soft = look === "lime" ? "rgba(10,10,10,0.6)" : look === "frozen" ? "rgba(207,232,255,0.6)" : "rgba(255,255,255,0.58)";
+  const right =
+    look === "frozen"
+      ? `<span style="display:inline-block;padding:4px 9px;border-radius:20px;background:rgba(207,232,255,0.14);font-family:${MONO};font-size:10px;letter-spacing:1.6px;color:#cfe8ff;">FROZEN</span>`
+      : `<span style="font-family:${MONO};font-size:10.5px;letter-spacing:1.6px;color:${soft};">${esc(o.card.name.toUpperCase())}</span>`;
+  return `<tr><td style="padding:24px 28px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" bgcolor="${bg}" style="background-color:${bg};${paint}border-radius:16px;">
+      <tr><td style="padding:22px 22px 0;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td style="padding:0;"><img src="${look === "lime" ? LOCKUP_DARK : LOCKUP}" width="128" height="18" alt="money moves" style="display:block;width:128px;height:18px;border:0;color:${ink};font-size:14px;font-weight:600;"></td>
+          <td align="right" style="padding:0;">${right}</td>
+        </tr></table>
+      </td></tr>
+      <tr><td style="padding:24px 22px 0;">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td width="40" height="30" bgcolor="#D9B95F" style="width:40px;height:30px;background-color:#D9B95F;background-image:linear-gradient(135deg,#efd98f 0%,#c9a54b 55%,#e8cf7a 100%);border-radius:6px;font-size:0;line-height:0;">&nbsp;</td></tr></table>
+      </td></tr>
+      <tr><td style="padding:18px 22px 0;font-family:${MONO};font-size:19px;letter-spacing:2.5px;color:${ink};white-space:nowrap;">••••&nbsp; ••••&nbsp; ••••&nbsp; ${esc(o.card.last4 || "••••")}</td></tr>
+      <tr><td style="padding:24px 22px 20px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr>
+          <td valign="bottom" style="padding:0;">
+            <p style="margin:0;font-family:${MONO};font-size:9px;letter-spacing:1.4px;color:${soft};">CARD HOLDER</p>
+            <p style="margin:3px 0 0;font-size:13px;font-weight:700;letter-spacing:0.6px;color:${ink};">${esc(o.holder.toUpperCase())}</p>
+          </td>
+          <td align="right" valign="bottom" style="padding:0;white-space:nowrap;font-size:0;line-height:0;">${mastercard(28, 11)}</td>
+        </tr></table>
+      </td></tr>
+    </table>
+  </td></tr>`;
+}
+
+/** A small card, its name, last four and balance: which card a receipt is about. */
+function cardRow(card: CardRef, balance?: number | null): string {
+  const bg = card.oneTime ? "#81FB02" : "#151515";
+  const right =
+    balance == null
+      ? ""
+      : `<td align="right" style="padding:12px 14px 12px 0;">
+          <p style="margin:0;font-size:11px;color:${DIM};">Balance</p>
+          <p style="margin:2px 0 0;font-family:${MONO};font-size:13.5px;font-weight:600;color:${INK};">${esc(usdText(balance))}</p>
+        </td>`;
+  return `<tr><td style="padding:22px 28px 0;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F6F7F3;border-radius:10px;"><tr>
+      <td width="46" style="padding:12px 0 12px 14px;">
+        <table role="presentation" cellpadding="0" cellspacing="0"><tr><td width="40" height="26" align="right" valign="bottom" bgcolor="${bg}" style="width:40px;height:26px;background-color:${bg};border-radius:5px;padding:0 4px 4px 0;font-size:0;line-height:0;">${mastercard(9, 4)}</td></tr></table>
+      </td>
+      <td style="padding:12px;">
+        <p style="margin:0;font-size:13.5px;font-weight:600;color:${INK};">${esc(card.name)}</p>
+        <p style="margin:2px 0 0;font-family:${MONO};font-size:11.5px;letter-spacing:1px;color:${DIM};">${card.last4 ? `•••• ${esc(card.last4)}` : "New card"}</p>
+      </td>
+      ${right}
+    </tr></table>
+  </td></tr>`;
+}
+
+export async function sendCardCreatedEmail(
+  to: string,
+  p: { card: CardRef; holder: string; fee: number; balance?: number | null; date: string },
+): Promise<void> {
+  await sendTransactionalEmail({
+    to,
+    subject: `Your ${p.card.name} card is ready`,
+    html: shell({
+      label: "CARDS · NEW CARD",
+      preheader: "Your USD card is ready to use online.",
+      body: `
+        ${heading("Your card is ready", "A USD card you can use online wherever Mastercard is taken. Open Cards in the app to see the full number and CVV.")}
+        ${cardFace({ card: p.card, holder: p.holder })}
+        ${ledger([
+          { k: "Card creation fee", v: p.fee > 0 ? usdText(p.fee) : "None", mono: p.fee > 0 },
+          ...(p.balance != null ? [{ k: "Balance", v: usdText(p.balance), mono: true }] : []),
+          { k: "Card details", v: "In the app, under Cards" },
+        ])}
+        ${stub("CARD", p.date)}
+        ${fine(`Never share your card number or CVV with anyone, including us. ${supportLine}`)}
+      `,
+    }),
+  });
+}
+
+export async function sendCardTopupEmail(
+  to: string,
+  p: {
+    sent: number;
+    asset: string;
+    topupFee: number;
+    cardFee: number;
+    added: number;
+    card?: CardRef | null;
+    balance?: number | null;
+    reference: string;
+    date: string;
+  },
+): Promise<void> {
+  await sendTransactionalEmail({
+    to,
+    subject: `${usdText(p.added)} added to your card`,
+    html: shell({
+      label: "CARDS · TOP UP",
+      preheader: `${p.sent} ${p.asset} from your wallet is now on your card.`,
+      body: `
+        ${hero({ eyebrow: "Added to your card", figure: figure(usdText(p.added), "USD", true), sub: `From ${esc(String(p.sent))} ${esc(p.asset)} in your wallet` })}
+        ${p.card ? cardRow(p.card, p.balance) : ""}
+        ${ledger([
+          { k: "You sent", v: `${p.sent} ${p.asset}`, mono: true },
+          ...(p.topupFee > 0 ? [{ k: "Top up fee", v: usdText(p.topupFee), mono: true }] : []),
+          ...(p.cardFee > 0 ? [{ k: "Card creation fee", v: usdText(p.cardFee), mono: true }] : []),
+          { k: "Added to your card", v: usdText(p.added), mono: true, strong: true },
+        ])}
+        ${stub(p.reference, p.date)}
+        ${fine(supportLine)}
+      `,
+    }),
+  });
+}
+
+export async function sendCardPaymentEmail(
+  to: string,
+  p: { kind: "paid" | "declined" | "refund"; amount: number; merchant: string; card: CardRef; balance?: number | null; reason?: string | null; date: string },
+): Promise<void> {
+  const subject =
+    p.kind === "paid" ? `You paid ${usdText(p.amount)} at ${p.merchant}`
+    : p.kind === "declined" ? `Card payment declined at ${p.merchant}`
+    : `${usdText(p.amount)} refunded from ${p.merchant}`;
+  const top =
+    p.kind === "declined"
+      ? `${heading("Card payment declined", `${esc(usdText(p.amount))} at ${esc(p.merchant)} didn't go through. Nothing was taken from your card.`)}
+         ${cardRow(p.card, p.balance)}
+         ${p.reason ? caution(`Reason given: ${esc(p.reason)}`) : ""}`
+      : `${hero({
+          eyebrow: p.kind === "paid" ? "You paid" : "Refund on your card",
+          figure: figure(usdText(p.amount), "USD", p.kind === "refund"),
+          sub: `${p.kind === "paid" ? "At" : "From"} ${esc(p.merchant)}`,
+        })}
+         ${cardRow(p.card, p.balance)}`;
+  await sendTransactionalEmail({
+    to,
+    subject,
+    html: shell({
+      label: p.kind === "declined" ? "CARDS · DECLINED" : p.kind === "refund" ? "CARDS · REFUND" : "CARDS · PAYMENT",
+      preheader: subject,
+      body: `
+        ${top}
+        ${ledger([
+          { k: "Merchant", v: p.merchant },
+          { k: "Amount", v: usdText(p.amount), mono: true, strong: true },
+        ])}
+        ${stub("CARD", p.date)}
+        ${fine(p.kind === "paid" ? `Didn't make this payment? Freeze the card in the app straight away. ${supportLine}` : supportLine)}
+      `,
+    }),
+  });
+}
+
+/** Too many declines in a row: we froze the card, and say which payments did it. */
+export async function sendCardFrozenEmail(
+  to: string,
+  p: { card: CardRef; holder: string; hours: number; declines: { merchant: string; amount: number; at: string }[]; date: string },
+): Promise<void> {
+  const n = p.declines.length;
+  const rows = p.declines.map((d) => ({
+    k: `${esc(d.merchant)} <span style="color:${FAINT};">· ${esc(d.at)}</span>`,
+    v: usdText(d.amount),
+    mono: true,
+  }));
+  // The ledger escapes its keys; this one carries a time beside the merchant.
+  const list = rows
+    .map((r, i) => {
+      const edge = `border-top:1px solid ${RULE};${i === rows.length - 1 ? `border-bottom:1px solid ${RULE};` : ""}`;
+      return `<tr>
+        <td style="padding:11px 0;color:${BODY};${edge}">${r.k}</td>
+        <td align="right" style="padding:11px 0;color:${INK};font-family:${MONO};${edge}">${esc(r.v)}</td>
+      </tr>`;
+    })
+    .join("");
+  await sendTransactionalEmail({
+    to,
+    subject: `We froze your ${p.card.name} card`,
+    html: shell({
+      label: "CARDS · FROZEN",
+      preheader: `${n} payments were declined, so we froze the card to keep your money safe.`,
+      body: `
+        ${heading(
+          "We froze your card",
+          `${n} payments on this card were declined in the last ${p.hours === 24 ? "24 hours" : `${p.hours} hours`}, so we froze it to keep your money safe. If they were you, unfreeze it in the app under Cards.`,
+        )}
+        ${cardFace({ card: p.card, holder: p.holder, frozen: true })}
+        <tr><td style="padding:24px 28px 0;">
+          <p style="margin:0 0 4px;font-family:${MONO};font-size:10px;letter-spacing:1.6px;color:${FAINT};">DECLINED</p>
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:13px;">${list}</table>
+        </td></tr>
+        ${stub("CARD", p.date)}
+        ${fine(`Didn't try these payments? Leave the card frozen and write to us. ${supportLine}`)}
+      `,
+    }),
+  });
+}

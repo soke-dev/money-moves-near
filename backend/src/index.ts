@@ -50,7 +50,9 @@ import intentsRoutes from "./routes/intents";
 import statusRoutes from "./routes/status";
 import cardRoutes from "./routes/cards";
 import adminCardRoutes from "./routes/admin-cards";
+import nuvionWebhookRoutes from "./routes/nuvion-webhook";
 import { syncAllTopups } from "./lib/card-topups";
+import { chargeMonthlyFees } from "./lib/card-guard";
 import { appVersionGate } from "./middleware/app-version";
 import { startDepositWatcher } from "./lib/deposit-watcher";
 
@@ -330,6 +332,8 @@ app.use("/api/internal/business-payments", businessPaymentsInternal);
 app.use("/api/business-payments", businessPaymentsRoutes);
 app.use("/api/bills", billsRoutes);
 app.use("/api/cards", cardRoutes);
+// Nuvion card events: payments, declines, refunds, card status. Signed; see the route.
+app.use("/api/webhooks/nuvion", nuvionWebhookRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/ocr", ocrRoutes);
@@ -421,6 +425,10 @@ async function main() {
     setInterval(() => {
       syncAllTopups().catch((err) => console.warn(`[CARD-TOPUP] sweep failed: ${err?.message}`));
     }, 2 * 60_000);
+    // The monthly card fee, when the console sets one (it is $0, so off, until then).
+    setInterval(() => {
+      chargeMonthlyFees().catch((err) => console.warn(`[CARD-GUARD] monthly fees failed: ${err?.message}`));
+    }, 60 * 60_000);
     if (isAuroraConfigured()) {
       setInterval(() => {
         syncInFlightAuroraDeposits().catch(() => {});

@@ -67,7 +67,8 @@ export default function WithdrawSummaryScreen() {
    * below says Free exactly as it always did.
    */
   const sendFee =
-    wChain === "SOL" && (wToken === "USDC" || wToken === "USDT") ? solanaSendFee() : 0;
+    // Only a send out to a wallet: paying a checkout or funding a card is never charged.
+    wChain === "SOL" && (wToken === "USDC" || wToken === "USDT") && !payRequestId && !params.cardTopup ? solanaSendFee() : 0;
 
 
   const networkName = params.networkName || "";

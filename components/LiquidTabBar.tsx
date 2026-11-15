@@ -1,3 +1,4 @@
+import { useCardsVisible } from "@/services/cards";
 import React, { useEffect } from "react";
 import {
   View,
@@ -67,10 +68,11 @@ const TABS: {
   off: keyof typeof MaterialCommunityIcons.glyphMap;
   image?: ImageSourcePropType;
 }[] = [
-  { name: "account", on: "account-circle", off: "account-circle-outline" },
+  // Home first, Account last.
   { name: "index", on: "home", off: "home-outline", image: require("@/assets/images/home.png") },
   { name: "finance", on: "leaf", off: "leaf" },
   { name: "cards", on: "credit-card", off: "credit-card-outline" },
+  { name: "account", on: "account-circle", off: "account-circle-outline" },
 ];
 
 /**
@@ -342,12 +344,17 @@ export function LiquidTabBar({ state, descriptors, navigation }: BottomTabBarPro
 
   const isDark = theme === "dark";
 
+  // Cards shows only for accounts the server lets in while it is being tried out.
+  const cardsVisible = useCardsVisible();
+
   // Only the tabs named above, in that order - never whatever the navigator
   // happens to hold.
-  const tabs = TABS.map((t) => ({
-    ...t,
-    route: state.routes.find((r) => r.name === t.name),
-  })).filter((t) => t.route);
+  const tabs = TABS.filter((t) => t.name !== "cards" || cardsVisible)
+    .map((t) => ({
+      ...t,
+      route: state.routes.find((r) => r.name === t.name),
+    }))
+    .filter((t) => t.route);
 
   const activeName = state.routes[state.index]?.name;
   const activeIndex = Math.max(0, tabs.findIndex((t) => t.name === activeName));

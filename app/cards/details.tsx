@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { View, Text, StyleSheet, Pressable, Platform, ActivityIndicator, ScrollView } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -12,8 +12,6 @@ import { Keypad } from "@/components/Keypad";
 import { getCardDetails, type CardDetails } from "@/services/cards";
 
 const LIME = "#81FB02";
-/** How long the details stay up before they hide themselves. */
-const SHOW_FOR = 60;
 
 function Press({ style, children, ...rest }: React.ComponentProps<typeof Pressable> & { style?: any }) {
   return (
@@ -27,7 +25,7 @@ const grouped = (n: string) => n.replace(/(\d{4})(?=\d)/g, "$1 ");
 
 /**
  * Card number, CVV and expiry. Behind Face ID or the PIN every time, read
- * fresh from the issuer, never kept, and hidden again after a minute.
+ * fresh from the issuer and never kept. Stays up until they leave.
  */
 export default function CardDetailsScreen() {
   const colors = useColors();
@@ -42,9 +40,7 @@ export default function CardDetailsScreen() {
   const [pinError, setPinError] = useState(false);
   const [details, setDetails] = useState<CardDetails | null>(null);
   const [error, setError] = useState("");
-  const [left, setLeft] = useState(SHOW_FOR);
   const [copied, setCopied] = useState<string | null>(null);
-  const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Face ID first when it's on; the PIN pad is always there behind it.
   useEffect(() => {
@@ -57,23 +53,9 @@ export default function CardDetailsScreen() {
   useEffect(() => {
     if (!unlocked || !id) return;
     getCardDetails(String(id))
-      .then((d) => {
-        setDetails(d);
-        timer.current = setInterval(() => setLeft((n) => n - 1), 1000);
-      })
+      .then(setDetails)
       .catch((e) => setError(e?.response?.data?.error || "Couldn't show the card details."));
-    return () => {
-      if (timer.current) clearInterval(timer.current);
-    };
   }, [unlocked, id]);
-
-  useEffect(() => {
-    if (left <= 0) {
-      if (timer.current) clearInterval(timer.current);
-      setDetails(null);
-      router.back();
-    }
-  }, [left, router]);
 
   const onKey = async (k: string) => {
     if (k === ".") return;
@@ -117,15 +99,15 @@ export default function CardDetailsScreen() {
         {header}
         <View style={s.lockWrap}>
           <View style={s.lockIcon}>
-            <Ionicons name="lock-closed" size={24} color={LIME} />
+            <Ionicons name="lock-closed" size={24} color={colors.primary} />
           </View>
           <Text style={[s.lockTitle, { color: colors.foreground }]}>Enter your PIN</Text>
-          <Text style={[s.lockSub, { color: pinError ? "#ff9a9a" : colors.mutedForeground }]}>
+          <Text style={[s.lockSub, { color: pinError ? colors.destructive : colors.mutedForeground }]}>
             {pinError ? "That PIN isn't right" : "To show your card number and CVV"}
           </Text>
           <View style={s.dots}>
             {[0, 1, 2, 3].map((i) => (
-              <View key={i} style={[s.dot, { backgroundColor: i < pin.length ? (pinError ? "#ff8a8a" : LIME) : colors.border }]} />
+              <View key={i} style={[s.dot, { backgroundColor: i < pin.length ? (pinError ? colors.destructive : colors.primary) : colors.border }]} />
             ))}
           </View>
         </View>
@@ -142,7 +124,7 @@ export default function CardDetailsScreen() {
         <Text style={[s.rowLabel, { color: colors.mutedForeground }]}>{label}</Text>
         <Text style={[opts.mono ? s.rowMono : s.rowValue, { color: colors.foreground }]}>{value}</Text>
       </View>
-      <Press onPress={() => copy(label, opts.copyValue ?? value)} style={[s.copy, { backgroundColor: copied === label ? LIME : colors.secondary }]}>
+      <Press onPress={() => copy(label, opts.copyValue ?? value)} style={[s.copy, { backgroundColor: copied === label ? colors.primary : colors.secondary }]}>
         <Ionicons name={copied === label ? "checkmark" : "copy-outline"} size={16} color={copied === label ? "#0a0a0a" : colors.foreground} />
       </Press>
     </View>
@@ -158,13 +140,13 @@ export default function CardDetailsScreen() {
         error ? (
           <Text style={[s.err, { color: colors.mutedForeground }]}>{error}</Text>
         ) : (
-          <ActivityIndicator color={LIME} style={{ marginTop: 80 }} />
+          <ActivityIndicator color={colors.primary} style={{ marginTop: 80 }} />
         )
       ) : (
         <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 24 }}>
           <View style={[s.timer, { borderColor: "rgba(129,251,2,0.2)" }]}>
-            <Ionicons name="time-outline" size={17} color={LIME} />
-            <Text style={s.timerText}>Hidden again in 0:{String(Math.max(0, left)).padStart(2, "0")}. Never share these details.</Text>
+            <Ionicons name="shield-checkmark-outline" size={17} color={colors.primary} />
+            <Text style={[s.timerText, { color: colors.foreground }]}>Never share these details with anyone, including us.</Text>
           </View>
 
           <View style={[s.panel, { backgroundColor: colors.card }]}>
@@ -204,7 +186,7 @@ const s = StyleSheet.create({
   dot: { width: 14, height: 14, borderRadius: 7 },
   err: { textAlign: "center", marginTop: 80, paddingHorizontal: 40, fontFamily: "Inter_500Medium" },
   timer: { flexDirection: "row", alignItems: "center", gap: 10, padding: 12, borderRadius: 14, borderWidth: 1, backgroundColor: "rgba(129,251,2,0.07)", marginTop: 6 },
-  timerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium", color: "#d9f7b8" },
+  timerText: { flex: 1, fontSize: 13, fontFamily: "Inter_500Medium" },
   panel: { borderRadius: 20, paddingHorizontal: 16, marginTop: 16 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 13 },
   split: { flexDirection: "row", borderBottomWidth: StyleSheet.hairlineWidth },

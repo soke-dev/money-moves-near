@@ -5,10 +5,10 @@ import { useApp } from "@/context/AppContext";
 import { LiquidTabBar } from "@/components/LiquidTabBar";
 
 /**
- * Home sits in the middle, Account left, Finance right.
+ * Home first, then Finance and Cards, Account last.
  *
- * Declaration order is what the bar renders, so Home is no longer first - and
- * the first screen is otherwise the one the app opens on. initialRouteName
+ * The bar draws its own order (components/LiquidTabBar); declaration order here
+ * is kept the same so the two never disagree. initialRouteName
  * keeps Home as the landing tab regardless of where it sits in the row.
  */
 export const unstable_settings = {
@@ -73,10 +73,10 @@ export default function TabLayout() {
         sceneStyle: { backgroundColor: colors.background },
       }}
     >
-      <Tabs.Screen name="account" options={{ title: "Account" }} />
       <Tabs.Screen name="index" options={{ title: "Home" }} />
       <Tabs.Screen name="finance" options={{ title: "Finance" }} />
       <Tabs.Screen name="cards" options={{ title: "Cards" }} />
+      <Tabs.Screen name="account" options={{ title: "Account" }} />
 
       {/* Off the bar, still routable. */}
       <Tabs.Screen name="rates" options={{ href: null }} />

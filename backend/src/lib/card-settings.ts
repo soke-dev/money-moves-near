@@ -24,6 +24,16 @@ export interface CardSettings {
   topupFeeBps: number;
   /** Our fee for each new card, dollars, on top of the issuer's. */
   cardFee: number;
+  /** The most one card can hold, dollars. A top up that would take a card past it is refused. */
+  maxCardBalance: number;
+  /** Ours, per everyday card, every 30 days from the day it was made, dollars. 0 is off. */
+  monthlyFee: number;
+  /** Ours, per declined card payment, dollars. 0 is off. */
+  declineFee: number;
+  /** Declines on one card that freeze it. 0 is off. */
+  autoFreezeDeclines: number;
+  /** The window those declines are counted in, hours. */
+  autoFreezeHours: number;
 }
 
 export interface CardSettingsRow extends CardSettings {
@@ -40,6 +50,11 @@ export const RANGES: Record<keyof CardSettings, { min: number; max: number }> = 
   maxCards: { min: 1, max: 20 },
   topupFeeBps: { min: 0, max: 1_000 },
   cardFee: { min: 0, max: 50 },
+  maxCardBalance: { min: 1, max: 100_000 },
+  monthlyFee: { min: 0, max: 20 },
+  declineFee: { min: 0, max: 5 },
+  autoFreezeDeclines: { min: 0, max: 20 },
+  autoFreezeHours: { min: 1, max: 168 },
 };
 
 export function defaults(): CardSettings {
@@ -51,6 +66,12 @@ export function defaults(): CardSettings {
     topupFeeBps: env.CARD_TOPUP_FEE_BPS,
     // Ours, per new card, not refundable once the card is made. Raised from the console.
     cardFee: 2,
+    maxCardBalance: 500,
+    // Both free for now; the console turns them on.
+    monthlyFee: 0,
+    declineFee: 0,
+    autoFreezeDeclines: 3,
+    autoFreezeHours: 24,
   };
 }
 
@@ -83,7 +104,7 @@ export function validate(input: Partial<CardSettings>): string | null {
     if (typeof v !== "number" || !Number.isFinite(v) || v < range.min || v > range.max) {
       return `${k} must be from ${range.min} to ${range.max}.`;
     }
-    if ((k === "maxCards" || k === "topupFeeBps") && !Number.isInteger(v)) return `${k} must be a whole number.`;
+    if ((k === "maxCards" || k === "topupFeeBps" || k === "autoFreezeDeclines" || k === "autoFreezeHours") && !Number.isInteger(v)) return `${k} must be a whole number.`;
   }
   return null;
 }
@@ -98,6 +119,11 @@ export async function saveCardSettings(input: Partial<CardSettings> & { paused?:
     maxCards: numbers.maxCards ?? now.maxCards,
     topupFeeBps: numbers.topupFeeBps ?? now.topupFeeBps,
     cardFee: numbers.cardFee ?? now.cardFee,
+    maxCardBalance: numbers.maxCardBalance ?? now.maxCardBalance,
+    monthlyFee: numbers.monthlyFee ?? now.monthlyFee,
+    declineFee: numbers.declineFee ?? now.declineFee,
+    autoFreezeDeclines: numbers.autoFreezeDeclines ?? now.autoFreezeDeclines,
+    autoFreezeHours: numbers.autoFreezeHours ?? now.autoFreezeHours,
   };
   const value = JSON.stringify(next);
   await prisma.serviceStatus.upsert({

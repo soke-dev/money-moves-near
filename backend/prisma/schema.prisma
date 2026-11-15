@@ -328,6 +328,9 @@ enum TransactionType {
   /// One row per sweep, however many chains it touched - the legs live in
   /// metadata, because somebody who swept three balances did one thing.
   SWEEP
+  /// Something that happened on a USD card: made, paid, declined, refunded, moved to the wallet.
+  /// Amount in dollars; metadata.cardEvent says which. Never touches a wallet balance.
+  CARD
 }
 
 enum TransactionStatus {
@@ -1051,6 +1054,12 @@ model CardAccount {
   /// When it was asked for. Cleared while it is being made, so only one caller makes it.
   pendingCardAt    DateTime? @map("pending_card_at")
   pendingCardError String?   @map("pending_card_error")
+  /// The card the person is topping up right now, so the send that lands is credited to it.
+  topupTarget      String?   @map("topup_target")
+  topupTargetAt    DateTime? @map("topup_target_at")
+  /// Where "Move to wallet" sends: the person's Solana address, registered at Nuvion.
+  walletAddress   String?   @map("wallet_address")
+  walletDetailId  String?   @map("wallet_detail_id")
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("card_accounts")
@@ -1076,6 +1085,14 @@ model Card {
   feeTransferId String?  @map("fee_transfer_id")
   /// Who froze or deleted it from the console, when it was the console.
   adminAction  String?   @map("admin_action")
+  /// Its own USD account at Nuvion, so each card has its own balance. Null on a
+  /// card from before that: it spends from the person's first account (card_accounts).
+  nuvionAccountId String? @map("nuvion_account_id")
+  paymentDetailId String? @map("payment_detail_id")
+  /// When our monthly fee was last taken; null means never (counted from createdAt).
+  monthlyFeeAt DateTime? @map("monthly_fee_at")
+  /// When it was frozen for too many declines. Declines before this don't count again.
+  autoFrozenAt DateTime? @map("auto_frozen_at")
   deletedAt    DateTime? @map("deleted_at")
   createdAt    DateTime  @default(now()) @map("created_at")
 
@@ -1099,6 +1116,10 @@ model CardTopup {
   asset            String
   amount           Decimal         @db.Decimal(20, 8)
   creditCents      Int             @map("credit_cents")
+  /// A new card's creation fee kept back from this top up (it stays in the float).
+  cardFeeCents     Int             @default(0) @map("card_fee_cents")
+  /// Which card this top up is for: a card id, or "new" for the card being made. Null: the first account.
+  target           String?
   status           CardTopupStatus @default(PENDING)
   nuvionTransferId String?         @map("nuvion_transfer_id")
   reason           String?
@@ -1108,4 +1129,39 @@ model CardTopup {
   @@index([userId])
   @@index([status])
   @@map("card_topups")
+}
+
+/// Nuvion webhook events already handled, so a retry is acted on once.
+model NuvionEvent {
+  id        String   @id
+  event     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("nuvion_events")
+}
+
+enum CardWithdrawalStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+/// Card balance sent back to the person's own wallet as USDC on Solana, through Nuvion.
+model CardWithdrawal {
+  id               String               @id @default(cuid())
+  userId           String               @map("user_id")
+  cardId           String?              @map("card_id")
+  amountCents      Int                  @map("amount_cents")
+  /// Nuvion's own fee on the send, charged to the card account on top.
+  feeCents         Int                  @default(0) @map("fee_cents")
+  address          String
+  status           CardWithdrawalStatus @default(PENDING)
+  nuvionTransferId String?              @unique @map("nuvion_transfer_id")
+  reason           String?
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+
+  @@index([userId])
+  @@index([status])
+  @@map("card_withdrawals")
 }

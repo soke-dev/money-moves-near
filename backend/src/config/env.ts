@@ -316,6 +316,12 @@ const envSchema = z.object({
   VOUCHER_ESCROW_ADDRESS: z.string().default(""),
   EVM_TREASURY_PRIVATE_KEY: z.string().min(1),
   SOLANA_TREASURY_PRIVATE_KEY: z.string().min(1),
+  /**
+   * The wallet that delivers naira purchases (USDC on Solana). Base58 as a
+   * wallet app exports it, or a JSON byte array. Unset, purchases come from
+   * the Solana treasury above.
+   */
+  ONRAMP_SOLANA_PRIVATE_KEY: z.string().default(""),
 
   // Gasless fee-payer (separate from funding treasury)
   SOLANA_GASLESS_PRIVATE_KEY: z.string().min(1),
@@ -363,10 +369,14 @@ const envSchema = z.object({
   // Google Gemini (OCR for account-number scanning) — optional
   GEMINI_API_KEY: z.string().optional(),
 
-  // VTU.ng (airtime & data)
-  VTU_EMAIL: z.string().min(1),
-  VTU_PASSWORD: z.string().min(1),
-  VTU_USER_PIN: z.string().min(1),
+  // VTU.ng Partner API (airtime, data, electricity, betting). The secret key from
+  // app.vtu.ng → Profile → Developer: vtu_sk_live_... for api.vtu.ng.
+  VTU_API_KEY: z.string().optional(),
+  VTU_BASE_URL: z.string().url().default("https://api.vtu.ng/v1"),
+  // The old API's login, no longer used. Kept optional so an old deploy's settings don't block a start.
+  VTU_EMAIL: z.string().optional(),
+  VTU_PASSWORD: z.string().optional(),
+  VTU_USER_PIN: z.string().optional(),
 
   // Admin — comma-separated list of allowed admin emails, set on Railway (never in the code).
   // Unset: nobody can sign in to the admin console, and the rest of the app carries on.
@@ -482,6 +492,15 @@ const envSchema = z.object({
     .string()
     .default("false")
     .transform((s) => s.trim().toLowerCase() === "true"),
+  /**
+   * Usernames who can see cards while they are tried out, comma separated
+   * ("sokeman,avaworld,soke"). "*" opens them to everyone, once CARDS_ENABLED is on.
+   * Closed by default to the testers, so a release can't show cards to all.
+   */
+  CARDS_ALLOWED_USERS: z
+    .string()
+    .default("sokeman,avaworld,soke")
+    .transform((s) => s.split(",").map((u) => u.trim().replace(/^@/, "").toLowerCase()).filter(Boolean)),
   NUVION_API_KEY: z.string().optional(),
   NUVION_BASE_URL: z.string().url().default("https://api.nuvion.co"),
   /** Our USD account that pays every top up. Its live balance is checked before each one. */
@@ -490,6 +509,16 @@ const envSchema = z.object({
   NUVION_COUNTERPARTY_ID: z.string().optional(),
   /** The Solana wallet of our Nuvion USDC account. Top ups are sent here. */
   NUVION_DEPOSIT_SOL: z.string().optional(),
+  /**
+   * The email Nuvion is given for every cardholder (tagged per person), so its
+   * emails come to us rather than to our users. It must be a real mailbox that
+   * accepts +tags.
+   */
+  NUVION_CARDHOLDER_EMAIL: z.string().email().default("cards@usemoneymoves.xyz"),
+  /** The USDC account that address belongs to. Found by its name ("MM card deposits") when unset. */
+  NUVION_DEPOSITS_ACCOUNT_ID: z.string().optional(),
+  /** The webhook's signing secret (nv_wsk_...), shown once when it is made. Without it every delivery is refused. */
+  NUVION_WEBHOOK_SECRET: z.string().optional(),
   /** Smallest top up, in dollars. */
   CARD_MIN_TOPUP: z.coerce.number().positive().default(5),
   /** Our cut of a top up, in basis points. 0 means a dollar in is a dollar on the card. */

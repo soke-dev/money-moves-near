@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text, StyleSheet, TouchableOpacity, Image } from "react-native";
-import { Feather, MaterialIcons } from "@expo/vector-icons";
+import { Feather, Ionicons, MaterialIcons } from "@expo/vector-icons";
 import { useColors } from "@/hooks/useColors";
 import { useTheme } from "@/context/ThemeContext";
 import { TokenLogo } from "@/components/TokenLogo";
@@ -99,7 +99,10 @@ export function TransactionItem({
       case "UNLOCK":
       case "SAVINGS_WITHDRAW": return `Unlocked ${label}`;
       // A business's checkout, paid from the wallet: who was paid, not "withdrew".
-      case "WITHDRAW": return metadata?.payee ? `Paid ${metadata.payee}` : `Withdrew ${label}`;
+      case "WITHDRAW":
+        if (metadata?.cardTopup) return metadata.cardTopup.newCard ? "New card funded" : "Card top up";
+        return metadata?.payee ? `Paid ${metadata.payee}` : `Withdrew ${label}`;
+      case "CARD": return "Card";
       /**
        * A swap, and it always was.
        *
@@ -344,6 +347,71 @@ export function TransactionItem({
   }
 
   /**
+   * The USD card, in the same list as everything else.
+   *
+   * Two kinds of row: a top up is the wallet's own USDC send, labelled as one
+   * (it used to read "Withdrew USDC"), and CARD rows are what happened on a
+   * card itself, in dollars: made, paid, declined, refunded, moved back to the
+   * wallet. The card's name sits under each.
+   */
+  const cardTopup = type === "WITHDRAW" && metadata?.cardTopup;
+  if (type === "CARD" || cardTopup) {
+    const ev: string = cardTopup ? "topup" : metadata?.cardEvent;
+    const merchant: string = metadata?.merchant || "a merchant";
+    const cardName: string | undefined = cardTopup ? metadata.cardTopup.cardName : metadata?.cardName;
+    const look: Record<string, { icon: string; title: string; sign: "+" | "-" | "" }> = {
+      topup: { icon: "add-circle-outline", title: cardTopup?.newCard ? "New card funded" : "Card top up", sign: "-" },
+      created: { icon: "card-outline", title: "Card created", sign: "-" },
+      paid: { icon: "card-outline", title: merchant, sign: "-" },
+      declined: { icon: "close-circle-outline", title: `Declined at ${merchant}`, sign: "" },
+      refund: { icon: "return-down-back-outline", title: `Refund from ${merchant}`, sign: "+" },
+      toWallet: { icon: "arrow-up-circle-outline", title: "Withdrawn to wallet", sign: "+" },
+      fee: { icon: "card-outline", title: metadata?.note || "Card fee", sign: "-" },
+    };
+    const l = look[ev] || look.paid;
+    const isIn = l.sign === "+";
+    const figure = cardTopup ? (
+      <>
+        {l.sign}{tokenAmount}
+        <Text style={[styles.unit, { color: colors.mutedForeground }]}> {label}</Text>
+      </>
+    ) : (
+      `${l.sign}$${amount.toFixed(2)}`
+    );
+    return (
+      <Wrapper {...wrapperProps} style={styles.container}>
+        <View style={styles.markSlot}>
+          <Ionicons name={l.icon as any} size={24} color={ev === "declined" ? colors.destructive : discMark} />
+        </View>
+        <View style={styles.info}>
+          <Text style={[styles.payee, { color: colors.foreground }]} numberOfLines={1}>
+            {l.title}
+          </Text>
+          <Text style={[styles.meta, { color: colors.mutedForeground }]} numberOfLines={1}>
+            {cardName ? `${cardName} · ${whenStr}` : whenStr}
+          </Text>
+        </View>
+        <View style={styles.right}>
+          <Text
+            style={[
+              styles.payeeAmount,
+              { color: isIn && status === "COMPLETED" ? AMOUNT_IN : colors.foreground },
+              (status === "FAILED" || ev === "declined") && styles.struck,
+            ]}
+          >
+            {figure}
+          </Text>
+          {status !== "COMPLETED" && ev !== "declined" && (
+            <View style={[styles.statusBadge, { backgroundColor: getStatusColor() + "22" }]}>
+              <Text style={[styles.statusText, { color: getStatusColor() }]}>{statusLabel}</Text>
+            </View>
+          )}
+        </View>
+      </Wrapper>
+    );
+  }
+
+  /**
    * A swap, named by its chains.
    *
    * It fell to the catch-all row at the bottom, which titled it "Swapped USDC
@@ -534,16 +602,14 @@ export function TransactionItem({
             style={[styles.payee, styles.figureTitle, { color: colors.foreground }]}
             numberOfLines={1}
           >
-            {/* The figure leads here too: on a funding row the token amount
-                IS the title, and the ticker is the unit on it. */}
-            {tokenAmount}
-            <Text style={[styles.unit, { color: colors.mutedForeground }]}> {label}</Text>
+            {/* What happened, by name: "USDC Funded". "Funded", not "Deposit":
+                a deposit is crypto arriving from outside, and this is naira
+                turning into crypto. */}
+            {label} Funded
           </Text>
-          {/* "Funded", not "Deposit" - a deposit is crypto arriving from
-              outside, and that row now says so in its own title. This one is
-              naira turning into crypto, which is a different event. */}
-          <Text style={[styles.meta, { color: colors.mutedForeground }]}>
-            Funded · {whenStr}
+          {/* The naira spent is the detail; the coin received is the figure. */}
+          <Text style={[styles.meta, { color: colors.mutedForeground }]} numberOfLines={1}>
+            {fmtNaira(metadata.amountNaira)} · {whenStr}
           </Text>
         </View>
 
@@ -555,7 +621,7 @@ export function TransactionItem({
               status === "FAILED" && styles.struck,
             ]}
           >
-            {`+ ${fmtNaira(metadata.amountNaira)}`}
+            {`+${tokenAmount} ${label}`}
           </Text>
           {status !== "COMPLETED" && (
             <View style={[styles.statusBadge, { backgroundColor: getStatusColor() + "22" }]}>

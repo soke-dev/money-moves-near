@@ -22,8 +22,10 @@ import { env } from "../config/env";
 import { getSolanaConnection } from "./gas-sponsor";
 import { walletUpgraded } from "./upgraded";
 import { sendNotification } from "./push";
+import { sendCardTopupEmail } from "./email";
 import * as nuvion from "./nuvion";
 import { cardSettings } from "./card-settings";
+import { moneyOf } from "./card-accounts";
 import { fulfilPendingCard } from "./card-issue";
 
 const MINTS: Record<string, string> = {
@@ -90,7 +92,7 @@ async function claimNewSends(userId: string): Promise<void> {
       metadata: { path: ["address"], equals: deposit },
       createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
     },
-    select: { id: true, asset: true, amount: true },
+    select: { id: true, asset: true, amount: true, createdAt: true, metadata: true },
     orderBy: { createdAt: "asc" },
     take: 50,
   });
@@ -102,10 +104,18 @@ async function claimNewSends(userId: string): Promise<void> {
   const taken = new Set(claimed.map((c) => c.transactionId));
   // The fee in force when the send is first seen is the one it pays.
   const { topupFeeBps } = await cardSettings();
+  const acct = await prisma.cardAccount.findUnique({
+    where: { userId },
+    select: { topupTarget: true, topupTargetAt: true, pendingCard: true },
+  });
   for (const s of sends) {
     if (taken.has(s.id)) continue;
     const amount = Number(s.amount);
-    await prisma.cardTopup
+    // The card they were topping up when this send was made (set when they started, good for an hour).
+    const at = acct?.topupTargetAt?.getTime() ?? 0;
+    const sentAt = s.createdAt.getTime();
+    const target = acct?.topupTarget && sentAt >= at - 60_000 && sentAt - at < 60 * 60 * 1000 ? acct.topupTarget : null;
+    const made = await prisma.cardTopup
       .create({
         data: {
           userId,
@@ -113,9 +123,25 @@ async function claimNewSends(userId: string): Promise<void> {
           asset: s.asset,
           amount,
           creditCents: creditCentsFor(amount, topupFeeBps),
+          target,
         },
       })
-      .catch(() => undefined); // claimed by a sync running alongside
+      .then(() => true)
+      .catch(() => false); // claimed by a sync running alongside
+    if (!made) continue;
+    // The send shows in the app as a card top up, not a withdrawal.
+    const cardName =
+      target === "new"
+        ? (acct?.pendingCard as { name?: string } | null)?.name ?? null
+        : target
+          ? (await prisma.card.findUnique({ where: { id: target }, select: { name: true } }))?.name ?? null
+          : null;
+    await prisma.transaction
+      .update({
+        where: { id: s.id },
+        data: { metadata: { ...((s.metadata as object) || {}), cardTopup: { cardName, newCard: target === "new" } } },
+      })
+      .catch(() => undefined);
   }
 }
 
@@ -170,27 +196,95 @@ async function settle(topupId: string): Promise<void> {
 
     if (t.creditCents < 1) return void (await fail("too small to credit"));
 
+    /**
+     * A new card waiting on this money: its creation fee is kept back here, so
+     * it simply stays in the float. Taking it later as a second transfer out of
+     * the card account would cost a Nuvion transfer fee on top, which a balance
+     * of exactly the fee can't pay. Decided once and written down before any
+     * money moves, so a retry keeps back the same amount.
+     */
+    let keep = t.cardFeeCents;
+    const pending = account.pendingCard as { kind: string; name: string; feeTopupId?: string; accountId?: string; paymentDetailId?: string } | null;
+    // Which account this money goes to: the card it was for, the card being made, or the first account.
+    let paymentDetailId = account.paymentDetailId;
+    let accountId = account.nuvionAccountId;
+    // Which card the receipt names: the one topped up, or the one being made.
+    let cardRef: { name: string; last4: string | null; oneTime?: boolean } | null = null;
+    const forNewCard = t.target === "new" || (!t.target && !!pending);
+    if (forNewCard && pending?.paymentDetailId) {
+      paymentDetailId = pending.paymentDetailId;
+      accountId = pending.accountId || accountId;
+      cardRef = { name: pending.name, last4: null, oneTime: pending.kind === "one-time" };
+    } else if (t.target && t.target !== "new") {
+      const card = await prisma.card.findUnique({ where: { id: t.target } });
+      if (card && !card.deletedAt) {
+        const m = await moneyOf(card);
+        paymentDetailId = m.paymentDetailId;
+        accountId = m.accountId;
+        cardRef = { name: card.name, last4: card.last4, oneTime: card.kind === "DISPOSABLE" };
+      }
+    }
+    if (!keep && forNewCard && pending && !pending.feeTopupId) {
+      const ours = Math.round((await cardSettings()).cardFee * 100);
+      if (ours > 0 && t.creditCents >= ours) {
+        keep = ours;
+        await prisma.cardTopup.update({ where: { id: t.id }, data: { cardFeeCents: ours } });
+        await prisma.cardAccount.update({
+          where: { userId: t.userId },
+          data: { pendingCard: { ...pending, feeTopupId: t.id, feeCents: ours } },
+        });
+      }
+    }
+    const pay = t.creditCents - keep;
+
+    // All of it was the card fee: nothing to move.
+    if (pay <= 0) {
+      await prisma.cardTopup.update({ where: { id: t.id }, data: { status: "CREDITED", reason: null } });
+      return;
+    }
+
     // Live, at Nuvion: the float has to hold the money now.
     const float = await nuvion.accountAvailableCents(env.NUVION_FLOAT_ACCOUNT_ID!);
-    if (float < t.creditCents) {
-      console.error(`[CARD-TOPUP] float too low: has ${float} cents, top up ${t.id} needs ${t.creditCents}`);
+    if (float < pay) {
+      console.error(`[CARD-TOPUP] float too low: has ${float} cents, top up ${t.id} needs ${pay}`);
       return void (await wait("float too low"));
     }
 
     const transfer = await nuvion.bookTransfer({
-      paymentDetailId: account.paymentDetailId,
-      cents: t.creditCents,
+      paymentDetailId,
+      cents: pay,
       reference,
       narration: "Card top up",
     });
     if (transfer.status === "successful") {
       await prisma.cardTopup.update({ where: { id: t.id }, data: { status: "CREDITED", nuvionTransferId: transfer.id, reason: null } });
-      await sendNotification({
-        userId: t.userId,
-        type: "transaction",
-        title: "Card topped up",
-        body: `$${(t.creditCents / 100).toFixed(2)} is on your card.`,
-      }).catch(() => undefined);
+      // A top up for a new card is followed by "Your card is ready", so it doesn't get its own push.
+      if (!keep) {
+        await sendNotification({
+          userId: t.userId,
+          type: "transaction",
+          title: "Card topped up",
+          body: `$${(pay / 100).toFixed(2)} is on your card.`,
+        }).catch(() => undefined);
+      }
+      // The receipt goes either way: it says where every cent of the send went.
+      const who = await prisma.user.findUnique({ where: { id: t.userId }, select: { email: true } });
+      if (who?.email) {
+        const sent = Number(t.amount);
+        // A new card's balance is told in "Your card is ready", once it exists.
+        const balance = forNewCard ? null : await nuvion.accountAvailableCents(accountId).then((c) => c / 100).catch(() => null);
+        sendCardTopupEmail(who.email, {
+          card: cardRef,
+          balance,
+          sent,
+          asset: t.asset,
+          topupFee: Math.max(0, Math.round(sent * 100) - t.creditCents) / 100,
+          cardFee: keep / 100,
+          added: pay / 100,
+          reference: t.id.slice(-10),
+          date: new Date().toLocaleString("en-NG", { timeZone: "Africa/Lagos" }),
+        }).catch((e) => console.warn(`[CARD-TOPUP] email for ${t.id} failed: ${e?.message}`));
+      }
     } else if (transfer.status === "failed") {
       await fail(`transfer failed: ${transfer.status_reason || "no reason"}`);
     } else {
@@ -198,6 +292,20 @@ async function settle(topupId: string): Promise<void> {
       await prisma.cardTopup.update({ where: { id: t.id }, data: { nuvionTransferId: transfer.id } });
     }
   } catch (err: any) {
+    /**
+     * Nuvion refuses a reference it has already seen (409). The look-up at the
+     * top should have found that transfer; if it still can't, retrying would
+     * only be refused again every two minutes, so it waits for a person.
+     */
+    if (err instanceof nuvion.NuvionError && err.status === 409) {
+      const found = await nuvion.findTransferByReference(`mm-card-topup-${t.id}`).catch(() => null);
+      if (found?.status === "successful") {
+        await prisma.cardTopup.update({ where: { id: t.id }, data: { status: "CREDITED", nuvionTransferId: found.id, reason: null } });
+      } else {
+        await fail("reference already used at Nuvion but the transfer can't be found: check by hand before retrying");
+      }
+      return;
+    }
     // Unknown whether a transfer went: the reference check above settles it next time.
     await wait(`error: ${String(err?.message || err).slice(0, 200)}`);
   }

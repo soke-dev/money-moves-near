@@ -694,12 +694,15 @@ router.post(
       /**
        * The Solana send charge, if it is switched on.
        *
-       * Only the stablecoins, and only this flow and the username one -
-       * selling and bills are untouched. Zero whenever the switch is off,
-       * which is how it ships.
+       * Only the stablecoins, and only a send out to someone's own wallet
+       * (and the username flow). Funding a card and paying a business's
+       * checkout ride this same route but are payments to us, so they are
+       * never charged; nor are selling, bank sends and bills, which don't come
+       * here. Zero whenever the switch is off.
        */
+      const toUs = !!req.body.payRequestId || (!!env.NUVION_DEPOSIT_SOL && address === env.NUVION_DEPOSIT_SOL);
       const sendFee =
-        chain === "SOL" && (asset === "USDC" || asset === "USDT")
+        chain === "SOL" && (asset === "USDC" || asset === "USDT") && !toUs
           ? await solanaSendFee()
           : 0;
 

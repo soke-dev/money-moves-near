@@ -25,6 +25,7 @@ import { PROVIDER_LOGOS } from "@/constants/bills";
 import { StageTrack, STAGE_DONE, STAGE_PENDING, STAGE_FAILED } from "@/components/StageTrack";
 import { Confetti } from "@/components/Confetti";
 import { SwapRoute } from "@/components/SwapRoute";
+import { CardReceipt } from "@/components/CardReceipt";
 import { assetLabel, SELL_FEE_RATE, splitSellFee, fmtAsset, FONT_SCALE } from "@/constants/transfer";
 
 const fmtNaira = (n: number) => "₦" + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -163,7 +164,19 @@ export default function TransactionDetailScreen() {
         }
         return meta.source === "external_deposit" ? "External Deposit" : "Deposit";
       case "TRANSFER": return "Crypto Transfer";
-      case "WITHDRAW": return meta.payee ? `Paid ${meta.payee}` : "Crypto Withdrawal";
+      case "WITHDRAW":
+        if (meta.cardTopup) return meta.cardTopup.newCard ? `New card funded${meta.cardTopup.cardName ? `: ${meta.cardTopup.cardName}` : ""}` : `Card top up${meta.cardTopup.cardName ? `: ${meta.cardTopup.cardName}` : ""}`;
+        return meta.payee ? `Paid ${meta.payee}` : "Crypto Withdrawal";
+      case "CARD": {
+        const m = meta.merchant || "a merchant";
+        const name = meta.cardName ? ` · ${meta.cardName}` : "";
+        if (meta.cardEvent === "created") return `Card created${name}`;
+        if (meta.cardEvent === "declined") return `Declined at ${m}`;
+        if (meta.cardEvent === "refund") return `Refund from ${m}`;
+        if (meta.cardEvent === "toWallet") return `Withdrawn to wallet${name}`;
+        if (meta.cardEvent === "fee") return `${meta.note || "Card fee"}${name}`;
+        return `Card payment at ${m}`;
+      }
       case "LOCK":
       case "SAVINGS_LOCK": return "Savings Lock";
       case "UNLOCK":
@@ -213,6 +226,7 @@ export default function TransactionDetailScreen() {
       case "TRANSFER_IN": return "arrow-down-left";
       case "AIRTIME": return meta.billType === "electricity" ? "zap" : meta.billType === "betting" ? "target" : "smartphone";
       case "SWEEP": return "layers";
+      case "CARD": return "credit-card";
       default: return "activity";
     }
   };
@@ -598,6 +612,7 @@ export default function TransactionDetailScreen() {
         contentContainerStyle={[s.content, { paddingBottom: bottomPad + 150 }]}
         showsVerticalScrollIndicator={false}
       >
+        {tx.type === "CARD" ? <CardReceipt tx={tx} /> : <>
         <View style={[s.statusPill, { backgroundColor: pillColor + "26" }]}>
           <Text style={[s.statusText, { color: pillColor }]}>{statusText}</Text>
           {done ? (
@@ -811,10 +826,11 @@ export default function TransactionDetailScreen() {
             </View>
           ))}
         </View>
+        </>}
       </ScrollView>
 
       <View style={[s.dock, { backgroundColor: colors.background, paddingBottom: bottomPad + 10 }]}>
-        {done ? (
+        {done && tx.type !== "CARD" ? (
           <>
             <TouchableOpacity
               style={[s.receiptBtn, { backgroundColor: colors.primary }]}

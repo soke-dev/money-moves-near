@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Platform, ActivityIndicator } from "react-native";
+import { View, Text, StyleSheet, Pressable, Platform, ActivityIndicator, ScrollView } from "react-native";
 import { useRouter, useLocalSearchParams } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -9,8 +9,8 @@ import { useApp } from "@/context/AppContext";
 import { Keypad } from "@/components/Keypad";
 import { TokenLogo } from "@/components/TokenLogo";
 import { CardIllo } from "@/components/CardIllos";
-import { solanaSendFee } from "@/services/status";
-import { getCards, startCardTopup, type CardKind } from "@/services/cards";
+import { CardFundSheet } from "@/components/CardFundSheet";
+import { getCards, type CardKind } from "@/services/cards";
 
 const LIME = "#81FB02";
 type Coin = "USDC" | "USDT";
@@ -35,7 +35,9 @@ export default function CardTopupScreen() {
   const { walletBalances } = useApp();
   const topPad = Platform.OS === "web" ? 67 : insets.top;
   // Funding a new card: the card is made by itself once this lands, fee taken out of it.
-  const params = useLocalSearchParams<{ kind?: string; name?: string }>();
+  const params = useLocalSearchParams<{ kind?: string; name?: string; cardId?: string }>();
+  // Topping up one card: its own balance, its own limit.
+  const cardId = params.cardId ? String(params.cardId) : undefined;
   const newCard =
     params.name && (params.kind === "everyday" || params.kind === "one-time")
       ? { kind: params.kind as CardKind, name: String(params.name) }
@@ -49,20 +51,30 @@ export default function CardTopupScreen() {
   const [feeBps, setFeeBps] = useState(0);
   const [cardBalance, setCardBalance] = useState<number | null>(null);
   const [cardFee, setCardFee] = useState(0);
+  const [cardName, setCardName] = useState("");
+  const [maxBalance, setMaxBalance] = useState<number | null>(null);
 
   useEffect(() => {
     getCards()
       .then((d) => {
         if (d.minTopup) setMin(d.minTopup);
         setFeeBps(d.topupFeeBps || 0);
-        setCardBalance(d.balance ?? null);
         setCardFee(d.cardFee || 0);
+        setMaxBalance(d.maxCardBalance ?? null);
+        // A new card starts empty: it gets its own account.
+        if (newCard) setCardBalance(0);
+        else {
+          const c = (d.cards || []).find((x) => x.id === cardId) || (d.cards || [])[0];
+          setCardBalance(c?.balance ?? null);
+          setCardName(c?.name || "");
+        }
       })
       .catch(() => {});
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const held = walletBalances.find((b) => b.asset === coin && b.chain === "SOL")?.balance ?? 0;
-  const sendFee = solanaSendFee();
+  // Funding a card is never charged the Solana send fee: that is only for sends out to a wallet.
+  const sendFee = 0;
   const spendable = Math.max(0, held - sendFee);
   const value = Number(amount) || 0;
   const credit = Math.floor(value * 100 * (1 - feeBps / 10_000)) / 100;
@@ -72,7 +84,11 @@ export default function CardTopupScreen() {
   const notEnoughForCard = !!newCard && value > 0 && credit < short;
   const tooLittle = value > 0 && (value < min || notEnoughForCard);
   const startsWith = Math.max(0, Math.round(((cardBalance ?? 0) + credit - cardFee) * 100) / 100);
-  const ok = value > 0 && !tooMuch && !tooLittle && !loading;
+  // A card can only hold so much: what it would have after this top up.
+  const after = newCard ? startsWith : (cardBalance ?? 0) + credit;
+  const overLimit = maxBalance != null && value > 0 && after > maxBalance + 1e-9;
+  const room = maxBalance != null ? Math.max(0, maxBalance - (newCard ? 0 : cardBalance ?? 0)) : null;
+  const ok = value > 0 && !tooMuch && !tooLittle && !overLimit && !loading;
 
   const onKey = (k: string) => {
     setError("");
@@ -86,29 +102,12 @@ export default function CardTopupScreen() {
     });
   };
 
-  const go = async () => {
+  // The confirm step is a sheet over this screen, worded for the card; it does the send itself.
+  const [sheet, setSheet] = useState(false);
+  const go = () => {
     if (!ok) return;
-    setLoading(true);
     setError("");
-    try {
-      const t = await startCardTopup(value, coin, newCard ?? undefined);
-      router.push({
-        pathname: "/withdraw-summary",
-        params: {
-          token: coin,
-          network: "SOL",
-          networkName: "Solana",
-          address: t.address,
-          amount: String(value),
-          cardTopup: "1",
-        },
-      } as any);
-    } catch (e: any) {
-      setError(e?.response?.data?.error || "Couldn't start the top up. Try again.");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
-    } finally {
-      setLoading(false);
-    }
+    setSheet(true);
   };
 
   const [whole, cents] = (amount || "0").split(".");
@@ -124,6 +123,8 @@ export default function CardTopupScreen() {
       </View>
 
       <View style={{ paddingHorizontal: 20, flex: 1 }}>
+        {/* Everything above the keypad scrolls, so a short Android screen never pushes the button off. */}
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
         {/* From and to, one panel. */}
         <View style={[s.panel, { backgroundColor: colors.card }]}>
           <View style={[s.leg, { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
@@ -148,14 +149,14 @@ export default function CardTopupScreen() {
             </View>
           </View>
           <View style={[s.arrow, { backgroundColor: colors.background, borderColor: colors.border }]}>
-            <Ionicons name="arrow-down" size={14} color={LIME} />
+            <Ionicons name="arrow-down" size={14} color={colors.primary} />
           </View>
           <View style={s.leg}>
             <CardIllo name={newCard?.kind === "one-time" ? "oneTime" : "everyday"} size={38} />
             <View style={{ flex: 1 }}>
               <Text style={[s.legLabel, { color: colors.mutedForeground }]}>{newCard ? "NEW CARD" : "TO"}</Text>
               <Text style={[s.legTitle, { color: colors.foreground }]} numberOfLines={1}>
-                {newCard ? newCard.name : "Your card balance"}
+                {newCard ? newCard.name : cardName || "Your card"}
               </Text>
             </View>
             {!newCard || (cardBalance ?? 0) > 0 ? (
@@ -178,11 +179,13 @@ export default function CardTopupScreen() {
               .{(cents || "").padEnd(2, "0")}
             </Text>
           </View>
-          <Text style={[s.sub, { color: tooMuch || tooLittle || error ? "#ff9a9a" : colors.mutedForeground }]}>
+          <Text style={[s.sub, { color: tooMuch || tooLittle || overLimit || error ? colors.destructive : colors.mutedForeground }]}>
             {error
               ? error
               : tooMuch
                 ? `You have ${spendable.toFixed(2)} ${coin} on Solana`
+                : overLimit
+                  ? `A card can hold up to $${maxBalance}${room != null && !newCard ? `. You can add about $${room.toFixed(2)}` : ""}`
                 : notEnoughForCard
                   ? `Add at least $${short.toFixed(2)} to cover the card creation fee`
                   : tooLittle
@@ -205,42 +208,31 @@ export default function CardTopupScreen() {
           </Press>
         </View>
 
-        {newCard ? (
-          // Everything in one place: what goes in, what the card costs, what's left on it.
-          <View style={s.lines}>
-            <View style={s.line}>
-              <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>You send</Text>
-              <Text style={[s.lineValue, { color: colors.foreground }]}>{value.toFixed(2)} {coin}</Text>
-            </View>
-            {(cardBalance ?? 0) > 0 && (
-              <View style={s.line}>
-                <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Already on your card</Text>
-                <Text style={[s.lineValue, { color: colors.foreground }]}>${(cardBalance ?? 0).toFixed(2)}</Text>
-              </View>
-            )}
-            <View style={s.line}>
-              <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Card creation fee</Text>
-              <Text style={[s.lineValue, { color: colors.foreground }]}>−${cardFee.toFixed(2)}</Text>
-            </View>
-            <View style={[s.line, s.totalLine, { borderTopColor: colors.border }]}>
-              <Text style={[s.lineLabel, { color: colors.foreground, fontFamily: "Inter_600SemiBold" }]}>Your card starts with</Text>
-              <Text style={[s.lineValue, { color: LIME, fontFamily: "Inter_800ExtraBold" }]}>${startsWith.toFixed(2)}</Text>
-            </View>
+        {/* Every charge on its own line, so nothing comes off that wasn't shown. */}
+        <View style={s.lines}>
+          <Row label="You send" value={`${value.toFixed(2)} ${coin}`} colors={colors} />
+          {sendFee > 0 && <Row label="Solana network fee" value={`${sendFee.toFixed(2)} ${coin}`} colors={colors} />}
+          {sendFee > 0 && (
+            <Row label="Total from your wallet" value={`${(value + sendFee).toFixed(2)} ${coin}`} colors={colors} strong />
+          )}
+          {feeBps > 0 && (
+            <Row label={`Top up fee (${(feeBps / 100).toFixed(feeBps % 100 ? 2 : 0)}%)`} value={`−$${(value - credit).toFixed(2)}`} colors={colors} />
+          )}
+          {newCard && (cardBalance ?? 0) > 0 && (
+            <Row label="Already on your card" value={`$${(cardBalance ?? 0).toFixed(2)}`} colors={colors} />
+          )}
+          {newCard && <Row label="Card creation fee" value={`−$${cardFee.toFixed(2)}`} colors={colors} />}
+          <View style={[s.line, s.totalLine, { borderTopColor: colors.border }]}>
+            <Text style={[s.lineLabel, { color: colors.foreground, fontFamily: "Inter_600SemiBold" }]}>
+              {newCard ? "Your card starts with" : "Lands on your card"}
+            </Text>
+            <Text style={[s.lineValue, { color: colors.primary, fontFamily: "Inter_800ExtraBold" }]}>
+              ${(newCard ? startsWith : credit).toFixed(2)}
+            </Text>
           </View>
-        ) : (
-          <View style={s.lines}>
-            <View style={s.line}>
-              <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Rate</Text>
-              <Text style={[s.lineValue, { color: colors.foreground }]}>1 {coin} = $1.00</Text>
-            </View>
-            <View style={s.line}>
-              <Text style={[s.lineLabel, { color: colors.mutedForeground }]}>Lands on your card</Text>
-              <Text style={[s.lineValue, { color: LIME }]}>${credit.toFixed(2)}</Text>
-            </View>
-          </View>
-        )}
+        </View>
 
-        <View style={{ flex: 1 }} />
+        </ScrollView>
 
         <Keypad decimal onKey={onKey} onBackspace={() => setAmount((a) => a.slice(0, -1))} />
 
@@ -262,6 +254,22 @@ export default function CardTopupScreen() {
             </>
           )}
         </Press>
+      <CardFundSheet
+        visible={sheet}
+        onClose={() => setSheet(false)}
+        onFinished={() => {
+          setSheet(false);
+          router.replace("/cards" as any);
+        }}
+        coin={coin}
+        amount={value}
+        sendFee={sendFee}
+        credit={credit}
+        newCard={newCard}
+        cardId={cardId}
+        cardFee={cardFee}
+        startsWith={startsWith}
+      />
       </View>
     </View>
   );
@@ -302,3 +310,12 @@ const s = StyleSheet.create({
   ctaText: { fontSize: 16, fontFamily: "Inter_800ExtraBold", color: "#0a0a0a" },
   ctaArrow: { position: "absolute", right: 6, top: 6, width: 46, height: 46, borderRadius: 23, backgroundColor: "#0a0a0a", alignItems: "center", justifyContent: "center" },
 });
+
+function Row({ label, value, colors, strong }: { label: string; value: string; colors: any; strong?: boolean }) {
+  return (
+    <View style={s.line}>
+      <Text style={[s.lineLabel, { color: strong ? colors.foreground : colors.mutedForeground }]}>{label}</Text>
+      <Text style={[s.lineValue, { color: colors.foreground }]}>{value}</Text>
+    </View>
+  );
+}

@@ -46,6 +46,11 @@ type Settings = {
   maxCards: number
   topupFeeBps: number
   cardFee: number
+  maxCardBalance: number
+  monthlyFee: number
+  declineFee: number
+  autoFreezeDeclines: number
+  autoFreezeHours: number
   paused: boolean
   updatedBy: string | null
   updatedAt: string | null
@@ -193,7 +198,7 @@ export function CardsAdmin() {
       {personId ? (
         <PersonPanel userId={personId} password={password} onBack={() => setPersonId(null)} onChanged={loadOverview} />
       ) : view === 'overview' ? (
-        <OverviewView o={overview} onOpenTopups={() => setView('topups')} />
+        <OverviewView o={overview} password={password} onChanged={loadOverview} onOpenTopups={() => setView('topups')} />
       ) : view === 'cards' ? (
         <CardsList onPerson={setPersonId} />
       ) : view === 'topups' ? (
@@ -209,7 +214,7 @@ export function CardsAdmin() {
 
 /* ─── Overview ─────────────────────────────────────────────────────── */
 
-function OverviewView({ o, onOpenTopups }: { o: Overview | null; onOpenTopups: () => void }) {
+function OverviewView({ o, password, onChanged, onOpenTopups }: { o: Overview | null; password: string; onChanged: () => void; onOpenTopups: () => void }) {
   if (!o) return <Skeleton />
   const f = o.figures
   return (
@@ -223,6 +228,8 @@ function OverviewView({ o, onOpenTopups }: { o: Overview | null; onOpenTopups: (
           </ul>
         </Notice>
       )}
+
+      <TreasuryPanel password={password} onChanged={onChanged} />
 
       <Panel title="Money" flush>
         <Figures
@@ -494,10 +501,15 @@ function paymentColumns(withHolder: boolean): Column<Payment>[] {
 const SETTING_FIELDS: { key: keyof Overview['ranges']; label: string; hint: string; unit: string }[] = [
   { key: 'minTopup', label: 'Smallest top up', hint: 'Dollars.', unit: '$' },
   { key: 'maxTopup', label: 'Largest single top up', hint: 'Dollars, per top up.', unit: '$' },
+  { key: 'maxCardBalance', label: 'Card balance limit', hint: 'The most one card can hold. A top up that would go over it is refused.', unit: '$' },
   { key: 'dailyTopup', label: 'Top up limit a day', hint: 'Dollars one person can top up in 24 hours.', unit: '$' },
   { key: 'maxCards', label: 'Cards per person', hint: 'Live cards one person can hold.', unit: '' },
   { key: 'topupFeeBps', label: 'Top up fee', hint: 'Basis points: 100 is 1%. Comes off what lands on the card.', unit: 'bps' },
   { key: 'cardFee', label: 'Card creation fee', hint: 'Dollars per new card, ours, on top of the issuer’s. Taken from the card balance and not refundable.', unit: '$' },
+  { key: 'monthlyFee', label: 'Monthly card fee', hint: 'Dollars per everyday card, every 30 days from the day it was made, taken from its balance. 0 is off.', unit: '$' },
+  { key: 'declineFee', label: 'Decline fee', hint: 'Dollars per declined card payment, taken from the card balance when it has it. 0 is off.', unit: '$' },
+  { key: 'autoFreezeDeclines', label: 'Freeze after declines', hint: 'Declines on one card that freeze it. The person can unfreeze it in the app. 0 is off.', unit: '' },
+  { key: 'autoFreezeHours', label: 'Declines counted over', hint: 'Hours.', unit: 'h' },
 ]
 
 function SettingsForm({ o, password, onSaved }: { o: Overview | null; password: string; onSaved: () => void }) {
@@ -795,5 +807,153 @@ function Skeleton() {
         <div key={i} className="h-24 animate-pulse rounded-xl" style={{ background: C.lineSoft }} />
       ))}
     </div>
+  )
+}
+
+/* ─── Deposits into the float ──────────────────────────────────────── */
+
+type Quote = { quoteId: string; send: number; get: number; rate: number; validFor: number | null; expiresAt: number | null }
+
+/**
+ * Top ups arrive as USDC in MM card deposits; cards are paid from the USD
+ * float. This turns the one into the other at a rate Nuvion locks for a short
+ * while. Getting a rate moves nothing; moving takes the action password.
+ */
+function TreasuryPanel({ password, onChanged }: { password: string; onChanged: () => void }) {
+  const [bal, setBal] = useState<{ deposits: number; float: number } | null>(null)
+  const [amount, setAmount] = useState('')
+  const [quote, setQuote] = useState<Quote | null>(null)
+  const [left, setLeft] = useState(0)
+  const [busy, setBusy] = useState<'quote' | 'move' | null>(null)
+  const [said, setSaid] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const b = await get<{ deposits: number; float: number }>('/treasury')
+      setBal(b)
+      setAmount((a) => a || (b.deposits > 0 ? b.deposits.toFixed(2) : ''))
+    } catch (e) {
+      setSaid({ ok: false, text: e instanceof Error ? e.message : 'Couldn’t read the balances.' })
+    }
+  }, [])
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  // A quote only holds for a short while; count it down and drop it when it lapses.
+  useEffect(() => {
+    if (!quote?.expiresAt) return
+    const tick = () => {
+      const s = Math.max(0, Math.round((quote.expiresAt! - Date.now()) / 1000))
+      setLeft(s)
+      if (s === 0) setQuote(null)
+    }
+    tick()
+    const t = setInterval(tick, 1000)
+    return () => clearInterval(t)
+  }, [quote])
+
+  const n = Number(amount)
+  const valid = Number.isFinite(n) && n >= 0.01 && !!bal && n <= bal.deposits + 1e-9
+
+  const getRate = async () => {
+    setBusy('quote')
+    setSaid(null)
+    try {
+      setQuote(await send('POST', '/treasury/quote', { amount: n }))
+    } catch (e) {
+      setSaid({ ok: false, text: e instanceof Error ? e.message : 'Couldn’t get a rate.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const move = async () => {
+    if (!quote) return
+    setBusy('move')
+    setSaid(null)
+    try {
+      const r = await send('POST', '/treasury/convert', { quoteId: quote.quoteId, amount: quote.send, password })
+      setSaid({
+        ok: r.status !== 'failed',
+        text:
+          r.status === 'failed'
+            ? `Nuvion refused it${r.reason ? `: ${r.reason}` : ''}.`
+            : `Moved ${quote.send.toFixed(2)} USDC. The float now holds ${usd(r.float)}.`,
+      })
+      setQuote(null)
+      setAmount('')
+      await load()
+      onChanged()
+    } catch (e) {
+      setSaid({ ok: false, text: e instanceof Error ? e.message : 'That didn’t go through.' })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <Panel
+      title="Move deposits to the float"
+      sub="Top ups land as USDC in MM card deposits. Cards are paid from the USD float, so move the USDC across to keep the float topped up. Getting a rate moves nothing."
+    >
+      <div className="grid gap-px sm:grid-cols-2 rounded-lg overflow-hidden" style={{ background: C.line }}>
+        <div className="px-4 py-3" style={{ background: C.card }}>
+          <div className="text-[12.5px]" style={{ color: C.muted }}>MM card deposits</div>
+          <div className="mt-1 text-[20px] font-semibold tabular-nums" style={{ color: C.text }}>{bal ? `${bal.deposits.toFixed(2)} USDC` : '…'}</div>
+        </div>
+        <div className="px-4 py-3" style={{ background: C.card }}>
+          <div className="text-[12.5px]" style={{ color: C.muted }}>MM card float</div>
+          <div className="mt-1 text-[20px] font-semibold tabular-nums" style={{ color: C.text }}>{bal ? usd(bal.float) : '…'}</div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-end gap-2">
+        <div className="w-[180px]">
+          <Field label="USDC to move">
+            <Input
+              value={amount}
+              inputMode="decimal"
+              onChange={(e) => {
+                setAmount(e.target.value.replace(/[^0-9.]/g, ''))
+                setQuote(null)
+              }}
+            />
+          </Field>
+        </div>
+        {bal && bal.deposits > 0 && (
+          <Button small onClick={() => { setAmount(bal.deposits.toFixed(2)); setQuote(null) }}>All</Button>
+        )}
+        <Button small disabled={!valid || !!busy} onClick={() => void getRate()}>
+          {busy === 'quote' ? 'Asking…' : quote ? 'New rate' : 'Get rate'}
+        </Button>
+      </div>
+      {amount !== '' && !valid && bal && (
+        <p className="mt-2 text-[12.5px]" style={{ color: C.amber }}>Enter from 0.01 to {bal.deposits.toFixed(2)}.</p>
+      )}
+
+      {quote && (
+        <div className="mt-4 rounded-lg px-4 py-3" style={{ border: `1px solid ${C.line}`, background: C.raise }}>
+          <div className="text-[14px]" style={{ color: C.text }}>
+            {quote.send.toFixed(2)} USDC → <b>{usd(quote.get)}</b> into the float
+          </div>
+          <div className="mt-0.5 text-[12.5px]" style={{ color: C.muted }}>
+            Rate {quote.rate} · held for {left}s
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <Button small tone="primary" disabled={!password || busy === 'move'} onClick={() => void move()}>
+              {busy === 'move' ? 'Moving…' : `Move ${usd(quote.get)} to the float`}
+            </Button>
+            {!password && <span className="text-[12.5px]" style={{ color: C.dim }}>Enter the action password above.</span>}
+          </div>
+        </div>
+      )}
+
+      {said && (
+        <div className="mt-3">
+          <Notice tone={said.ok ? 'good' : 'bad'} title={said.ok ? 'Done' : 'Not moved'}>{said.text}</Notice>
+        </div>
+      )}
+    </Panel>
   )
 }

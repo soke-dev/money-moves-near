@@ -44,7 +44,7 @@ export default function CreateCardScreen() {
     getCards()
       .then((d) => {
         setFee(d.cardFee ?? null);
-        setBalance(d.balance ?? 0);
+        setBalance(0);
       })
       .catch(() => {});
   }, []);
@@ -55,7 +55,9 @@ export default function CreateCardScreen() {
    * now. Otherwise the next step is funding it, and the card is made by itself
    * once that money lands, with the fee taken out of it.
    */
-  const covered = fee != null && balance != null && balance >= fee;
+  // Every card has its own balance, so a new card is always made by funding it:
+  // never paid for out of another card's money.
+  const covered = false;
 
   const goFund = () => {
     if (!name.trim()) return;
@@ -90,14 +92,15 @@ export default function CreateCardScreen() {
           setKind(k);
           Haptics.selectionAsync().catch(() => {});
         }}
-        style={[s.option, { backgroundColor: colors.card, borderColor: on ? LIME : colors.border, borderWidth: on ? 1.5 : 1 }]}
+        style={[s.option, { backgroundColor: colors.card, borderColor: on ? colors.primary : colors.border, borderWidth: on ? 1.5 : 1 }]}
       >
-        <CardIllo name={icon} size={42} />
-        <View style={{ flex: 1 }}>
-          <Text style={[s.optionTitle, { color: colors.foreground }]}>{title}</Text>
-          <Text style={[s.optionSub, { color: colors.mutedForeground }]}>{sub}</Text>
+        {/* Side by side, so each choice is a tile: mark, name and tick on one line, words under. */}
+        <View style={s.optionTop}>
+          <CardIllo name={icon} size={30} />
+          <Text style={[s.optionTitle, { color: colors.foreground, flex: 1 }]} numberOfLines={1}>{title}</Text>
+          <Ionicons name={on ? "checkmark-circle" : "ellipse-outline"} size={20} color={on ? colors.primary : colors.mutedForeground} />
         </View>
-        <Ionicons name={on ? "radio-button-on" : "radio-button-off"} size={22} color={on ? LIME : colors.mutedForeground} />
+        <Text style={[s.optionSub, { color: colors.mutedForeground }]}>{sub}</Text>
       </Press>
     );
   };
@@ -113,15 +116,15 @@ export default function CreateCardScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
+        <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: "center", marginTop: 4 }}>
             <CardFace width={width - 80} name={name.trim() || "Your card"} last4={null} holder={holder} oneTime={kind === "one-time"} />
           </View>
 
           <Text style={[s.section, { color: colors.mutedForeground }]}>TYPE</Text>
-          <View style={{ gap: 10 }}>
-            {option("everyday", "everyday", "Everyday", "Stays active for shopping and subscriptions")}
-            {option("one-time", "oneTime", "One-time", "Closes after one payment. For sites you don't trust")}
+          <View style={{ flexDirection: "row", gap: 10 }}>
+            {option("everyday", "everyday", "Everyday", "For shopping and subscriptions")}
+            {option("one-time", "oneTime", "One-time", "Closes after one payment")}
           </View>
 
           <Text style={[s.section, { color: colors.mutedForeground }]}>NAME IT</Text>
@@ -152,7 +155,8 @@ export default function CreateCardScreen() {
           )}
         </ScrollView>
 
-        <View style={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 14, gap: 10 }}>
+        {/* Clear air above the button, so the name field never sits on it. */}
+        <View style={{ paddingHorizontal: 20, paddingTop: 20, paddingBottom: insets.bottom + 14, gap: 10 }}>
           {!name.trim() ? (
             // Grey and saying what's missing, rather than a button that does nothing.
             <View style={[s.cta, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}>
@@ -182,7 +186,8 @@ const s = StyleSheet.create({
   round: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center" },
   title: { fontSize: 17, fontFamily: "Inter_700Bold" },
   section: { fontSize: 12, fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginTop: 24, marginBottom: 10, marginLeft: 2 },
-  option: { flexDirection: "row", alignItems: "center", gap: 14, padding: 14, borderRadius: 18 },
+  option: { flex: 1, padding: 14, borderRadius: 18, gap: 4 },
+  optionTop: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 6 },
   optionIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: "rgba(129,251,2,0.1)", alignItems: "center", justifyContent: "center" },
   optionTitle: { fontSize: 15.5, fontFamily: "Inter_700Bold" },
   optionSub: { fontSize: 12.5, lineHeight: 17, fontFamily: "Inter_400Regular", marginTop: 2 },

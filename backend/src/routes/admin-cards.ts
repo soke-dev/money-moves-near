@@ -21,6 +21,7 @@ import { requireAdmin } from "./admin";
 import { checkActionPassword } from "../lib/action-password";
 import * as nuvion from "../lib/nuvion";
 import { syncTopups } from "../lib/card-topups";
+import { floatDetailId } from "../lib/card-fees";
 import { cardSettings, saveCardSettings, validate, RANGES, limitsFor, type CardSettings, type PersonLimits } from "../lib/card-settings";
 
 const router = Router();
@@ -82,6 +83,21 @@ router.get("/overview", async (_req: Request, res: Response, next: NextFunction)
     else if (floatCents < 2000) attention.push(`The float is low: $${usd(floatCents).toFixed(2)}.`);
     const failed = tStatus("FAILED")?._count ?? 0;
     if (failed) attention.push(`${failed} top up${failed === 1 ? "" : "s"} failed and need a person.`);
+    // A new card that stopped trying: its top up is in the account opened for it, with no card on it yet.
+    const stuckCards = (
+      await prisma.cardAccount.findMany({
+        where: { pendingCardAt: null, pendingCardError: { not: null } },
+        select: { userId: true, pendingCard: true, pendingCardError: true },
+        take: 20,
+      })
+    ).filter((a) => a.pendingCard);
+    if (stuckCards.length) {
+      const names = await prisma.user.findMany({ where: { id: { in: stuckCards.map((a) => a.userId) } }, select: { id: true, username: true } });
+      for (const a of stuckCards.slice(0, 5)) {
+        const who = names.find((n) => n.id === a.userId)?.username;
+        attention.push(`${who ? `@${who}` : "Someone"}'s new card wasn't made and needs a person: ${a.pendingCardError}`);
+      }
+    }
 
     res.json({
       settings,
@@ -397,6 +413,91 @@ router.post("/topup/:id/retry", async (req: Request, res: Response, next: NextFu
     const after = await prisma.cardTopup.findUnique({ where: { id: t.id } });
     res.json({ status: after?.status, reason: after?.reason });
   } catch (err) {
+    next(err);
+  }
+});
+
+// ─── Deposits into the float ─────────────────────────────────
+//
+// Top ups arrive as USDC in "MM card deposits"; cards are paid from the USD
+// float. These turn the one into the other at a rate Nuvion quotes and locks.
+
+let depositsId: string | null = null;
+async function depositsAccountId(): Promise<string> {
+  if (env.NUVION_DEPOSITS_ACCOUNT_ID) return env.NUVION_DEPOSITS_ACCOUNT_ID;
+  if (depositsId) return depositsId;
+  const a = await nuvion.findAccountByName("MM card deposits");
+  if (!a) throw new Error("No account called MM card deposits at Nuvion");
+  depositsId = a.id;
+  return a.id;
+}
+
+router.get("/treasury", async (_req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = await depositsAccountId();
+    const [deposits, float] = await Promise.all([
+      nuvion.accountAvailableCents(id),
+      nuvion.accountAvailableCents(env.NUVION_FLOAT_ACCOUNT_ID!),
+    ]);
+    res.json({ deposits: usd(deposits), float: usd(float) });
+  } catch (err) {
+    if (err instanceof nuvion.NuvionError) return res.status(502).json({ error: `Nuvion said: ${err.message}` });
+    next(err);
+  }
+});
+
+/** A rate for moving `amount` USDC (dollars) into the float. Read only: nothing moves. */
+router.post("/treasury/quote", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const amount = Number(req.body?.amount);
+    if (!Number.isFinite(amount) || amount < 0.01) return res.status(400).json({ error: "Enter an amount of at least 0.01." });
+    const id = await depositsAccountId();
+    const have = await nuvion.accountAvailableCents(id);
+    const cents = Math.round(amount * 100);
+    if (cents > have) return res.status(400).json({ error: `MM card deposits holds ${usd(have).toFixed(2)} USDC.` });
+    const q = await nuvion.createFxQuote("USC", "USD", cents, id);
+    res.json({
+      quoteId: q.id,
+      send: q.amount_from / 100,
+      get: q.amount_to / 100,
+      rate: q.rate,
+      validFor: q.quote?.valid_for ?? null,
+      expiresAt: q.quote?.expires_at ?? null,
+    });
+  } catch (err) {
+    if (err instanceof nuvion.NuvionError) return res.status(502).json({ error: `Nuvion said: ${err.message}` });
+    next(err);
+  }
+});
+
+/** Moves USDC into the float at a quote's rate. Takes the action password; one quote moves money once. */
+router.post("/treasury/convert", async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const quoteId = String(req.body?.quoteId || "");
+    const amount = Number(req.body?.amount);
+    if (!quoteId || !Number.isFinite(amount) || amount < 0.01) return res.status(400).json({ error: "Get a rate first." });
+    if (!(await gate(req, res, "card deposits to float"))) return;
+    const id = await depositsAccountId();
+    const t = await nuvion.convertTransfer({
+      fromAccountId: id,
+      currency: "USC",
+      amountFrom: Math.round(amount * 100),
+      paymentDetailId: await floatDetailId(),
+      fxQuoteId: quoteId,
+    });
+    console.log(`[ADMIN] ${by(req)} moved ${amount} USDC from card deposits to the float: transfer ${t.id} ${t.status}`);
+    const [deposits, float] = await Promise.all([
+      nuvion.accountAvailableCents(id).catch(() => null),
+      nuvion.accountAvailableCents(env.NUVION_FLOAT_ACCOUNT_ID!).catch(() => null),
+    ]);
+    res.json({
+      status: t.status,
+      reason: t.status_reason || null,
+      deposits: deposits === null ? null : usd(deposits),
+      float: float === null ? null : usd(float),
+    });
+  } catch (err) {
+    if (err instanceof nuvion.NuvionError) return res.status(502).json({ error: `Nuvion said: ${err.message}` });
     next(err);
   }
 });

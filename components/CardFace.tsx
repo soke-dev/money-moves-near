@@ -1,5 +1,5 @@
 import React from "react";
-import { View, Text, StyleSheet, Image } from "react-native";
+import { View, Text, StyleSheet, Image, Pressable } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import Svg, { Path, Circle } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
@@ -20,6 +20,9 @@ export function CardFace({
   holder,
   oneTime = false,
   frozen = false,
+  balance,
+  hidden = false,
+  onToggleHidden,
 }: {
   width: number;
   name: string;
@@ -27,6 +30,11 @@ export function CardFace({
   holder?: string;
   oneTime?: boolean;
   frozen?: boolean;
+  /** Shown on the card beside the chip. Left out (undefined) on picture cards; null reads "Unavailable". */
+  balance?: number | null;
+  /** Balance masked, with an eye beside BALANCE to show it again. */
+  hidden?: boolean;
+  onToggleHidden?: () => void;
 }) {
   const height = Math.round(width * CARD_RATIO);
   const ink = oneTime ? "#0a0a0a" : "#ffffff";
@@ -57,21 +65,41 @@ export function CardFace({
       </Svg>
 
       <View style={[styles.inner, { padding: 20 * k }]}>
-        <View style={styles.rowBetween}>
-          {/* The lockup, mark and wordmark. White and lime on graphite; a black
-              copy on the lime card, where the lime half would vanish. A separate
-              file rather than tintColor: Android didn't repaint a tint changed on
-              the same image, so switching to one-time left the logo blank. Keyed
-              so the switch mounts a fresh image either way. */}
+        {/* The lockup on the left, the balance on the right. No card name on the
+            card: the name is ours, shown around the card, never printed on it. */}
+        <View style={[styles.rowBetween, { alignItems: "flex-start" }]}>
+          {/* White and lime on graphite; a black copy on the lime card, where the
+              lime half would vanish. A separate file rather than tintColor:
+              Android didn't repaint a tint changed on the same image, so
+              switching to one-time left the logo blank. Keyed so the switch
+              mounts a fresh image either way. */}
           <Image
             key={oneTime ? "dark" : "light"}
             source={oneTime ? require("@/assets/images/logo-lockup-dark.png") : require("@/assets/images/logo-lockup.png")}
-            style={{ width: 132 * k, height: (132 * k * 164) / 1150 }}
+            style={{ width: 132 * k, height: (132 * k * 164) / 1150, marginTop: 4 * k }}
             resizeMode="contain"
           />
-          <Text style={[styles.label, { fontSize: 10.5 * k, color: soft }]} numberOfLines={1}>
-            {oneTime ? "ONE-TIME" : name.toUpperCase()}
-          </Text>
+          {balance !== undefined && (
+            <View style={{ alignItems: "flex-end", maxWidth: "52%" }}>
+              {/* The label and its eye on one line; the eye hides or shows the figure. */}
+              <Pressable
+                onPress={onToggleHidden}
+                disabled={!onToggleHidden}
+                hitSlop={12}
+                style={{ flexDirection: "row", alignItems: "center", gap: 5 * k }}
+              >
+                <Text style={[styles.small, { fontSize: 8.5 * k, color: soft }]}>BALANCE</Text>
+                {onToggleHidden && <Ionicons name={hidden ? "eye-off-outline" : "eye-outline"} size={13 * k} color={soft} />}
+              </Pressable>
+              <Text style={[styles.balance, { fontSize: 22 * k, color: ink }]} numberOfLines={1} adjustsFontSizeToFit>
+                {hidden
+                  ? "$ ••••"
+                  : balance == null
+                    ? "Unavailable"
+                    : `$${balance.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* The chip. */}
@@ -79,7 +107,7 @@ export function CardFace({
           colors={["#efd98f", "#c9a54b", "#e8cf7a"]}
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
-          style={{ width: 40 * k, height: 30 * k, borderRadius: 6 * k, marginTop: 16 * k }}
+          style={{ width: 40 * k, height: 30 * k, borderRadius: 6 * k, marginTop: balance !== undefined ? 6 * k : 18 * k }}
         />
 
         <Text style={[styles.number, { fontSize: 18 * k, color: ink, marginTop: 14 * k, letterSpacing: 2 * k }]}>
@@ -118,6 +146,7 @@ const styles = StyleSheet.create({
   number: { fontFamily: "Inter_600SemiBold" },
   small: { fontFamily: "Inter_600SemiBold", letterSpacing: 1 },
   holder: { fontFamily: "Inter_700Bold", letterSpacing: 0.6, marginTop: 2 },
+  balance: { fontFamily: "Inter_800ExtraBold", letterSpacing: -0.5, marginTop: 1 },
   frozen: { backgroundColor: "rgba(10,20,30,0.55)", alignItems: "center", justifyContent: "center", gap: 6 },
   frozenText: { fontFamily: "Inter_700Bold", color: "#cfe8ff" },
 });

@@ -75,6 +75,10 @@ export async function createUsdAccount(displayName: string, meta: Record<string,
   return data.account;
 }
 
+export async function renameAccount(accountId: string, displayName: string): Promise<void> {
+  await call("PATCH", `/accounts/${accountId}`, { display_name: displayName });
+}
+
 /** Finds an account by its exact display name, for a create that may already have gone through. */
 export async function findAccountByName(displayName: string): Promise<NuvionAccount | null> {
   const data = await call<any>("GET", `/accounts?display_name=${encodeURIComponent(displayName)}&limit=10`);
@@ -136,6 +140,93 @@ export async function bookTransfer(args: {
     narration: args.narration,
     payment_type: "book-transfer",
     unique_reference: args.reference,
+  });
+}
+
+// ─── Card balance back to a wallet ───────────────────────────
+
+/** A person's Solana wallet as a USDC destination, under our own counterparty. */
+export async function addSolanaWalletDetail(address: string, holderName: string): Promise<string> {
+  const data = await call<{ id: string }>("POST", "/payment-details", {
+    payment_method: "stablecoin-transfer",
+    currency: "USC",
+    account_holder_name: holderName,
+    counterparty_id: env.NUVION_COUNTERPARTY_ID,
+    wallet_address: address,
+    blockchain_network: "SOLANA_MAINNET",
+  });
+  return data.id;
+}
+
+/**
+ * Sends `cents` of a card account's dollars to a wallet as USDC, at a quote's
+ * rate (Nuvion's on-ramp). Nuvion's fee is charged on top, to the same account.
+ * `reference` makes it a one-time send.
+ */
+export async function sendToWallet(args: {
+  fromAccountId: string;
+  cents: number;
+  paymentDetailId: string;
+  fxQuoteId: string;
+  reference: string;
+}): Promise<NuvionTransfer> {
+  return call<NuvionTransfer>("POST", "/transfers", {
+    account_id: args.fromAccountId,
+    counterparty_id: env.NUVION_COUNTERPARTY_ID,
+    payment_detail_id: args.paymentDetailId,
+    amount: args.cents,
+    currency: "USD",
+    narration: "Card balance to wallet",
+    payment_type: "stablecoin-transfer",
+    unique_reference: args.reference,
+    fx_quote_id: args.fxQuoteId,
+  });
+}
+
+/** Moves a card onto another of our accounts; it keeps its number and status. */
+export async function reassignCard(cardId: string, accountId: string): Promise<void> {
+  await call("PATCH", `/cards/${cardId}/account`, { account_id: accountId });
+}
+
+// ─── Converting deposits into the float ──────────────────────
+
+export interface FxQuote {
+  id: string;
+  from: string;
+  to: string;
+  amount_from: number;
+  amount_to: number;
+  rate: number;
+  quote: { status: string; expires_at: number; valid_for: number };
+}
+
+/** A locked rate for converting `amountFrom` (smallest units) out of `accountId`. */
+export async function createFxQuote(from: string, to: string, amountFrom: number, accountId: string): Promise<FxQuote> {
+  return call<FxQuote>("POST", "/fx-quotes", { from_currency: from, to_currency: to, amount_from: amountFrom, account_id: accountId });
+}
+
+/**
+ * Moves `amountFrom` of the source account's currency into a USD book-transfer
+ * destination at the quote's rate. The quote id is the reference, so one quote
+ * can only ever move money once.
+ */
+export async function convertTransfer(args: {
+  fromAccountId: string;
+  currency: string;
+  amountFrom: number;
+  paymentDetailId: string;
+  fxQuoteId: string;
+}): Promise<NuvionTransfer> {
+  return call<NuvionTransfer>("POST", "/transfers", {
+    account_id: args.fromAccountId,
+    counterparty_id: env.NUVION_COUNTERPARTY_ID,
+    payment_detail_id: args.paymentDetailId,
+    amount: args.amountFrom,
+    currency: args.currency,
+    narration: "Card deposits to float",
+    payment_type: "book-transfer",
+    unique_reference: `mm-convert-${args.fxQuoteId}`,
+    fx_quote_id: args.fxQuoteId,
   });
 }
 

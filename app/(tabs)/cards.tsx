@@ -1,7 +1,8 @@
 import React, { useCallback, useMemo, useRef, useState } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   View, Text, StyleSheet, Pressable, ScrollView, Platform, ActivityIndicator,
-  RefreshControl, Alert, useWindowDimensions, NativeSyntheticEvent, NativeScrollEvent,
+  RefreshControl, Alert, useWindowDimensions, NativeSyntheticEvent, NativeScrollEvent, Modal, TextInput,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -11,8 +12,11 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { CardFace } from "@/components/CardFace";
 import { CardIllo } from "@/components/CardIllos";
+import { CardReceipt } from "@/components/CardReceipt";
+import { DragDownSheet } from "@/components/DragDownSheet";
+import { CardWithdrawSheet } from "@/components/CardWithdrawSheet";
 import {
-  getCards, getCardActivity, setCardFrozen, deleteCard,
+  getCards, getCardActivity, setCardFrozen, deleteCard, renameCard,
   type CardsOverview, type CardActivityItem,
 } from "@/services/cards";
 
@@ -44,6 +48,28 @@ function when(ms: number) {
   return `${d.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}, ${time}`;
 }
 
+/** A Recent row as a CARD transaction, so it opens in the same details screen. */
+function activityTx(a: CardActivityItem, card: { id: string; name: string }) {
+  const declined = a.status === "declined";
+  const ev =
+    declined ? "declined"
+    : a.kind === "reversal" ? "refund"
+    : a.kind === "created" ? "created"
+    : a.kind === "withdraw" ? "toWallet"
+    : a.kind === "topup" ? "topup"
+    : "paid";
+  // Card payments carry the issuer's id; our own rows already carry theirs.
+  const reference = a.kind === "payment" || a.kind === "reversal" ? `card-${ev}-${a.id}` : `card-${a.id}`;
+  return {
+    type: "CARD",
+    amount: a.amount,
+    status: declined ? "FAILED" : a.status === "done" ? "COMPLETED" : "PROCESSING",
+    createdAt: new Date(a.at).toISOString(),
+    reference,
+    metadata: { cardEvent: ev, cardId: card.id, cardName: card.name, merchant: a.kind === "payment" || a.kind === "reversal" ? a.merchant : null, place: a.place, note: a.note },
+  };
+}
+
 export default function CardsScreen() {
   const colors = useColors();
   const router = useRouter();
@@ -60,34 +86,53 @@ export default function CardsScreen() {
   const [busy, setBusy] = useState<string | null>(null);
 
   const holder = `${user?.firstName || ""} ${user?.lastName || ""}`.trim().toUpperCase();
+  // Ice blue that reads on either theme: pale on dark, deeper on light.
+  const frost = colors.background === "#0a0a0a" ? "#9fd4ff" : "#2F7BC0";
   const cards = data?.cards || [];
   const card = cards[Math.min(index, Math.max(0, cards.length - 1))];
   const cardWidth = width - 40;
+  // The intro's card pictures: smaller, so the page fits a small phone.
+  const introCard = Math.min(cardWidth - 64, 300);
+  // Where the floating tab bar's top edge is (its own inset plus its 66pt height), plus a gap.
+  const footerBottom = (insets.bottom > 0 ? insets.bottom - 6 : 16) + 66 + 10;
 
+  /**
+   * Each card's payments, kept between visits: what was there shows at once and
+   * is quietly refreshed behind it, instead of a spinner every time the tab opens.
+   * Only a card never seen before starts empty.
+   */
+  const activityCache = useRef<Record<string, CardActivityItem[]>>({});
   const loadActivity = useCallback(async (id?: string) => {
     if (!id) return setActivity(null);
-    setActivity(null);
+    setActivity(activityCache.current[id] ?? null);
     try {
-      setActivity(await getCardActivity(id));
+      const fresh = await getCardActivity(id);
+      activityCache.current[id] = fresh;
+      setActivity(fresh);
     } catch {
-      setActivity([]);
+      if (!activityCache.current[id]) setActivity([]);
     }
   }, []);
 
+  // Read through a ref so swiping between cards doesn't make a new `load`,
+  // which re-ran the focus effect and fetched everything again on every swipe.
+  const indexRef = useRef(index);
+  indexRef.current = index;
   const load = useCallback(async () => {
     try {
       setError("");
       const d = await getCards();
       setData(d);
       const list = d.cards || [];
-      if (list.length) loadActivity(list[Math.min(index, list.length - 1)].id);
+      if (list.length) loadActivity(list[Math.min(indexRef.current, list.length - 1)].id);
     } catch (e: any) {
       setError(e?.response?.data?.error || "Couldn't load your cards.");
     }
-  }, [index, loadActivity]);
+  }, [loadActivity]);
 
   // While a top up or a new card is on its way, look again every 15 seconds.
-  const waiting = !!data?.pendingCard || (data?.topups || []).some((t) => t.status === "pending");
+  // A stuck card waits for a person, so it doesn't count: polling for it would never end.
+  const waiting = (!!data?.pendingCard && !data.pendingCard.stuck) || (data?.topups || []).some((t) => t.status === "pending");
   const waitingRef = useRef(waiting);
   waitingRef.current = waiting;
 
@@ -131,11 +176,37 @@ export default function CardsScreen() {
     }
   };
 
+  const [withdrawOpen, setWithdrawOpen] = useState(false);
+
+  // Hide the balance on the card (the eye beside BALANCE). Remembered between visits.
+  const [hideBalance, setHideBalance] = useState(false);
+  React.useEffect(() => {
+    AsyncStorage.getItem("@cardBalanceHidden").then((v) => setHideBalance(v === "1")).catch(() => {});
+  }, []);
+  const toggleHide = () => {
+    setHideBalance((h) => {
+      AsyncStorage.setItem("@cardBalanceHidden", h ? "0" : "1").catch(() => {});
+      return !h;
+    });
+    Haptics.selectionAsync().catch(() => {});
+  };
+
   const confirmDelete = () => {
     if (!card) return;
+    if ((card.balance ?? 0) > 0) {
+      Alert.alert(
+        "Withdraw the money first",
+        `${card.name} still has ${money(card.balance ?? 0)} on it. Withdraw it to your wallet, then delete the card.`,
+        [
+          { text: "Not now", style: "cancel" },
+          { text: "Withdraw to wallet", onPress: () => setWithdrawOpen(true) },
+        ],
+      );
+      return;
+    }
     Alert.alert(
       "Delete this card?",
-      "It stops working straight away and can't be brought back. Your card balance stays, ready for your next card.",
+      "It stops working straight away and can't be brought back.",
       [
         { text: "Keep it", style: "cancel" },
         {
@@ -160,6 +231,35 @@ export default function CardsScreen() {
 
   const pending = useMemo(() => (data?.topups || []).filter((t) => t.status !== "done"), [data]);
 
+  /** The More sheet: everything else about a card, with Delete at the bottom. */
+  const [moreOpen, setMoreOpen] = useState(false);
+  // A Recent row opened: the same details screen as a card row on Home.
+  const [openTx, setOpenTx] = useState<any>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [newName, setNewName] = useState("");
+
+  const saveName = async () => {
+    const n = newName.trim();
+    if (!card || !n || busy) return;
+    setBusy("rename");
+    try {
+      await renameCard(card.id, n);
+      setData((d) => d && { ...d, cards: d.cards?.map((c) => (c.id === card.id ? { ...c, name: n } : c)) });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      setRenaming(false);
+      setMoreOpen(false);
+    } catch (e: any) {
+      Alert.alert("Card", e?.response?.data?.error || "Couldn't rename the card. Try again.");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const closeMore = () => {
+    setMoreOpen(false);
+    setRenaming(false);
+  };
+
   /* ─── Header ─── */
   const header = (
     <View style={s.header}>
@@ -178,7 +278,7 @@ export default function CardsScreen() {
     return (
       <View style={[s.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
         {header}
-        <ActivityIndicator color={LIME} style={{ marginTop: 80 }} />
+        <ActivityIndicator color={colors.primary} style={{ marginTop: 80 }} />
       </View>
     );
   }
@@ -214,7 +314,8 @@ export default function CardsScreen() {
   }
 
   const blocked = data?.blocked;
-  const balance = data?.balance;
+  // The card on screen: its own balance.
+  const balance = card?.balance ?? null;
   const pendingCard = data?.pendingCard;
 
   /* ─── Asked for with a top up, not made yet ─── */
@@ -224,14 +325,14 @@ export default function CardsScreen() {
         {header}
         <ScrollView
           contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 110 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={LIME} />}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
           showsVerticalScrollIndicator={false}
         >
           <View style={{ alignItems: "center", marginTop: 18, opacity: 0.85 }}>
             <CardFace width={cardWidth} name={pendingCard.name} last4={null} holder={holder} oneTime={pendingCard.kind === "one-time"} />
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 10, marginTop: 24 }}>
-            {!pendingCard.stuck && <ActivityIndicator color={LIME} />}
+            {!pendingCard.stuck && <ActivityIndicator color={colors.primary} />}
             <Text style={[s.h1, { color: colors.foreground, fontSize: 24, lineHeight: 30, marginTop: 0, flex: 1 }]}>
               {pendingCard.stuck ? "Your card needs a quick check" : "Your card is being made"}
             </Text>
@@ -253,30 +354,33 @@ export default function CardsScreen() {
       <View style={[s.screen, { backgroundColor: colors.background, paddingTop: topPad }]}>
         {header}
         <ScrollView
-          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: insets.bottom + 110 }}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={LIME} />}
+          // Room at the bottom for the pinned button and the tab bar under it.
+          contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: footerBottom + (blocked ? 150 : 90) }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
           showsVerticalScrollIndicator={false}
         >
           {/* Room above for the tilted card's raised corner, which the scroll view would otherwise clip. */}
-          <View style={{ height: cardWidth * 0.78, marginTop: 30 }}>
-            <View style={{ position: "absolute", left: 24, top: 6, transform: [{ rotate: "-7deg" }], opacity: 0.9 }}>
-              <CardFace width={cardWidth - 24} name="One-time" last4="7730" oneTime holder={holder} />
-            </View>
-            <View style={{ position: "absolute", left: 0, top: 36, transform: [{ rotate: "2.5deg" }] }}>
-              <CardFace width={cardWidth - 24} name="Everyday" last4={null} holder={holder} />
+          <View style={{ height: introCard * 0.86, marginTop: 22, alignItems: "center" }}>
+            <View style={{ width: introCard + 24, flex: 1 }}>
+              <View style={{ position: "absolute", left: 24, top: 4, transform: [{ rotate: "-7deg" }], opacity: 0.9 }}>
+                <CardFace width={introCard} name="One-time" last4="7730" oneTime holder={holder} />
+              </View>
+              <View style={{ position: "absolute", left: 0, top: 26, transform: [{ rotate: "2.5deg" }] }}>
+                <CardFace width={introCard} name="Everyday" last4={null} holder={holder} />
+              </View>
             </View>
           </View>
 
-          <Text style={[s.h1, { color: colors.foreground }]}>Spend your stablecoins anywhere cards work.</Text>
+          <Text style={[s.h1, { color: colors.foreground, fontSize: 23, lineHeight: 29 }]}>Spend your stablecoins anywhere cards work.</Text>
 
-          <View style={[s.panel, { backgroundColor: colors.card, marginTop: 18 }]}>
+          <View style={[s.panel, { backgroundColor: colors.card, marginTop: 14 }]}>
             {([
               { icon: "wallet", title: "Top up from your wallet", sub: "USDC or USDT on Solana" },
               { icon: "freeze", title: "Freeze in one tap", sub: "Unfreeze whenever you're ready" },
               { icon: "oneTime", title: "One-time cards", sub: "Close after a single payment" },
             ] as const).map((f, i, all) => (
-              <View key={f.title} style={[s.feature, i < all.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
-                <CardIllo name={f.icon} size={40} />
+              <View key={f.title} style={[s.feature, { paddingVertical: 10 }, i < all.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
+                <CardIllo name={f.icon} size={34} />
                 <View style={{ flex: 1 }}>
                   <Text style={[s.featureTitle, { color: colors.foreground }]}>{f.title}</Text>
                   <Text style={[s.featureSub, { color: colors.mutedForeground }]}>{f.sub}</Text>
@@ -285,22 +389,22 @@ export default function CardsScreen() {
             ))}
           </View>
 
-          {!!balance && balance > 0 && (
-            <Text style={[s.note, { color: colors.mutedForeground }]}>Card balance {money(balance)}, ready for your card.</Text>
-          )}
           {pending.length > 0 && <PendingTopups rows={pending} colors={colors} />}
+        </ScrollView>
 
+        {/* Pinned just above the floating tab bar, so it's never under it on a small phone. */}
+        <View style={[s.footer, { bottom: footerBottom, backgroundColor: colors.background }]}>
           {blocked ? (
             <LockedCta blocked={blocked} colors={colors} onAction={(path) => router.push(path as any)} />
           ) : (
-            <Press onPress={() => router.push("/cards/create" as any)} style={s.cta}>
+            <Press onPress={() => router.push("/cards/create" as any)} style={[s.cta, { marginTop: 0 }]}>
               <Text style={s.ctaText}>Get your card</Text>
               <View style={s.ctaArrow}>
                 <Ionicons name="arrow-forward" size={18} color={LIME} />
               </View>
             </Press>
           )}
-        </ScrollView>
+        </View>
       </View>
     );
   }
@@ -314,7 +418,7 @@ export default function CardsScreen() {
       {header}
       <ScrollView
         contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={LIME} />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />}
         showsVerticalScrollIndicator={false}
       >
         <ScrollView
@@ -335,6 +439,9 @@ export default function CardsScreen() {
                 holder={holder}
                 oneTime={c.kind === "one-time"}
                 frozen={c.status === "blocked"}
+                balance={c.balance}
+                hidden={hideBalance}
+                onToggleHidden={toggleHide}
               />
             </Press>
           ))}
@@ -348,19 +455,13 @@ export default function CardsScreen() {
           </View>
         )}
 
-        <View style={s.balanceRow}>
-          <View>
-            <Text style={[s.balanceLabel, { color: colors.mutedForeground }]}>
-              {card?.name} · card balance
-            </Text>
-            <Text style={[s.balance, { color: colors.foreground }]}>
-              {balance == null ? "Not available" : money(balance)}
-            </Text>
-          </View>
+        {/* The card already shows its name and balance; only a state worth knowing gets a line. */}
+        {(frozen || used) && (
+        <View style={[s.balanceRow, { alignItems: "center", marginTop: 14 }]}>
           {frozen && (
             <View style={s.frozenPill}>
-              <Ionicons name="snow" size={13} color="#9fd4ff" />
-              <Text style={s.frozenPillText}>Frozen</Text>
+              <Ionicons name="snow" size={13} color={frost} />
+              <Text style={[s.frozenPillText, { color: frost }]}>Frozen</Text>
             </View>
           )}
           {used && (
@@ -369,10 +470,11 @@ export default function CardsScreen() {
             </View>
           )}
         </View>
+        )}
 
         <View style={s.actions}>
           {[
-            { icon: "add", label: "Top up", primary: true, onPress: () => router.push("/cards/topup" as any) },
+            { icon: "add", label: "Add money", primary: true, onPress: () => router.push({ pathname: "/cards/topup", params: { cardId: card!.id } } as any) },
             { icon: "eye-outline", label: "Details", onPress: () => router.push({ pathname: "/cards/details", params: { id: card!.id } } as any) },
             {
               icon: frozen ? "sunny-outline" : "snow-outline",
@@ -381,8 +483,8 @@ export default function CardsScreen() {
               loading: busy === "freeze",
               disabled: used,
             },
-            { icon: "trash-outline", label: "Delete", onPress: confirmDelete, loading: busy === "delete", danger: true },
-          ].map((a) => (
+            { icon: "ellipsis-horizontal", label: "More", onPress: () => setMoreOpen(true), loading: busy === "delete" },
+          ].map((a: { icon: string; label: string; onPress: () => void; primary?: boolean; loading?: boolean; disabled?: boolean; danger?: boolean }) => (
             <Press key={a.label} onPress={a.onPress} disabled={!!busy || a.disabled} style={[s.action, a.disabled && { opacity: 0.4 }]}>
               <View
                 style={[
@@ -393,7 +495,7 @@ export default function CardsScreen() {
                 {a.loading ? (
                   <ActivityIndicator size="small" color={a.primary ? "#0a0a0a" : colors.foreground} />
                 ) : (
-                  <Ionicons name={a.icon as any} size={22} color={a.primary ? "#0a0a0a" : a.danger ? "#ff8a8a" : colors.foreground} />
+                  <Ionicons name={a.icon as any} size={22} color={a.primary ? "#0a0a0a" : a.danger ? colors.destructive : colors.foreground} />
                 )}
               </View>
               <Text style={[s.actionLabel, { color: colors.foreground }]}>{a.label}</Text>
@@ -413,42 +515,151 @@ export default function CardsScreen() {
             <ActivityIndicator color={colors.mutedForeground} style={{ paddingVertical: 22 }} />
           ) : activity.length === 0 ? (
             <Text style={[s.empty, { color: colors.mutedForeground }]}>
-              Payments made with this card show here.
+              Top ups and payments with this card show here.
             </Text>
           ) : (
-            activity.slice(0, 20).map((a, i, all) => (
-              <View key={a.id} style={[s.txRow, i < all.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
-                <View style={[s.txIcon, { backgroundColor: a.status === "declined" ? "rgba(255,120,120,0.1)" : a.direction === "in" ? "rgba(129,251,2,0.1)" : colors.secondary }]}>
-                  <Ionicons
-                    name={a.status === "declined" ? "close-circle-outline" : a.direction === "in" ? "return-down-back-outline" : "bag-handle-outline"}
-                    size={19}
-                    color={a.status === "declined" ? "#ff8a8a" : a.direction === "in" ? LIME : colors.foreground}
-                  />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[s.txTitle, { color: colors.foreground }]} numberOfLines={1}>
-                    {a.kind === "reversal" ? `Refund from ${a.merchant}` : a.merchant}
-                  </Text>
-                  <Text style={[s.txSub, { color: a.status === "declined" ? "#ff9a9a" : colors.mutedForeground }]} numberOfLines={1}>
-                    {a.status === "declined" ? "Declined" : a.status === "pending" ? "Pending" : when(a.at)}
-                    {a.place ? ` · ${a.place}` : ""}
-                  </Text>
-                </View>
-                <Text
-                  style={[
-                    s.txAmount,
-                    { color: a.status === "declined" ? colors.mutedForeground : a.direction === "in" ? LIME : colors.foreground },
-                    a.status === "declined" && { textDecorationLine: "line-through" },
-                  ]}
+            activity.slice(0, 30).map((a, i, all) => {
+              const declined = a.status === "declined";
+              const held = a.status === "held";
+              const look =
+                declined ? { icon: "close-circle-outline", tint: colors.destructive, bg: "rgba(255,120,120,0.1)" }
+                : a.kind === "topup" ? { icon: "arrow-down-circle-outline", tint: colors.primary, bg: "rgba(129,251,2,0.1)" }
+                : a.kind === "created" ? { icon: "card-outline", tint: colors.foreground, bg: colors.secondary }
+                : a.kind === "withdraw" ? { icon: "arrow-up-circle-outline", tint: colors.foreground, bg: colors.secondary }
+                : a.direction === "in" ? { icon: "return-down-back-outline", tint: colors.primary, bg: "rgba(129,251,2,0.1)" }
+                : { icon: "card-outline", tint: colors.foreground, bg: colors.secondary };
+              const title = a.kind === "reversal" ? `Refund from ${a.merchant}` : a.merchant;
+              // Line two: what happened, then the detail that explains it.
+              const sub = declined
+                ? `Declined${a.note ? ` · ${a.note}` : ""}`
+                : held
+                  ? "Needs a quick check"
+                  : a.status === "pending"
+                    ? a.kind === "topup" ? "On its way" : "Pending"
+                    : `${when(a.at)}${a.note ? ` · ${a.note}` : a.place ? ` · ${a.place}` : ""}`;
+              const showAmount = !(a.kind === "created" && a.amount === 0);
+              return (
+                <Pressable
+                  key={a.id}
+                  onPress={() => setOpenTx(activityTx(a, card!))}
+                  style={({ pressed }) => [s.txRow, pressed && { opacity: 0.6 }, i < all.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
                 >
-                  {a.direction === "in" ? "+" : "−"}
-                  {money(a.amount)}
-                </Text>
-              </View>
-            ))
+                  <View style={[s.txIcon, { backgroundColor: look.bg }]}>
+                    <Ionicons name={look.icon as any} size={19} color={look.tint} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[s.txTitle, { color: colors.foreground }]} numberOfLines={1}>
+                      {title}
+                    </Text>
+                    <Text
+                      style={[s.txSub, { color: declined ? colors.destructive : held ? "#f59e0b" : colors.mutedForeground }]}
+                      numberOfLines={2}
+                    >
+                      {sub}
+                    </Text>
+                  </View>
+                  {showAmount && (
+                    <Text
+                      style={[
+                        s.txAmount,
+                        { color: declined ? colors.mutedForeground : a.direction === "in" ? colors.primary : colors.foreground },
+                        declined && { textDecorationLine: "line-through" },
+                      ]}
+                    >
+                      {a.direction === "in" ? "+" : "−"}
+                      {money(a.amount)}
+                    </Text>
+                  )}
+                </Pressable>
+              );
+            })
           )}
         </View>
       </ScrollView>
+
+      {card && (
+        <CardWithdrawSheet
+          visible={withdrawOpen}
+          onClose={() => setWithdrawOpen(false)}
+          onDone={() => {
+            activityCache.current[card.id] = activityCache.current[card.id] || [];
+            load();
+          }}
+          cardId={card.id}
+          cardName={card.name}
+          balance={card.balance ?? 0}
+        />
+      )}
+
+      {/* One Recent row, in full: the card, what happened, its reference. */}
+      <DragDownSheet visible={!!openTx} onClose={() => setOpenTx(null)} background={colors.background} handle={colors.border} bottomPad={insets.bottom + 14}>
+        {openTx && <CardReceipt tx={openTx} />}
+      </DragDownSheet>
+
+      {/* More: the rest of what a card can do, Delete last and in red. */}
+      <Modal visible={moreOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={closeMore}>
+        <Pressable style={s.moreBackdrop} onPress={closeMore} />
+        <View style={[s.moreSheet, { backgroundColor: colors.card, paddingBottom: insets.bottom + 14 }]}>
+          <View style={[s.moreHandle, { backgroundColor: colors.border }]} />
+          <View style={s.moreHead}>
+            <CardIllo name={card?.kind === "one-time" ? "oneTime" : "everyday"} size={36} />
+            <View style={{ flex: 1 }}>
+              <Text style={[s.moreTitle, { color: colors.foreground }]} numberOfLines={1}>{card?.name}</Text>
+              <Text style={[s.moreSub, { color: colors.mutedForeground }]}>
+                {card?.kind === "one-time" ? "One-time card" : "Everyday card"}
+                {card?.last4 ? `  ·  ••••  ${card.last4}` : ""}
+              </Text>
+            </View>
+          </View>
+
+          {renaming ? (
+            <View style={{ gap: 12 }}>
+              <View style={[s.renameBox, { backgroundColor: colors.background, borderColor: colors.border }]}>
+                <TextInput
+                  value={newName}
+                  onChangeText={setNewName}
+                  autoFocus
+                  maxLength={40}
+                  placeholder="e.g. Netflix, Shopping or Travel"
+                  placeholderTextColor={colors.mutedForeground}
+                  style={[s.renameInput, { color: colors.foreground }]}
+                  onSubmitEditing={saveName}
+                  returnKeyType="done"
+                />
+              </View>
+              <Press onPress={saveName} disabled={!newName.trim() || busy === "rename"} style={[s.cta, { marginTop: 0 }, !newName.trim() && { opacity: 0.5 }]}>
+                {busy === "rename" ? <ActivityIndicator color="#0a0a0a" /> : <Text style={s.ctaText}>Save name</Text>}
+              </Press>
+              <Press onPress={() => setRenaming(false)} style={{ alignItems: "center", paddingVertical: 10 }}>
+                <Text style={[s.moreSub, { color: colors.mutedForeground }]}>Cancel</Text>
+              </Press>
+            </View>
+          ) : (
+            <View>
+              {[
+                { icon: "add-circle-outline", label: "Add money", onPress: () => { closeMore(); router.push({ pathname: "/cards/topup", params: { cardId: card!.id } } as any); } },
+                { icon: "wallet-outline", label: "Withdraw to wallet", onPress: () => { closeMore(); setWithdrawOpen(true); } },
+                { icon: "eye-outline", label: "Show card details", onPress: () => { closeMore(); router.push({ pathname: "/cards/details", params: { id: card!.id } } as any); } },
+                { icon: "create-outline", label: "Rename card", onPress: () => { setNewName(card?.name || ""); setRenaming(true); } },
+                ...(used
+                  ? []
+                  : [{ icon: frozen ? "sunny-outline" : "snow-outline", label: frozen ? "Unfreeze card" : "Freeze card", onPress: () => { closeMore(); toggleFreeze(); } }]),
+                { icon: "trash-outline", label: "Delete card", danger: true, onPress: () => { closeMore(); confirmDelete(); } },
+              ].map((o: { icon: string; label: string; onPress: () => void; danger?: boolean }, i, all) => (
+                <Press
+                  key={o.label}
+                  onPress={o.onPress}
+                  style={[s.moreRow, i < all.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}
+                >
+                  <Ionicons name={o.icon as any} size={21} color={o.danger ? colors.destructive : colors.foreground} />
+                  <Text style={[s.moreLabel, { color: o.danger ? colors.destructive : colors.foreground }]}>{o.label}</Text>
+                  {!o.danger && <Ionicons name="chevron-forward" size={16} color={colors.mutedForeground} />}
+                </Press>
+              ))}
+            </View>
+          )}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -458,7 +669,7 @@ function PendingTopups({ rows, colors }: { rows: NonNullable<CardsOverview["topu
     <View style={[s.pending, { backgroundColor: colors.card }]}>
       {rows.map((t) => (
         <View key={t.id} style={s.pendingRow}>
-          <Ionicons name={t.status === "held" ? "alert-circle-outline" : "time-outline"} size={18} color={t.status === "held" ? "#f59e0b" : LIME} />
+          <Ionicons name={t.status === "held" ? "alert-circle-outline" : "time-outline"} size={18} color={t.status === "held" ? "#f59e0b" : colors.primary} />
           <Text style={[s.pendingText, { color: colors.foreground }]}>
             {t.status === "held"
               ? `Your ${money(t.credit)} top up needs a check. We'll sort it and let you know.`
@@ -491,7 +702,7 @@ function LockedCta({
         ? { line: "Add your phone number to unlock cards.", label: "Add phone number", path: "/account/edit-phone" }
         : null;
   return (
-    <View style={{ marginTop: 24, gap: 14 }}>
+    <View style={{ gap: 12 }}>
       <Press
         onPress={() => unlock && onAction(unlock.path)}
         disabled={!unlock}
@@ -558,6 +769,17 @@ const s = StyleSheet.create({
   txTitle: { fontSize: 14.5, fontFamily: "Inter_600SemiBold" },
   txSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   txAmount: { fontSize: 14.5, fontFamily: "Inter_600SemiBold" },
+  moreBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.6)" },
+  moreSheet: { position: "absolute", left: 0, right: 0, bottom: 0, borderTopLeftRadius: 28, borderTopRightRadius: 28, paddingHorizontal: 20, paddingTop: 10 },
+  moreHandle: { alignSelf: "center", width: 40, height: 4, borderRadius: 2, marginBottom: 16 },
+  moreHead: { flexDirection: "row", alignItems: "center", gap: 12, marginBottom: 10 },
+  moreTitle: { fontSize: 17, fontFamily: "Inter_700Bold" },
+  moreSub: { fontSize: 13, fontFamily: "Inter_500Medium", marginTop: 2 },
+  moreRow: { flexDirection: "row", alignItems: "center", gap: 14, paddingVertical: 16 },
+  moreLabel: { flex: 1, fontSize: 15, fontFamily: "Inter_600SemiBold" },
+  renameBox: { height: 54, borderRadius: 16, borderWidth: 1, paddingHorizontal: 16, justifyContent: "center" },
+  renameInput: { fontSize: 15, fontFamily: "Inter_500Medium", height: "100%" },
+  footer: { position: "absolute", left: 20, right: 20, paddingTop: 10 },
   lockedRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   lockedText: { flex: 1, fontSize: 13.5, lineHeight: 19, fontFamily: "Inter_500Medium" },
   lockedBtn: { height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: LIME, justifyContent: "center" },

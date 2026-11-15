@@ -9,7 +9,7 @@ import * as nuvion from "./nuvion";
 const KEY = "cards_float_detail";
 
 /** The float as a book-transfer destination, made once and remembered. */
-async function floatDetailId(): Promise<string> {
+export async function floatDetailId(): Promise<string> {
   const row = await prisma.serviceStatus.findUnique({ where: { key: KEY } });
   if (row?.value) return row.value;
   const float = await nuvion.getAccount(env.NUVION_FLOAT_ACCOUNT_ID!);
