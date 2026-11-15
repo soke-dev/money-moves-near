@@ -8,6 +8,7 @@
  *  - Solana (native SOL + USDC/USDT SPL tokens)
  */
 import { env } from "../config/env";
+import { solanaKeypairFrom } from "./solana-key";
 import { isNativeAsset } from "./gas-sponsor";
 import {
   Account,
@@ -195,8 +196,7 @@ export async function sendEvm(
 //  SOLANA TRANSFERS
 // ═══════════════════════════════════════════════════════════
 function getSolanaKeypair(): Keypair {
-  const secret = bs58.decode(env.SOLANA_TREASURY_PRIVATE_KEY);
-  return Keypair.fromSecretKey(secret);
+  return solanaKeypairFrom(env.SOLANA_TREASURY_PRIVATE_KEY);
 }
 
 /** Poll-based tx confirmation (avoids WebSocket signatureSubscribe) */
@@ -260,10 +260,12 @@ async function sendAndConfirmSolTx(
 export async function sendSolana(
   recipientAddress: string,
   amount: number,
-  asset: "USDC" | "USDT" | "SOL"
+  asset: "USDC" | "USDT" | "SOL",
+  /** The wallet paying. The Solana treasury unless said otherwise. */
+  payer?: Keypair
 ): Promise<string> {
   const connection = getSolConnection();
-  const treasury = getSolanaKeypair();
+  const treasury = payer ?? getSolanaKeypair();
   const recipient = new PublicKey(recipientAddress);
 
   // Native SOL transfer
@@ -314,6 +316,20 @@ export async function sendSolana(
   const sig = await sendAndConfirmSolTx(connection, tx, [treasury]);
   console.log(`[TREASURY] Solana ${asset} sent: ${sig}`);
   return sig;
+}
+
+/**
+ * A naira purchase, delivered. On Solana it comes from the on-ramp's own
+ * wallet when ONRAMP_SOLANA_PRIVATE_KEY is set, so what the on-ramp pays out
+ * is kept apart from everything else the treasury does. It also pays the
+ * small SOL rent when a buyer has no USDC account yet, so it needs some SOL.
+ */
+export async function sendPurchase(recipientAddress: string, amount: number, chain: string, asset: string): Promise<string> {
+  if (chain === "SOL" && env.ONRAMP_SOLANA_PRIVATE_KEY) {
+    console.log(`[TREASURY] Purchase: ${amount} ${asset} on Solana to ${recipientAddress} from the on-ramp wallet`);
+    return sendSolana(recipientAddress, amount, asset as "USDC" | "USDT" | "SOL", solanaKeypairFrom(env.ONRAMP_SOLANA_PRIVATE_KEY));
+  }
+  return sendTokensToUser(recipientAddress, amount, chain, asset);
 }
 
 // ═══════════════════════════════════════════════════════════

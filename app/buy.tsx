@@ -89,7 +89,10 @@ export default function FundScreen() {
   const [showAssetPicker, setShowAssetPicker] = useState(false);
   const [showChainPicker, setShowChainPicker] = useState(false);
   const [assetSearch, setAssetSearch] = useState("");
-  const [selectedChain, setSelectedChain] = useState<typeof TOKEN_NETWORKS.USDC[0] | null>(null);
+  // Every purchase settles as USDC on Solana, so both are fixed.
+  const [selectedChain, setSelectedChain] = useState<typeof TOKEN_NETWORKS.USDC[0] | null>(
+    TOKEN_NETWORKS.USDC.find((n) => n.tag === "SOL") ?? null,
+  );
   const [converting, setConverting] = useState(false);
   const DEFAULT_LIMITS: FundingLimits = { allowed: true, perTx: 20000, dailyLimit: 200000, spentToday: 0, remaining: 200000 };
   const [fundLimits, setFundLimits] = useState<FundingLimits>(DEFAULT_LIMITS);
@@ -257,28 +260,16 @@ export default function FundScreen() {
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Selector Pills */}
+        {/* What you get: USDC on Solana, the only thing sold. Shown, not picked. */}
         <View style={styles.pillRow}>
-          <TouchableOpacity
-            style={[styles.pill, styles.assetPill, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => setShowAssetPicker(true)}
-          >
-            <TokenLogo symbol={selectedAsset} size={22} />
-            <Text style={[styles.pillText, { color: colors.foreground }]}>Buy {selectedAsset}</Text>
-            <Feather name="chevron-down" size={14} color={colors.mutedForeground} />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.pill, { backgroundColor: colors.card, borderColor: colors.border }]}
-            onPress={() => setShowChainPicker(true)}
-          >
-            {selectedChain ? (
-              <Image source={CHAIN_LOGOS[selectedChain.tag]} style={[styles.chainPillLogo, selectedChain.tag === "ARB" && { transform: [{ scale: 1.2 }] }]} />
-            ) : null}
-            <Text style={[styles.pillText, { color: selectedChain ? colors.foreground : colors.mutedForeground }]}>
-              {selectedChain ? selectedChain.name : "Select Network"}
-            </Text>
-            <Feather name="chevron-down" size={14} color={colors.mutedForeground} />
-          </TouchableOpacity>
+          <View style={[styles.pill, styles.assetPill, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <TokenLogo symbol="USDC" size={22} />
+            <Text style={[styles.pillText, { color: colors.foreground }]}>Buy USDC</Text>
+          </View>
+          <View style={[styles.pill, { backgroundColor: colors.card, borderColor: colors.border }]}>
+            <Image source={CHAIN_LOGOS.SOL} style={styles.chainPillLogo} />
+            <Text style={[styles.pillText, { color: colors.foreground }]}>Solana</Text>
+          </View>
         </View>
 
         {/* Big Amount */}

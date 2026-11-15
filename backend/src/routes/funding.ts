@@ -25,7 +25,7 @@ import { verifyPaystackSignature, mapPaystackTransferStatus } from "../lib/payst
 import { env } from "../config/env";
 import { pauseGuard } from "../lib/service-status";
 import { requireAuth, requireActiveSession } from "../middleware/auth";
-import { sendTokensToUser } from "../lib/treasury";
+import { sendPurchase } from "../lib/treasury";
 import { sendFundingSuccessEmail } from "../lib/email";
 import { sendNotification } from "../lib/push";
 import { assetLabel } from "../lib/asset";
@@ -43,6 +43,7 @@ import {
   type FlwSender,
 } from "../lib/flutterwave";
 import { checkSenderName, holdsOn, type NameCheck } from "../lib/name-match";
+import { UPGRADE_FIRST, walletUpgraded } from "../lib/upgraded";
 
 const router = Router();
 
@@ -181,6 +182,12 @@ export async function processFunding(psTx: any): Promise<FundingResult> {
   // address, 1:1 peg — user picks "USDC on Movement" and receives USDCx.
   const token: string = (requestedToken === "USDC" && chain === "MOVE") ? "USDCx" : requestedToken;
 
+  // ── Only the upgraded wallet: an old-wallet account waits, and is delivered once it upgrades ──
+  if (!(await walletUpgraded(userId))) {
+    console.warn(`[FUNDING] ${reference} waits: user ${userId} is not on the upgraded wallet yet`);
+    return { kind: "blocked", reason: UPGRADE_FIRST };
+  }
+
   // ── Server-known wallet address ONLY — never trust client input ──
   const userWallets = await prisma.wallet.findMany({
     where: { userId },
@@ -261,7 +268,7 @@ export async function processFunding(psTx: any): Promise<FundingResult> {
   // ── Send on-chain (we own the row now) ──
   let txHash: string | null = null;
   try {
-    txHash = await sendTokensToUser(walletAddress, finalCrypto.toNumber(), chain, token);
+    txHash = await sendPurchase(walletAddress, finalCrypto.toNumber(), chain, token);
   } catch (sendErr: any) {
     console.error(`[FUNDING] Token send failed for ${reference}:`, sendErr.message);
     // Leave the row PROCESSING — payment recorded, delivery pending manual retry.
@@ -346,26 +353,27 @@ router.post(
 
       const { amountNaira, email, metadata } = parsed.data;
 
-      // ── USDCx funding not yet supported ──────────────────
-      if (metadata.token === "USDCx") {
-        res.status(503).json({ error: "USDCx purchases are coming soon. Please choose another token for now." });
+      /**
+       * Every purchase settles as USDC on Solana, whatever an older app asks
+       * for. A dollar coin asked for anywhere is delivered as USDC on Solana at
+       * the USDC rate; MOVE and SOL aren't sold any more. Set here, before the
+       * payment is opened, so the payment carries it and delivery follows it.
+       */
+      if (metadata.token !== "USDC" && metadata.token !== "USDT") {
+        res.status(400).json({ error: "Buying crypto now gets you USDC on Solana. Update the app, then try again.", code: "USDC_ONLY" });
+        return;
+      }
+      metadata.token = "USDC";
+      metadata.chain = "SOL";
+
+      // Crypto bought here goes to the wallet on file: only ever the upgraded one.
+      if (!(await walletUpgraded(req.user!.userId))) {
+        res.status(403).json({ error: UPGRADE_FIRST, code: "WALLET_UPGRADE_REQUIRED" });
         return;
       }
 
-      // ── Per-token maintenance gates ──────────────────────
-      if (env.USDT_FUNDING_MAINTENANCE && metadata.token === "USDT") {
-        res.status(503).json({ error: "USDT purchases are temporarily under maintenance. Please try again later." });
-        return;
-      }
-      if (env.SOL_FUNDING_MAINTENANCE && metadata.token === "SOL") {
-        res.status(503).json({ error: "SOL purchases are temporarily under maintenance. Please try again later." });
-        return;
-      }
-      if (env.USDC_BASE_FUNDING_MAINTENANCE && metadata.token === "USDC" && metadata.chain === "BASE") {
-        res.status(503).json({ error: "USDC purchases on Base are temporarily under maintenance. Please try again later." });
-        return;
-      }
-      if (env.USDC_SOL_FUNDING_MAINTENANCE && metadata.token === "USDC" && metadata.chain === "SOL") {
+      // ── Maintenance gate for the one thing sold ──────────
+      if (env.USDC_SOL_FUNDING_MAINTENANCE) {
         res.status(503).json({ error: "USDC purchases on Solana are temporarily under maintenance. Please try again later." });
         return;
       }

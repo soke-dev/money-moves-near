@@ -11,6 +11,7 @@ import { ethers } from "ethers";
 import bs58 from "bs58";
 import { Keypair } from "@solana/web3.js";
 import { env } from "../config/env";
+import { solanaKeypairFrom } from "./solana-key";
 import { fetchAllBalances, getOnChainBalance, type ChainAddresses } from "./balances";
 import { horizon, sellAddress as stellarSellAddress, treasuryAddress as stellarTreasuryAddress } from "./stellar";
 import { getTonBalance } from "./ton";
@@ -34,7 +35,7 @@ const CHAIN_NAME: Record<string, string> = { MOVE: "Movement", SOL: "Solana", BA
 const chainName = (c: string) => CHAIN_NAME[c] ?? c;
 
 const evmAddress = (key: string) => new ethers.Wallet(key).address;
-const solanaAddress = (key: string) => Keypair.fromSecretKey(bs58.decode(key)).publicKey.toBase58();
+const solanaAddress = (key: string) => solanaKeypairFrom(key).publicKey.toBase58();
 
 /** A key turned into its address, or why it couldn't be. */
 function open(key: string | undefined, toAddress: (k: string) => string): { address: string | null; missing: string | null } {
@@ -113,6 +114,9 @@ function plan(): Plan[] {
   return [
     { id: "evm_treasury", group: "treasury", name: "EVM treasury", does: "Pays out USDC and USDT on Base, BNB Chain, Arbitrum, Monad and Arc.", kind: "evm", at: open(env.EVM_TREASURY_PRIVATE_KEY, evmAddress) },
     { id: "solana_treasury", group: "treasury", name: "Solana treasury", does: "Pays out USDC and USDT on Solana.", kind: "solana", at: open(env.SOLANA_TREASURY_PRIVATE_KEY, solanaAddress) },
+    ...(env.ONRAMP_SOLANA_PRIVATE_KEY
+      ? [{ id: "onramp_solana", group: "treasury" as const, name: "On-ramp", does: "Delivers naira purchases as USDC on Solana. Keep USDC and a little SOL in it.", kind: "solana" as const, at: open(env.ONRAMP_SOLANA_PRIVATE_KEY, solanaAddress) }]
+      : []),
     { id: "movement_treasury", group: "treasury", name: "Movement treasury", does: "Pays out on Movement.", kind: "movement", at: given(env.MOVEMENT_TREASURY_ADDRESS) },
     { id: "stellar_treasury", group: "treasury", name: "Stellar treasury", does: "Opens Stellar for people and pays out there. Needs XLM for each account it opens.", kind: "stellar", at: given(stellarTreasury) },
     { id: "evm_gas", group: "gas", name: "EVM gas sponsor", does: "Tops up gas so people can send from their wallets.", kind: "evm", withTokens: false, at: open(env.EVM_GAS_SPONSOR_PRIVATE_KEY, evmAddress) },

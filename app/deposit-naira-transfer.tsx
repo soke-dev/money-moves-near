@@ -117,7 +117,7 @@ export default function DepositNairaTransferScreen() {
     const walletAddress = walletAddresses[FIAT_SETTLES.chain] || "";
     if (!walletAddress) {
       if (walletReady) {
-        setError("We could not find your Movement wallet. Open the app again and retry.");
+        setError("We could not find your wallet. Open the app again and retry.");
       }
       return;
     }

@@ -56,10 +56,10 @@ export const FIAT_COUNTRIES: FiatCountry[] = [
 /**
  * What a naira deposit buys.
  *
- * One token, one chain, no picker. The backend swaps USDC on Movement for
- * USDCx on the way in - the depositor never sees that, and should not have to.
+ * One token, one chain, no picker: USDC on Solana, sent from the on-ramp's own
+ * wallet. The backend settles every naira purchase this way whatever is asked.
  */
-export const FIAT_SETTLES = { token: "USDC", chain: "MOVE", network: "Movement" } as const;
+export const FIAT_SETTLES = { token: "USDC", chain: "SOL", network: "Solana" } as const;
 
 /** Floor for a deposit, matching the rest of the app's naira minimum. */
 export const FIAT_MIN_NGN = 500;
