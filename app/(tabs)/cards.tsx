@@ -10,6 +10,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { CardFace } from "@/components/CardFace";
+import { CardIllo } from "@/components/CardIllos";
 import {
   getCards, getCardActivity, setCardFrozen, deleteCard,
   type CardsOverview, type CardActivityItem,
@@ -216,7 +217,8 @@ export default function CardsScreen() {
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={LIME} />}
           showsVerticalScrollIndicator={false}
         >
-          <View style={{ height: cardWidth * 0.78, marginTop: 4 }}>
+          {/* Room above for the tilted card's raised corner, which the scroll view would otherwise clip. */}
+          <View style={{ height: cardWidth * 0.78, marginTop: 30 }}>
             <View style={{ position: "absolute", left: 24, top: 6, transform: [{ rotate: "-7deg" }], opacity: 0.9 }}>
               <CardFace width={cardWidth - 24} name="One-time" last4="7730" oneTime holder={holder} />
             </View>
@@ -228,15 +230,13 @@ export default function CardsScreen() {
           <Text style={[s.h1, { color: colors.foreground }]}>Spend your stablecoins anywhere cards work.</Text>
 
           <View style={[s.panel, { backgroundColor: colors.card, marginTop: 18 }]}>
-            {[
-              { icon: "wallet-outline", title: "Top up from your wallet", sub: "USDC or USDT on Solana" },
-              { icon: "snow-outline", title: "Freeze in one tap", sub: "Unfreeze whenever you're ready" },
-              { icon: "shield-checkmark-outline", title: "One-time cards", sub: "Close after a single payment" },
-            ].map((f, i, all) => (
+            {([
+              { icon: "wallet", title: "Top up from your wallet", sub: "USDC or USDT on Solana" },
+              { icon: "freeze", title: "Freeze in one tap", sub: "Unfreeze whenever you're ready" },
+              { icon: "oneTime", title: "One-time cards", sub: "Close after a single payment" },
+            ] as const).map((f, i, all) => (
               <View key={f.title} style={[s.feature, i < all.length - 1 && { borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border }]}>
-                <View style={s.featureIcon}>
-                  <Ionicons name={f.icon as any} size={20} color={LIME} />
-                </View>
+                <CardIllo name={f.icon} size={40} />
                 <View style={{ flex: 1 }}>
                   <Text style={[s.featureTitle, { color: colors.foreground }]}>{f.title}</Text>
                   <Text style={[s.featureSub, { color: colors.mutedForeground }]}>{f.sub}</Text>
@@ -251,22 +251,14 @@ export default function CardsScreen() {
           {pending.length > 0 && <PendingTopups rows={pending} colors={colors} />}
 
           {blocked ? (
-            <BlockedNote blocked={blocked} colors={colors} onAction={(path) => router.push(path as any)} />
+            <LockedCta blocked={blocked} colors={colors} onAction={(path) => router.push(path as any)} />
           ) : (
-            <>
-              <Press onPress={() => router.push("/cards/create" as any)} style={s.cta}>
-                <Text style={s.ctaText}>Get your card</Text>
-                <View style={s.ctaArrow}>
-                  <Ionicons name="arrow-forward" size={18} color={LIME} />
-                </View>
-              </Press>
-              <View style={s.feeRow}>
-                <Ionicons name="lock-closed-outline" size={13} color={colors.mutedForeground} />
-                <Text style={[s.feeText, { color: colors.mutedForeground }]}>
-                  {data?.cardFee ? `Card fee ${money(data.cardFee)}, not refundable` : "Verified accounts only"}
-                </Text>
+            <Press onPress={() => router.push("/cards/create" as any)} style={s.cta}>
+              <Text style={s.ctaText}>Get your card</Text>
+              <View style={s.ctaArrow}>
+                <Ionicons name="arrow-forward" size={18} color={LIME} />
               </View>
-            </>
+            </Press>
           )}
         </ScrollView>
       </View>
@@ -438,7 +430,12 @@ function PendingTopups({ rows, colors }: { rows: NonNullable<CardsOverview["topu
   );
 }
 
-function BlockedNote({
+/**
+ * "Get your card", locked, with what unlocks it underneath. For an account
+ * that isn't verified (or has no phone number) the button and the line both
+ * lead there; anything else just says why.
+ */
+function LockedCta({
   blocked,
   colors,
   onAction,
@@ -447,24 +444,33 @@ function BlockedNote({
   colors: any;
   onAction: (path: string) => void;
 }) {
-  const action =
-    blocked.code === "KYC" ? { label: "Verify identity", path: "/account/kyc" }
-    : blocked.code === "PHONE" ? { label: "Add phone number", path: "/account/edit-phone" }
-    : null;
+  const unlock =
+    blocked.code === "KYC"
+      ? { line: "Verify your identity to unlock cards. It takes about two minutes.", label: "Verify now", path: "/account/kyc" }
+      : blocked.code === "PHONE"
+        ? { line: "Add your phone number to unlock cards.", label: "Add phone number", path: "/account/edit-phone" }
+        : null;
   return (
-    <View style={{ marginTop: 22, gap: 12 }}>
-      <View style={[s.blocked, { backgroundColor: colors.card }]}>
-        <Ionicons name="information-circle-outline" size={19} color={colors.mutedForeground} />
-        <Text style={[s.blockedText, { color: colors.foreground }]}>{blocked.error}</Text>
+    <View style={{ marginTop: 24, gap: 14 }}>
+      <Press
+        onPress={() => unlock && onAction(unlock.path)}
+        disabled={!unlock}
+        style={[s.cta, { marginTop: 0, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Ionicons name="lock-closed" size={16} color={colors.mutedForeground} />
+          <Text style={[s.ctaText, { color: colors.mutedForeground }]}>Get your card</Text>
+        </View>
+      </Press>
+      <View style={s.lockedRow}>
+        <CardIllo name="lock" size={30} />
+        <Text style={[s.lockedText, { color: colors.foreground }]}>{unlock ? unlock.line : blocked.error}</Text>
+        {unlock && (
+          <Press onPress={() => onAction(unlock.path)} style={s.lockedBtn}>
+            <Text style={s.lockedBtnText}>{unlock.label}</Text>
+          </Press>
+        )}
       </View>
-      {action && (
-        <Press onPress={() => onAction(action.path)} style={s.cta}>
-          <Text style={s.ctaText}>{action.label}</Text>
-          <View style={s.ctaArrow}>
-            <Ionicons name="arrow-forward" size={18} color={LIME} />
-          </View>
-        </Press>
-      )}
     </View>
   );
 }
@@ -512,6 +518,8 @@ const s = StyleSheet.create({
   txTitle: { fontSize: 14.5, fontFamily: "Inter_600SemiBold" },
   txSub: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
   txAmount: { fontSize: 14.5, fontFamily: "Inter_600SemiBold" },
-  blocked: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 16, padding: 14 },
-  blockedText: { flex: 1, fontSize: 13.5, lineHeight: 19, fontFamily: "Inter_500Medium" },
+  lockedRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  lockedText: { flex: 1, fontSize: 13.5, lineHeight: 19, fontFamily: "Inter_500Medium" },
+  lockedBtn: { height: 36, paddingHorizontal: 14, borderRadius: 18, backgroundColor: LIME, justifyContent: "center" },
+  lockedBtnText: { fontSize: 13, fontFamily: "Inter_700Bold", color: "#0a0a0a" },
 });

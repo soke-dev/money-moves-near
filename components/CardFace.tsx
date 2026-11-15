@@ -58,14 +58,15 @@ export function CardFace({
 
       <View style={[styles.inner, { padding: 20 * k }]}>
         <View style={styles.rowBetween}>
-          {/* The lockup, mark and wordmark. White and lime on graphite; all
-              black on the lime card, where the lime half would vanish. */}
+          {/* The lockup, mark and wordmark. White and lime on graphite; a black
+              copy on the lime card, where the lime half would vanish. A separate
+              file rather than tintColor: Android didn't repaint a tint changed on
+              the same image, so switching to one-time left the logo blank. Keyed
+              so the switch mounts a fresh image either way. */}
           <Image
-            source={require("@/assets/images/logo-lockup.png")}
-            style={[
-              { width: 132 * k, height: (132 * k * 164) / 1150 },
-              oneTime && { tintColor: "#0a0a0a" },
-            ]}
+            key={oneTime ? "dark" : "light"}
+            source={oneTime ? require("@/assets/images/logo-lockup-dark.png") : require("@/assets/images/logo-lockup.png")}
+            style={{ width: 132 * k, height: (132 * k * 164) / 1150 }}
             resizeMode="contain"
           />
           <Text style={[styles.label, { fontSize: 10.5 * k, color: soft }]} numberOfLines={1}>

@@ -33,7 +33,7 @@ const SOON = "Cards are opening soon.";
 function sendError(res: Response, err: any, fallback: string) {
   if (err instanceof nuvion.NuvionError) {
     if (err.status === 400 && err.type === "error_card_creation_fee_required") {
-      res.status(402).json({ error: "Top up your card balance to cover the card fee first.", code: "FEE_REQUIRED" });
+      res.status(402).json({ error: "Top up your card balance to cover the card creation fee first.", code: "FEE_REQUIRED" });
       return;
     }
     res.status(502).json({ error: "Cards aren't answering right now. Try again in a minute." });
@@ -239,7 +239,7 @@ router.post("/", requireAuth, requireActiveSession, validate(createSchema), asyn
 
     const account = await prisma.cardAccount.findUnique({ where: { userId } });
     if (!account) {
-      res.status(402).json({ error: "Top up your card balance to cover the card fee first.", code: "FEE_REQUIRED" });
+      res.status(402).json({ error: "Top up your card balance to cover the card creation fee first.", code: "FEE_REQUIRED" });
       return;
     }
     // Nuvion takes its fee from the account and we take ours; check both first so the person hears why.
@@ -251,7 +251,7 @@ router.post("/", requireAuth, requireActiveSession, validate(createSchema), asyn
     const fee = issuerFee + ourFee;
     if (balance < fee) {
       res.status(402).json({
-        error: `Top up at least $${((fee - balance) / 100).toFixed(2)} to cover the card fee first.`,
+        error: `Top up at least $${((fee - balance) / 100).toFixed(2)} to cover the card creation fee first.`,
         code: "FEE_REQUIRED",
         fee: fee / 100,
       });

@@ -8,6 +8,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { Keypad } from "@/components/Keypad";
 import { TokenLogo } from "@/components/TokenLogo";
+import { CardIllo } from "@/components/CardIllos";
 import { solanaSendFee } from "@/services/status";
 import { getCards, startCardTopup } from "@/services/cards";
 
@@ -141,13 +142,7 @@ export default function CardTopupScreen() {
             <Ionicons name="arrow-down" size={14} color={LIME} />
           </View>
           <View style={s.leg}>
-            <View style={s.miniCard}>
-              <View style={s.miniChip} />
-              <View style={s.miniMc}>
-                <View style={[s.miniDot, { backgroundColor: "#EB001B" }]} />
-                <View style={[s.miniDot, { backgroundColor: "#F79E1B", marginLeft: -3 }]} />
-              </View>
-            </View>
+            <CardIllo name="everyday" size={38} />
             <View style={{ flex: 1 }}>
               <Text style={[s.legLabel, { color: colors.mutedForeground }]}>TO</Text>
               <Text style={[s.legTitle, { color: colors.foreground }]}>Your card balance</Text>
@@ -206,7 +201,7 @@ export default function CardTopupScreen() {
           </View>
           {firstFee > 0 && (
             <Text style={[s.lineLabel, { color: colors.mutedForeground, marginTop: 2 }]}>
-              Your card costs ${firstFee.toFixed(2)}, taken from this balance when you make it. Not refundable.
+              Card creation fee ${firstFee.toFixed(2)}, taken from this balance when you make your card.
             </Text>
           )}
         </View>

@@ -10,6 +10,7 @@ import * as Haptics from "expo-haptics";
 import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { CardFace } from "@/components/CardFace";
+import { CardIllo, type CardIlloName } from "@/components/CardIllos";
 import { createCard, getCards, type CardKind } from "@/services/cards";
 
 const LIME = "#81FB02";
@@ -31,7 +32,8 @@ export default function CreateCardScreen() {
   const topPad = Platform.OS === "web" ? 67 : insets.top;
 
   const [kind, setKind] = useState<CardKind>("everyday");
-  const [name, setName] = useState("Online shopping");
+  // Blank until they name it: Create card stays off till then.
+  const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [needsTopup, setNeedsTopup] = useState(false);
@@ -64,7 +66,7 @@ export default function CreateCardScreen() {
     }
   };
 
-  const option = (k: CardKind, icon: string, title: string, sub: string) => {
+  const option = (k: CardKind, icon: CardIlloName, title: string, sub: string) => {
     const on = kind === k;
     return (
       <Press
@@ -74,9 +76,7 @@ export default function CreateCardScreen() {
         }}
         style={[s.option, { backgroundColor: colors.card, borderColor: on ? LIME : colors.border, borderWidth: on ? 1.5 : 1 }]}
       >
-        <View style={s.optionIcon}>
-          <Ionicons name={icon as any} size={20} color={LIME} />
-        </View>
+        <CardIllo name={icon} size={42} />
         <View style={{ flex: 1 }}>
           <Text style={[s.optionTitle, { color: colors.foreground }]}>{title}</Text>
           <Text style={[s.optionSub, { color: colors.mutedForeground }]}>{sub}</Text>
@@ -99,13 +99,13 @@ export default function CreateCardScreen() {
 
         <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 24 }} keyboardShouldPersistTaps="handled">
           <View style={{ alignItems: "center", marginTop: 4 }}>
-            <CardFace width={width - 80} name={name || "Card"} last4={null} holder={holder} oneTime={kind === "one-time"} />
+            <CardFace width={width - 80} name={name.trim() || "Your card"} last4={null} holder={holder} oneTime={kind === "one-time"} />
           </View>
 
           <Text style={[s.section, { color: colors.mutedForeground }]}>TYPE</Text>
           <View style={{ gap: 10 }}>
-            {option("everyday", "infinite-outline", "Everyday", "Stays active for shopping and subscriptions")}
-            {option("one-time", "shield-checkmark-outline", "One-time", "Closes after one payment. For sites you don't trust")}
+            {option("everyday", "everyday", "Everyday", "Stays active for shopping and subscriptions")}
+            {option("one-time", "oneTime", "One-time", "Closes after one payment. For sites you don't trust")}
           </View>
 
           <Text style={[s.section, { color: colors.mutedForeground }]}>NAME IT</Text>
@@ -115,11 +115,18 @@ export default function CreateCardScreen() {
               value={name}
               onChangeText={setName}
               maxLength={40}
-              placeholder="Online shopping"
+              placeholder="e.g. Netflix, Shopping or Travel"
               placeholderTextColor={colors.mutedForeground}
               style={[s.inputText, { color: colors.foreground }]}
             />
           </View>
+
+          {fee != null && fee > 0 && (
+            <View style={[s.feeLine, { borderColor: colors.border }]}>
+              <Text style={[s.feeLabel, { color: colors.mutedForeground }]}>Card creation fee</Text>
+              <Text style={[s.feeValue, { color: colors.foreground }]}>${fee.toFixed(2)}</Text>
+            </View>
+          )}
 
           {!!error && (
             <View style={[s.error, { backgroundColor: colors.card }]}>
@@ -136,16 +143,19 @@ export default function CreateCardScreen() {
               <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={18} color={LIME} /></View>
             </Press>
           ) : (
-            <Press onPress={submit} disabled={loading || !name.trim()} style={[s.cta, (!name.trim()) && { opacity: 0.5 }]}>
-              {loading ? <ActivityIndicator color="#0a0a0a" /> : <Text style={s.ctaText}>Create card</Text>}
-              {!loading && <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={18} color={LIME} /></View>}
-            </Press>
+            !name.trim() ? (
+              // Grey and saying what's missing, rather than a button that does nothing.
+              <View style={[s.cta, { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border }]}>
+                <Text style={[s.ctaText, { color: colors.mutedForeground }]}>Enter a card name</Text>
+              </View>
+            ) : (
+              <Press onPress={submit} disabled={loading} style={s.cta}>
+                {loading ? <ActivityIndicator color="#0a0a0a" /> : <Text style={s.ctaText}>Create card</Text>}
+                {!loading && <View style={s.ctaArrow}><Ionicons name="arrow-forward" size={18} color={LIME} /></View>}
+              </Press>
+            )
           )}
-          <Text style={[s.small, { color: colors.mutedForeground }]}>
-            {fee != null && fee > 0
-              ? `A $${fee.toFixed(2)} card fee comes out of your card balance. It isn't refundable.`
-              : "USD card, valid for 2 years."}
-          </Text>
+          <Text style={[s.small, { color: colors.mutedForeground }]}>USD card, valid for 2 years.</Text>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -163,6 +173,9 @@ const s = StyleSheet.create({
   optionSub: { fontSize: 12.5, lineHeight: 17, fontFamily: "Inter_400Regular", marginTop: 2 },
   input: { flexDirection: "row", alignItems: "center", gap: 10, height: 54, borderRadius: 16, borderWidth: 1, paddingHorizontal: 16 },
   inputText: { flex: 1, fontSize: 15, fontFamily: "Inter_500Medium", height: "100%" },
+  feeLine: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 16, paddingHorizontal: 4, paddingTop: 14, borderTopWidth: StyleSheet.hairlineWidth },
+  feeLabel: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  feeValue: { fontSize: 14, fontFamily: "Inter_700Bold" },
   error: { flexDirection: "row", alignItems: "center", gap: 10, borderRadius: 14, padding: 14, marginTop: 18 },
   errorText: { flex: 1, fontSize: 13.5, lineHeight: 19, fontFamily: "Inter_500Medium" },
   cta: { height: 58, borderRadius: 29, backgroundColor: LIME, alignItems: "center", justifyContent: "center" },

@@ -234,7 +234,7 @@ function OverviewView({ o, onOpenTopups }: { o: Overview | null; onOpenTopups: (
             { label: 'Waiting', value: usd(f.topups.waiting.usd), sub: `${f.topups.waiting.count} top ups`, tone: f.topups.waiting.count ? 'warn' : undefined },
             { label: 'Failed', value: usd(f.topups.failed.usd), sub: `${f.topups.failed.count} top ups`, tone: f.topups.failed.count ? 'bad' : undefined },
             { label: 'Earned from top ups', value: usd(f.earned.topupFees) },
-            { label: 'Earned from card fees', value: usd(f.earned.cardFees) },
+            { label: 'Earned from card creation fees', value: usd(f.earned.cardFees) },
           ]}
         />
       </Panel>
@@ -497,7 +497,7 @@ const SETTING_FIELDS: { key: keyof Overview['ranges']; label: string; hint: stri
   { key: 'dailyTopup', label: 'Top up limit a day', hint: 'Dollars one person can top up in 24 hours.', unit: '$' },
   { key: 'maxCards', label: 'Cards per person', hint: 'Live cards one person can hold.', unit: '' },
   { key: 'topupFeeBps', label: 'Top up fee', hint: 'Basis points: 100 is 1%. Comes off what lands on the card.', unit: 'bps' },
-  { key: 'cardFee', label: 'Card fee', hint: 'Dollars per new card, ours, on top of the issuer’s. Taken from the card balance and not refundable.', unit: '$' },
+  { key: 'cardFee', label: 'Card creation fee', hint: 'Dollars per new card, ours, on top of the issuer’s. Taken from the card balance and not refundable.', unit: '$' },
 ]
 
 function SettingsForm({ o, password, onSaved }: { o: Overview | null; password: string; onSaved: () => void }) {
