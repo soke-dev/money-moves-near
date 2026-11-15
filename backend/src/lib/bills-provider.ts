@@ -21,6 +21,7 @@ import {
   verifyBettingAccount,
   fundBettingAccount,
   requeryOrder,
+  vtuConfigured,
 } from "./vtu";
 
 /**
@@ -56,9 +57,7 @@ export const BILLS_LABELS: Record<BillsProvider, string> = {
 };
 
 export function billsConfigured(p: BillsProvider): boolean {
-  // vtu.ng needs no key we can check from here; it is the incumbent and
-  // always available.
-  return p === "flutterwave" ? isFlwBillsConfigured() : true;
+  return p === "flutterwave" ? isFlwBillsConfigured() : vtuConfigured();
 }
 
 /**
@@ -384,14 +383,18 @@ async function buyOnVtu(args: any): Promise<BillPurchase> {
   try {
     const r: any = await call();
     const orderStatus = r?.data?.status || "";
-    const delivered =
-      r?.code === "success" && (orderStatus === "completed-api" || orderStatus === "processing-api");
+    // The new API's final failure (failed, refunded, cancelled) arrives here as "refunded":
+    // nothing was delivered and VTU.ng has put the money back on our wallet.
+    if (orderStatus === "refunded") {
+      return { ...fail(r?.data?.failure_reason || r?.message || "Purchase failed"), raw: r };
+    }
+    const delivered = r?.code === "success" && orderStatus === "completed-api";
     return {
       ok: true,
       status: delivered ? "delivered" : "pending",
-      providerRef: args.reference,
-      token: null,
-      units: null,
+      providerRef: r?.data?.reference || args.reference,
+      token: r?.data?.token || null,
+      units: r?.data?.units || null,
       raw: r,
     };
   } catch (e: any) {
@@ -433,7 +436,7 @@ export async function findExistingBill(
     return {
       found: true,
       status:
-        s === "completed-api" || s === "processing-api"
+        s === "completed-api"
           ? "delivered"
           : s === "refunded" || s === "failed"
           ? "failed"
